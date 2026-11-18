@@ -1,0 +1,280 @@
+{
+ "_notes": "Ring Ding = level 28 (cheat id 0x1C). Stage model 0621 (meadow arena). Parts are object-space except the 'native' set; scale 3.4 = same unit as character models. Riders 832-846 = per-character dino riders (5 clips). Dungeon twin 0623 is the challenge variant.",
+ "arenas": {
+  "ringDing": {
+   "model": 621,
+   "scale": 3.4,
+   "parts": [
+    "extra_132c",
+    "extra_2694",
+    "extra_3b94",
+    "extra_4114",
+    "extra_4948",
+    "extra_4ac8",
+    "extra_4c04",
+    "extra_5320",
+    "extra_4d90",
+    "extra_4f50",
+    "extra_5148"
+   ]
+  }
+ },
+ "props": {
+  "rdTarget": {
+   "model": 621,
+   "parts": [
+    "extra_18b8"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdStand": {
+   "model": 621,
+   "parts": [
+    "extra_3cf4"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdFace": {
+   "model": 621,
+   "parts": [
+    "extra_3fe0"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdArrow": {
+   "model": 621,
+   "parts": [
+    "extra_405c"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdLabelX1": {
+   "model": 621,
+   "parts": [
+    "extra_569c"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSpireA": {
+   "model": 621,
+   "parts": [
+    "extra_44ac"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSpireB": {
+   "model": 621,
+   "parts": [
+    "extra_45bc"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdCastle": {
+   "model": 621,
+   "parts": [
+    "extra_46d4"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdRider_crash": {
+   "model": 846,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "rdRider_coco": {
+   "model": 838,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "rdRider_tiny": {
+   "model": 842,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "rdRider_dingodile": {
+   "model": 840,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "rdRider_cortex": {
+   "model": 844,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "rdRider_brio": {
+   "model": 836,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "rdRider_koala": {
+   "model": 834,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "rdRider_rilla": {
+   "model": 832,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  }
+ }
+}

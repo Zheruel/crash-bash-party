@@ -2,9 +2,8 @@ import { COLORS, CHARACTERS } from '../../shared/look';
 import type { Award, ResultsMsg } from '../../shared/protocol';
 import { PodiumScene } from '../scene/podium';
 import { Confetti } from '../shell/confetti';
-import { avatarHtml } from '../shell/avatar';
 import { sfx } from '../shell/sound';
-import { div, esc, pop, sleep } from './dom';
+import { div, esc, face, icon, pop, sleep } from './dom';
 import type { Hud, SeatView } from './hud';
 
 export interface FinalDeps {
@@ -65,7 +64,7 @@ export class FinalOverlay {
 
     // podium reveal, last place first
     sfx.play('drum');
-    winSlot.innerHTML = '<div class="drum">AND THE WINNER IS...</div>';
+    winSlot.innerHTML = '<div class="drum gt wh">AND THE WINNER IS...</div>';
     if (!(await wait(1.2))) return;
     for (let r = 3; r >= 0; r--) {
       deps.podium.reveal(r);
@@ -78,15 +77,15 @@ export class FinalOverlay {
     const w0 = seats[m.winners[0] ?? rank[0]];
     deps.podium.celebrate(m.winners.length ? m.winners : [rank[0]]);
     winSlot.innerHTML = `<div class="winner" style="--c:${COLORS[w0.look.color % COLORS.length].hex}">
-      ${m.winners.length > 1 ? "IT'S A TIE!" : `${esc(CHARACTERS[w0.look.char % CHARACTERS.length].name.toUpperCase())} WINS!`}
-      <small>${esc(names.join(' & '))}</small></div>`;
+      <div class="gt or">${m.winners.length > 1 ? "IT'S A TIE!" : `${esc(CHARACTERS[w0.look.char % CHARACTERS.length].name.toUpperCase())} WINS!`}</div>
+      <small class="gt wh">${esc(names.join(' & ').toUpperCase())}</small></div>`;
     pop(winSlot.firstElementChild as HTMLElement, 'award-in');
     sfx.play('win');
     deps.confetti.burst(innerWidth * 0.25, innerHeight * 0.5, 90);
     deps.confetti.burst(innerWidth * 0.75, innerHeight * 0.5, 90);
     deps.confetti.rain(8);
     actions.classList.remove('hidden');
-    actions.innerHTML = '<button class="btn big" id="rematch">REMATCH</button><button class="btn ghost" id="tolobby">Back to lobby</button>';
+    actions.innerHTML = '<div class="menu"><button class="mi big" id="rematch">REMATCH</button><button class="mi" id="tolobby">BACK TO LOBBY</button></div>';
     this.rematchBtn = actions.querySelector('#rematch');
     this.rematchBtn!.onclick = () => { sfx.play('click'); deps.onRematch(); };
     (actions.querySelector('#tolobby') as HTMLElement).onclick = () => { sfx.play('click'); deps.onLobby(); };
@@ -94,9 +93,9 @@ export class FinalOverlay {
 
   private awardHtml(a: Award, seats: SeatView[]) {
     const s = seats[a.slot];
-    return `<div class="award crate" style="--c:${COLORS[s.look.color % COLORS.length].hex}">
-      <div class="ai"><i class="medal"></i></div>
-      <div class="at"><small>AWARD</small><b>${esc(a.title.toUpperCase())}</b><span>${esc(a.desc)}</span></div>
-      <div class="ap">${avatarHtml(s.look)}<b>${esc(s.name)}</b></div></div>`;
+    return `<div class="award pnl" style="--c:${COLORS[s.look.color % COLORS.length].hex}">
+      <div class="ai">${icon('cup')}</div>
+      <div class="at"><small class="sm">AWARD</small><b class="gt or">${esc(a.title.toUpperCase())}</b><span class="sm">${esc(a.desc)}</span></div>
+      <div class="ap">${face(s.look.char)}<b class="sm">${esc(s.name)}</b></div></div>`;
   }
 }

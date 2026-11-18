@@ -1,0 +1,175 @@
+{
+ "_notes": "Crate Crush = levels 0-3. Stage models: Jungle Bash 715 (dirt clearing, shifted so it is centred), Space Bash 711 (rails + skyline; floor tiles drawn by the view from 0710 tex000/001; towers placed around), Snow Bash 707, Drain Bash 703. Alt/night twins 713 / 705 / 701 / 709. Arena floors are ~4.2 model units square (x3.6 = 15 world).",
+ "arenas": {
+  "crateToss": {
+   "model": 715,
+   "scale": 3.6,
+   "offset": [
+    0.0,
+    0.0,
+    -3.6
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_7268",
+    "extra_5cd8",
+    "extra_6830",
+    "extra_6fe0"
+   ]
+  },
+  "crateToss:jungleBash": {
+   "model": 715,
+   "scale": 3.6,
+   "offset": [
+    0.0,
+    0.0,
+    -3.6
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_7268",
+    "extra_5cd8",
+    "extra_6830",
+    "extra_6fe0"
+   ]
+  },
+  "crateToss:spaceBash": {
+   "model": 711,
+   "scale": 3.6,
+   "offset": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_6660",
+    "extra_3904",
+    "extra_64b8",
+    "extra_3fac",
+    "extra_43bc"
+   ],
+   "extra": [
+    {
+     "model": 711,
+     "scale": 3.6,
+     "offset": [
+      -12.6,
+      1.08,
+      -14.4
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_4530"
+     ]
+    },
+    {
+     "model": 711,
+     "scale": 3.6,
+     "offset": [
+      10.8,
+      -1.8,
+      -18.0
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_5ff4"
+     ]
+    },
+    {
+     "model": 711,
+     "scale": 3.6,
+     "offset": [
+      18.72,
+      -1.8,
+      -7.2
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_5d8c"
+     ]
+    },
+    {
+     "model": 711,
+     "scale": 3.6,
+     "offset": [
+      -18.72,
+      0.72,
+      -5.4
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_53c0"
+     ]
+    },
+    {
+     "model": 711,
+     "scale": 3.6,
+     "offset": [
+      20.16,
+      0.0,
+      7.92
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_3bbc"
+     ]
+    },
+    {
+     "model": 711,
+     "scale": 3.6,
+     "offset": [
+      -19.8,
+      0.0,
+      9.0
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_49a8"
+     ]
+    }
+   ]
+  },
+  "crateToss:snowBash": {
+   "model": 707,
+   "scale": 3.6,
+   "offset": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_127c",
+    "extra_25cc",
+    "extra_2f58",
+    "extra_30bc",
+    "extra_41d4",
+    "extra_48dc",
+    "extra_52a4",
+    "extra_53e0",
+    "extra_5664",
+    "extra_59fc",
+    "extra_5ddc"
+   ]
+  },
+  "crateToss:drainBash": {
+   "model": 703,
+   "scale": 3.6,
+   "offset": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_51c0",
+    "extra_2448",
+    "extra_32d0",
+    "extra_3d18",
+    "extra_39b4"
+   ]
+  }
+ },
+ "props": {}
+}

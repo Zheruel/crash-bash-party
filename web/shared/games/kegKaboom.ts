@@ -8,8 +8,12 @@ import { IDLE, MAX_SEATS, type InputState, type MiniGame, type World } from '../
  * SHOCKWAVE / PRESS TO JUMP / NORMAL BARREL - 2, 4, 6, 8, 10 / SILVER BARREL - 10 POINTS / GOLD BARREL - 20 POINTS /
  * COLLECT SHOCKWAVE TO IGNITE POWDER KEGS AT A DISTANCE / (crystal challenge) WIN WITHOUT BEING HIT BY THE ROAMING BOMB".
  *
+ * Real layout (stage 0609, checked against the disc): a round dirt yard (about 17 units across) inside a low stone wall, a
+ * village with a windmill on the hills behind; 90 seconds; the four players start on the diagonals (P1 front-left, P2
+ * back-left, P3 back-right, P4 front-right) and run at about 4 units/s. Kegs are about 1.4 units tall.
+ *
  * Rules implemented
- *  - Powder kegs stand around the deck. Normal kegs are worth 2/4/6/8/10 (the further from the middle, the more),
+ *  - Powder kegs stand around the yard. Normal kegs are worth 2/4/6/8/10 (the further from the middle, the more),
  *    SILVER 10, GOLD 20. A destroyed keg is replaced a moment later.
  *  - Hold B to lay a gunpowder trail behind you (you carry a limited powder supply that refills when you stop).
  *    LET GO to light it at its START: the fire races along the trail. Every keg a burning trail touches blows up and
@@ -27,12 +31,16 @@ import { IDLE, MAX_SEATS, type InputState, type MiniGame, type World } from '../
  *   s owner, v points, o kind), 'burn' (s victim: stepped in fire), 'blast' (knocked by an explosion), 'wave' (s,
  *   shockwave ring), 'crate' (s), 'kegSpawn'.
  */
-export const KK_HALF = 11;
-export const KK_KEG_R = 0.8;
+/** Yard play radius (floor disc is about 8.4 across the short side; the wall stands on its rim). */
+export const KK_R = 8.0;
+export const KK_KEG_R = 0.7;
 export const NODE_D = 0.6;
-export const POWDER_MAX = 60;
-const POWDER_REGEN = 9, BURN_LIFE = 0.5, KEG_FUSE = 0.5, KEG_REACH = KK_KEG_R + 1.15, WAVE_R = 5.6, KEG_TARGET = 6, BLAST_R = 2.5;
-export const KK_STARTS: [number, number][] = [[-1, 1], [1, 1], [-1, -1], [1, -1]];
+export const POWDER_MAX = 50;
+const RUN = 4.4, RUN_LAY = 3.6;
+const POWDER_REGEN = 9, BURN_LIFE = 0.5, KEG_FUSE = 0.5, KEG_REACH = KK_KEG_R + 1.0, WAVE_R = 5.0, KEG_TARGET = 6, BLAST_R = 2.3;
+/** Diagonal starts (+z = toward the camera): P1 front-left, P2 back-left, P3 back-right, P4 front-right. */
+export const KK_STARTS: [number, number][] = [[-1, 1], [-1, -1], [1, -1], [1, 1]];
+export const KK_START_AXIS = 4.1;
 
 export interface Keg { id: number; x: number; z: number; v: number; kind: number; fuse: number; owner: number; age: number }
 export interface Trail { id: number; slot: number; x: number[]; z: number[]; t: number[]; done: boolean }
@@ -46,13 +54,14 @@ const players = (w: World) => w.bodies.filter((b) => b.kind === 'player');
 function spawnKeg(w: World, d: KegKaboomData): void {
   const ps = players(w);
   for (let tries = 0; tries < 30; tries++) {
-    const x = (rand(w) * 2 - 1) * (KK_HALF - 2.2), z = (rand(w) * 2 - 1) * (KK_HALF - 2.2);
-    if (d.kegs.some((k) => Math.hypot(k.x - x, k.z - z) < 3.4)) continue;
+    const a = rand(w) * Math.PI * 2, rr = Math.sqrt(rand(w)) * (KK_R - 1.6);
+    const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
+    if (d.kegs.some((k) => Math.hypot(k.x - x, k.z - z) < 3.0)) continue;
     if (ps.some((p) => Math.hypot(p.x - x, p.z - z) < 3)) continue;
     const roll = rand(w);
     const kind = roll < 0.07 ? 2 : roll < 0.2 ? 1 : 0;
     const dist = Math.hypot(x, z);
-    const v = kind === 2 ? 20 : kind === 1 ? 10 : 2 * (1 + Math.min(4, Math.floor(dist / 2.5)));
+    const v = kind === 2 ? 20 : kind === 1 ? 10 : 2 * (1 + Math.min(4, Math.floor(dist / 1.5)));
     d.kegs.push({ id: d.nextId++, x, z, v, kind, fuse: -1, owner: -1, age: 0 });
     emit(w, 'kegSpawn', x, z, -1, kind);
     return;
@@ -77,7 +86,7 @@ export const kegKaboom: MiniGame = {
   name: 'Keg Kaboom',
   description: 'Lay gunpowder trails to the powder kegs, light them and watch them blow. Gold and silver kegs are worth the most!',
   controls: 'Hold B: lay gunpowder (release to light it). A: jump (or shockwave).',
-  maxTime: 75,
+  maxTime: 90,
 
   setup(w, slots) {
     const d: KegKaboomData = {
@@ -88,7 +97,7 @@ export const kegKaboom: MiniGame = {
     for (const s of slots) {
       const [sx, sz] = KK_STARTS[s.slot];
       const sc = w.params.playerScale;
-      const b = addBody(w, 'player', s.slot, sx * (KK_HALF - 1.8), sz * (KK_HALF - 1.8), 0.7 * sc, 3 * sc * sc);
+      const b = addBody(w, 'player', s.slot, sx * KK_START_AXIS, sz * KK_START_AXIS, 0.7 * sc, 3 * sc * sc);
       b.face = Math.atan2(-sx, -sz);
     }
     for (let i = 0; i < KEG_TARGET - 1; i++) spawnKeg(w, d);
@@ -106,8 +115,9 @@ export const kegKaboom: MiniGame = {
     d.nextItem -= dt;
     if (d.nextItem <= 0) {
       if (!w.bodies.some((b) => b.kind === 'crate')) {
-        const c = addBody(w, 'crate', -1, (rand(w) * 2 - 1) * (KK_HALF - 3), (rand(w) * 2 - 1) * (KK_HALF - 3), 0.7, 1);
-        c.y = 7;
+        const ca = rand(w) * Math.PI * 2, cr = Math.sqrt(rand(w)) * (KK_R - 2.4);
+        const c = addBody(w, 'crate', -1, Math.cos(ca) * cr, Math.sin(ca) * cr, 0.9, 1);
+        c.y = 9;
       }
       d.nextItem = 13 + rand(w) * 5;
     }
@@ -158,7 +168,7 @@ export const kegKaboom: MiniGame = {
       }
       if (!d.laying[s]) d.powder[s] = Math.min(POWDER_MAX, d.powder[s] + POWDER_REGEN * dt);
 
-      movePlayer(w, p, stunned ? IDLE : { x: inp.x, y: inp.y, a, b: false }, dt, 14, d.laying[s] ? 6.4 : 7.4);
+      movePlayer(w, p, stunned ? IDLE : { x: inp.x, y: inp.y, a, b: false }, dt, 14, d.laying[s] ? RUN_LAY : RUN);
     }
 
     // fire: burn nodes, spread along and across trails
@@ -226,9 +236,8 @@ export const kegKaboom: MiniGame = {
         const lo = KK_KEG_R + p.r;
         if (dd < lo && p.y < 1.4) { const q = dd || 1; p.x = k.x + (dx / q) * lo; p.z = k.z + (dz / q) * lo; }
       }
-      const lim = KK_HALF - p.r;
-      if (Math.abs(p.x) > lim) { p.x = Math.sign(p.x) * lim; p.vx = 0; }
-      if (Math.abs(p.z) > lim) { p.z = Math.sign(p.z) * lim; p.vz = 0; }
+      const lim = KK_R - p.r * 0.5, d2 = Math.hypot(p.x, p.z);
+      if (d2 > lim) { const k = lim / d2; p.x *= k; p.z *= k; const vn = (p.vx * p.x + p.vz * p.z) / lim; if (vn > 0) { p.vx -= (p.x / lim) * vn; p.vz -= (p.z / lim) * vn; } }
     }
 
     // shockwave crate
@@ -279,7 +288,7 @@ export const kegKaboom: MiniGame = {
       if (dd < fireD) { fireD = dd; fx = tr.x[i]; fz = tr.z[i]; }
     }
     for (const k of d.kegs) if (k.fuse >= 0) { const dd = Math.hypot(k.x - me.x, k.z - me.z) - 0.5; if (dd < fireD && dd < BLAST_R) { fireD = dd; fx = k.x; fz = k.z; } }
-    if (fireD < 2.6 && !d.laying[slot]) {
+    if (fireD < 2.4 && !d.laying[slot]) {
       away(fx, fz);
       if (fireD < 1.3 && me.y <= 0.001) out.a = true;
       return out;
@@ -317,9 +326,20 @@ export const kegKaboom: MiniGame = {
       out.b = true;
       return out;
     }
-    if (dist < 5 && d.powder[slot] >= 22) { away(best.x, best.z); return out; } // back off to get a run-up
-    if (d.powder[slot] < 22) { if (dist > 5) go(best.x, best.z, 0.5); return out; }
-    if (dist > 11) { go(best.x, best.z); return out; }
+    if (dist < 4.5 && d.powder[slot] >= 20) {
+      // back off to a run-up spot (inside the yard) about 5.6 from the keg
+      let bx = 0, bz = 0, bd = 1e9;
+      for (let a = 0; a < 12; a++) {
+        const px = best.x + Math.cos(a * Math.PI / 6) * 5.6, pz = best.z + Math.sin(a * Math.PI / 6) * 5.6;
+        if (Math.hypot(px, pz) > KK_R - 1.0) continue;
+        const dd = Math.hypot(px - me.x, pz - me.z);
+        if (dd < bd) { bd = dd; bx = px; bz = pz; }
+      }
+      if (bd < 1e8) go(bx, bz); else go(0, 0);
+      return out;
+    }
+    if (d.powder[slot] < 20) { if (dist > 4.5) go(best.x, best.z, 0.5); return out; }
+    if (dist > 9) { go(best.x, best.z); return out; }
     // begin a trail some way from the keg and run straight at it
     go(best.x, best.z);
     out.b = true;

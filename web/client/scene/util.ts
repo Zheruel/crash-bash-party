@@ -11,7 +11,7 @@ export function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext
   return t;
 }
 
-export const FONT = '"Luckiest Guy", "Titan One", "Arial Rounded MT Bold", Impact, sans-serif';
+export const FONT = '"Almendra SC", Georgia, serif';
 
 export function strokeText(g: CanvasRenderingContext2D, text: string, x: number, y: number, fill: string, stroke = '#1a0f05', lw = 8) {
   g.lineJoin = 'round';
@@ -22,18 +22,24 @@ export function strokeText(g: CanvasRenderingContext2D, text: string, x: number,
   g.fillText(text, x, y);
 }
 
-/** Name plate sprite (always faces the camera). */
+/** Name plate sprite (always faces the camera): dark panel, olive border, orange lettering like the game's menus. */
 export function labelSprite(text: string, hex: string): THREE.Sprite {
   const tex = canvasTex(512, 128, (g, w, h) => {
-    g.font = `64px ${FONT}`;
-    const tw = Math.min(w - 40, g.measureText(text).width + 56);
+    g.font = `700 60px ${FONT}`;
+    const label = text.toUpperCase();
+    const tw = Math.min(w - 40, g.measureText(label).width + 56);
     const x = (w - tw) / 2;
-    g.fillStyle = 'rgba(20,12,4,.85)';
-    g.beginPath(); g.roundRect(x, 14, tw, h - 28, 30); g.fill();
-    g.lineWidth = 8; g.strokeStyle = hex; g.stroke();
+    g.fillStyle = 'rgba(2,10,14,.85)';
+    g.fillRect(x, 16, tw, h - 32);
+    g.lineWidth = 5; g.strokeStyle = '#cfd024'; g.strokeRect(x, 16, tw, h - 32);
+    g.fillStyle = hex; g.fillRect(x, h - 24, tw, 8);
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillStyle = '#fff';
-    g.fillText(text, w / 2, h / 2 + 3, w - 80);
+    const gr = g.createLinearGradient(0, 24, 0, 84);
+    gr.addColorStop(0, '#fff8d0'); gr.addColorStop(0.5, '#ffb23a'); gr.addColorStop(1, '#f0561a');
+    g.lineJoin = 'round'; g.lineWidth = 7; g.strokeStyle = '#100300';
+    g.strokeText(label, w / 2, h / 2 - 6, w - 80);
+    g.fillStyle = gr;
+    g.fillText(label, w / 2, h / 2 - 6, w - 80);
   });
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
   s.scale.set(3.2, 0.8, 1);
@@ -48,10 +54,10 @@ export function numberSprite(n: number): THREE.Sprite {
   if (!tex) {
     tex = canvasTex(128, 128, (g) => {
       g.beginPath(); g.arc(64, 64, 54, 0, Math.PI * 2);
-      g.fillStyle = '#ffd21f'; g.fill();
-      g.lineWidth = 10; g.strokeStyle = '#1a0f05'; g.stroke();
-      g.font = `70px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillStyle = '#1a0f05';
+      g.fillStyle = '#ff9a1c'; g.fill();
+      g.lineWidth = 10; g.strokeStyle = '#100300'; g.stroke();
+      g.font = `700 70px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = '#100300';
       g.fillText(String(n), 64, 70);
     });
     numCache.set(n, tex);

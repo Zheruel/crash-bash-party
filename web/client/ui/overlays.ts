@@ -1,11 +1,11 @@
 import { COLORS } from '../../shared/look';
 import type { ResultsMsg, RoundMsg, WheelMsg } from '../../shared/protocol';
-import { avatarHtml } from '../shell/avatar';
 import { sfx } from '../shell/sound';
-import { div, esc, icon, pop } from './dom';
+import { div, esc, face, icon, pop } from './dom';
 import type { SeatView } from './hud';
 
-const WHEEL_COLORS = ['#ff8a00', '#ffd21f', '#ff5a2a', '#ffc04d', '#e8650a', '#fff0a0'];
+const WHEEL_COLORS = ['#0c3b46', '#143e72', '#0e4a36', '#1a5266', '#2b2a72', '#114a4a'];
+const DISPLAY = '"Almendra SC", Georgia, serif';
 
 /** The mini-game roulette. */
 export class WheelOverlay {
@@ -21,9 +21,9 @@ export class WheelOverlay {
     const n = m.options.length;
     this.el.classList.remove('hidden');
     this.el.innerHTML = `
-      <div class="wheel-head crate"><small>${esc(turnLabel)}</small><b>${m.showdown ? 'LAST ROUND!' : 'NEXT MINI-GAME'}</b>${m.showdown ? '<em>DOUBLE POINTS</em>' : ''}</div>
-      <div class="wheel-box"><canvas class="wheel-cv"></canvas><div class="wheel-ptr"></div><div class="wheel-hub"></div></div>
-      <div class="wheel-pick hidden"></div><div class="wheel-mod hidden"></div>`;
+      <div class="wheel-head pnl"><div class="band"><small class="sm">${esc(turnLabel)}</small><h2 class="gt or">${m.showdown ? 'LAST ROUND!' : 'NEXT MINI-GAME'}</h2></div>${m.showdown ? '<em class="gt red">DOUBLE POINTS</em>' : ''}</div>
+      <div class="wheel-box"><canvas class="wheel-cv" role="img" aria-label="Mini-game wheel"></canvas><div class="wheel-ptr"></div><div class="wheel-hub"></div></div>
+      <div class="wheel-pick hidden"></div><div class="wheel-mod pnl hidden"></div>`;
     const cv = this.el.querySelector('canvas') as HTMLCanvasElement;
     const size = Math.min(440, Math.min(innerWidth * 0.86, innerHeight * 0.58));
     const d = Math.min(devicePixelRatio, 2);
@@ -36,20 +36,27 @@ export class WheelOverlay {
     for (let i = 0; i < n; i++) {
       g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, R - 6, i * seg, (i + 1) * seg); g.closePath();
       g.fillStyle = WHEEL_COLORS[i % WHEEL_COLORS.length]; g.fill();
-      g.lineWidth = 4; g.strokeStyle = '#1a0f05'; g.stroke();
+      g.lineWidth = 3; g.strokeStyle = '#cfd024'; g.stroke();
       g.save();
       g.rotate((i + 0.5) * seg);
       g.textAlign = 'right'; g.textBaseline = 'middle';
-      const fs = Math.max(13, Math.min(26, size / 17));
-      g.font = `${fs}px "Luckiest Guy", "Arial Rounded MT Bold", Impact, sans-serif`;
-      g.fillStyle = '#1a0f05';
-      g.fillText(m.options[i].name.toUpperCase(), R - 24, 2, R * 0.62);
+      const fs = Math.max(13, Math.min(26, size / 16));
+      g.font = `700 ${fs}px ${DISPLAY}`;
+      const gr = g.createLinearGradient(0, -fs / 2, 0, fs / 2);
+      gr.addColorStop(0, '#ffe08a'); gr.addColorStop(0.55, '#ff9a1c'); gr.addColorStop(1, '#f0480a');
+      g.lineJoin = 'round'; g.lineWidth = 5; g.strokeStyle = '#100300';
+      const label = m.options[i].name.toUpperCase();
+      g.strokeText(label, R - 26, 2, R * 0.62);
+      g.fillStyle = gr;
+      g.fillText(label, R - 26, 2, R * 0.62);
       g.restore();
     }
-    g.beginPath(); g.arc(0, 0, R - 5, 0, Math.PI * 2); g.lineWidth = 9; g.strokeStyle = '#1a0f05'; g.stroke();
-    for (let i = 0; i < n * 2; i++) { // bulbs
-      g.beginPath(); g.arc(Math.cos((i / (n * 2)) * Math.PI * 2) * (R - 5), Math.sin((i / (n * 2)) * Math.PI * 2) * (R - 5), 4.5, 0, Math.PI * 2);
-      g.fillStyle = i % 2 ? '#fff6b0' : '#ff4a2a'; g.fill();
+    g.beginPath(); g.arc(0, 0, R - 5, 0, Math.PI * 2); g.lineWidth = 10; g.strokeStyle = '#000'; g.stroke();
+    g.beginPath(); g.arc(0, 0, R - 5, 0, Math.PI * 2); g.lineWidth = 5; g.strokeStyle = '#cfd024'; g.stroke();
+    for (let i = 0; i < n * 2; i++) { // studs
+      g.beginPath(); g.arc(Math.cos((i / (n * 2)) * Math.PI * 2) * (R - 5), Math.sin((i / (n * 2)) * Math.PI * 2) * (R - 5), 3.6, 0, Math.PI * 2);
+      g.fillStyle = i % 2 ? '#ffe36a' : '#ff7a12'; g.fill();
+      g.lineWidth = 1.5; g.strokeStyle = '#000'; g.stroke();
     }
     // spin so that segment `pick` ends under the pointer (top)
     const centre = (m.pick + 0.5) * seg;
@@ -70,13 +77,13 @@ export class WheelOverlay {
       // landed
       sfx.play('reveal');
       const pick = this.el.querySelector('.wheel-pick') as HTMLElement;
-      pick.innerHTML = `${esc(m.options[m.pick].name.toUpperCase())}${m.variant ? `<small class="wheel-level">${esc(m.variant.name.toUpperCase())}</small>` : ''}`;
+      pick.innerHTML = `<span class="gt or">${esc(m.options[m.pick].name.toUpperCase())}</span>${m.variant ? `<small class="wheel-level"><span class="gt wh">${esc(m.variant.name.toUpperCase())}</span></small>` : ''}`;
       pick.classList.remove('hidden');
       pop(pick, 'pop');
       this.el.querySelector('.wheel-box')!.classList.add('landed');
       if (m.modifier) {
         const mod = this.el.querySelector('.wheel-mod') as HTMLElement;
-        mod.innerHTML = `<small>TWIST!</small><b>${esc(m.modifier.name)}</b><span>${esc(m.modifier.desc)}</span>`;
+        mod.innerHTML = `<small class="sm">TWIST!</small><b class="gt wh">${esc(m.modifier.name)}</b><span class="sm">${esc(m.modifier.desc)}</span>`;
         setTimeout(() => { if (token === this.token) { mod.classList.remove('hidden'); pop(mod, 'pop'); sfx.play('lucky'); } }, Math.min(500, m.ms * 0.12));
       }
     };
@@ -91,15 +98,17 @@ export class IntroOverlay {
     this.el.classList.remove('hidden');
     const me = mySlot != null ? seats[mySlot] : null;
     this.el.innerHTML = `
-      <div class="intro crate">
-        <small>${m.showdown ? 'LAST ROUND' : `ROUND ${m.round}/${m.total}`}</small>
-        <h1>${esc(m.gameName.toUpperCase())}</h1>
-        ${variant ? `<div class="variant">${esc(variant.toUpperCase())}</div>` : ''}
-        <p>${esc(m.desc)}</p>
-        <div class="controls"><label>CONTROLS</label><span>${esc(m.controls)}</span>${touch ? '<span class="tc">Touch: stick + A / B buttons</span>' : ''}</div>
-        ${m.modifier ? `<div class="modchip"><b>${esc(m.modifier.name)}</b> ${esc(m.modifier.desc)}</div>` : ''}
-        ${m.showdown ? '<div class="modchip dbl">DOUBLE POINTS for everyone!</div>' : ''}
-        <div class="youare">${me ? `${avatarHtml(me.look)}<span>You are <b style="color:${COLORS[me.look.color % COLORS.length].hex}">${esc(me.name)}</b></span>` : '<span>You are watching</span>'}</div>
+      <div class="intro pnl" role="dialog" aria-label="Rules">
+        <small class="sm">${m.showdown ? 'LAST ROUND' : `ROUND ${m.round}/${m.total}`}</small>
+        <h1 class="gt red">${esc(m.gameName.toUpperCase())}</h1>
+        ${variant ? `<div class="variant"><span class="gt wh">${esc(variant.toUpperCase())}</span></div>` : ''}
+        <h3 class="gt wh">OBJECTIVE</h3>
+        <p class="sm">${esc(m.desc)}</p>
+        <h3 class="gt wh">CONTROLS</h3>
+        <div class="controls sm"><span>${esc(m.controls)}</span>${touch ? '<span class="tc">TOUCH: STICK + A / B BUTTONS</span>' : ''}</div>
+        ${m.modifier ? `<div class="modchip"><b class="gt wh">${esc(m.modifier.name)}</b> <span class="sm">${esc(m.modifier.desc)}</span></div>` : ''}
+        ${m.showdown ? '<div class="modchip dbl gt or">DOUBLE POINTS FOR EVERYONE!</div>' : ''}
+        <div class="youare">${me ? `${face(me.look.char)}<span class="sm">YOU ARE</span><b class="gt wh" style="--c:${COLORS[me.look.color % COLORS.length].hex}">${esc(me.name.toUpperCase())}</b>` : '<span class="sm">YOU ARE WATCHING</span>'}</div>
       </div>`;
   }
   hide() { this.el.classList.add('hidden'); this.el.innerHTML = ''; }
@@ -117,7 +126,7 @@ export class CountOverlay {
   }
 }
 
-const CROWN = '<svg class="crown" viewBox="0 0 32 24"><path d="M2 20L0 5l9 7 7-11 7 11 9-7-2 15z" fill="#ffd21f" stroke="#1a0f05" stroke-width="2.4" stroke-linejoin="round"/><rect x="2" y="20" width="28" height="3.5" rx="1" fill="#ff8a00" stroke="#1a0f05" stroke-width="2"/></svg>';
+const CROWN = `<span class="crown">${icon('cup')}</span>`;
 
 /** Between-rounds leaderboard: placement pops, counting points, re-sorting rows, crown, streak flames. */
 export class ResultsOverlay {
@@ -144,17 +153,17 @@ export class ResultsOverlay {
       const col = COLORS[s.look.color % COLORS.length].hex;
       return `<div class="lrow ${slot === mySlot ? 'me' : ''}" data-slot="${slot}" style="--c:${col}">
         <div class="lk">1</div>
-        <div class="la">${avatarHtml(s.look)}${CROWN}</div>
-        <div class="ln">${esc(s.name)}${slot === mySlot ? ' <i>(you)</i>' : ''}<span class="streak hidden"></span></div>
-        <div class="lg hidden"><b>+${m.gained[slot] + (m.bonus[slot] || 0)}</b>${m.bonus[slot] ? '<em>COMEBACK</em>' : ''}</div>
-        <div class="lt">${icon('wumpa')}<b>${m.prev[slot]}</b></div>
-        <div class="ls">${icon('crystal')}<b>${prevTrophies[slot]}</b></div>
+        <div class="la">${face(s.look.char)}${CROWN}</div>
+        <div class="ln">${esc(s.name)}${slot === mySlot ? ' <i class="badge">YOU</i>' : ''}<span class="streak hidden"></span></div>
+        <div class="lg hidden"><b class="gt grn">+${m.gained[slot] + (m.bonus[slot] || 0)}</b>${m.bonus[slot] ? '<em class="sm">COMEBACK</em>' : ''}</div>
+        <div class="lt gt or">${icon('wumpa')}<b>${m.prev[slot]}</b></div>
+        <div class="ls gt wh">${icon('cup')}<b>${prevTrophies[slot]}</b></div>
       </div>`;
     }).join('');
-    this.el.innerHTML = `<div class="results crate">
-      <h2>${m.final ? 'FINAL ROUND' : `ROUND ${m.round}`}<small>${esc(seats[winner]?.name ?? '')} wins${m.showdown ? ' - DOUBLE POINTS' : ''}!</small></h2>
-      <div class="lboard">${rows}</div>
-      ${lastNext ? '<div class="lastround">LAST ROUND - DOUBLE POINTS!</div>' : m.final ? '' : `<div class="hint">Next: round ${m.round + 1} of ${m.total}</div>`}
+    this.el.innerHTML = `<div class="results pnl">
+      <div class="band"><h2 class="gt or">${m.final ? 'FINAL ROUND' : `ROUND ${m.round}`}</h2><div class="sm">${esc(seats[winner]?.name ?? '')} WINS${m.showdown ? ' - DOUBLE POINTS' : ''}!</div></div>
+      <div class="pbody"><div class="lboard">${rows}</div>
+      ${lastNext ? '<div class="lastround gt wh">LAST ROUND - DOUBLE POINTS!</div>' : m.final ? '' : `<div class="hint sm">NEXT: ROUND ${m.round + 1} OF ${m.total}</div>`}</div>
     </div>`;
     const q = (slot: number) => this.el.querySelector<HTMLElement>(`.lrow[data-slot="${slot}"]`)!;
     const place = (ord: number[]) => ord.forEach((slot, i) => { const r = q(slot); r.style.setProperty('--i', String(i)); r.querySelector('.lk')!.textContent = String(i + 1); });

@@ -14,7 +14,7 @@ Avoid: pixelation, blur, new details, text, borders, frames.
 P
 one() {
   local src="$1" set="$2" name="$3"
-  local out="$ROOT/assets/hd/$set/$name"
+  local out="$ROOT/assets/hd-raw/$set/$name"
   [ -f "$out" ] && return 0
   read w h < <(magick identify -format "%w %h" "$src")
   (( w < 16 || h < 16 )) && return 0
@@ -32,7 +32,9 @@ one() {
   else echo "FAIL $set/$name"; fi
 }
 export -f one; export ROOT G TMP PROMPT
-for set in "$@"; do
-  for f in "$ROOT/assets/textures/$set"/tex*.png; do echo "$f $set $(basename "$f")"; done
-done | xargs -P 8 -L 1 bash -c 'one "$0" "$1" "$2"'
+if [ "$#" -gt 0 ]; then
+  for set in "$@"; do
+    for f in "$ROOT/assets/textures/$set"/tex*.png; do echo "$f $set $(basename "$f")"; done
+  done
+else cat; fi | xargs -P ${JOBS:-8} -L 1 bash -c 'one "$0" "$1" "$2"'
 rm -rf "$TMP"

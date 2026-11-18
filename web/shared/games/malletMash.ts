@@ -9,8 +9,12 @@ import { IDLE, MAX_SEATS, type InputState, type MiniGame, type World } from '../
  * SHOCK WAVE / HIT MUSHROOMS TO SCORE POINTS, SCORE MORE POINTS WHEN THE MUSHROOM IS SHAKING / MUSHROOM 2, 3, 5
  * POINTS / GOLD MUSHROOM 10, 15, 20 / (crystal challenge) BEWARE OF YOUR OPPONENTS' SHOCK WAVES".
  *
+ * Real layout (stage 0617, checked against the disc): a round grass platform (radius 8.5) on top of a stone tower; the four
+ * players start on the diagonals (P1 front-left, P2 back-left, P3 back-right, P4 front-right), 90 seconds, run speed about
+ * 4 units/s. Mushrooms pop up at random spots on the grass (they are not on a grid).
+ *
  * Rules implemented
- *  - Mushrooms pop out of 16 holes. Each is worth 3 stages of points: rising 2 / standing 3 / SHAKING 5
+ *  - Mushrooms pop out of the grass at random spots. Each is worth 3 stages of points: rising 2 / standing 3 / SHAKING 5
  *    (it shakes just before it ducks back down). Gold mushrooms (rarer): 10 / 15 / 20.
  *  - A = swing the mallet (cone in front of you). Hold A (~0.9 s) and release for a SHOCK WAVE: a ring around you that
  *    smashes every mushroom inside it and stuns rivals. Charging slows you down.
@@ -24,11 +28,18 @@ import { IDLE, MAX_SEATS, type InputState, type MiniGame, type World } from '../
  * Events: 'rise' (mushroom pops up; v 1 = gold), 'swing' (s, x/z = hammer spot), 'whiff', 'smash' (s, v points, o = 1
  *   gold), 'wave' (s, v radius), 'stun' (s victim, o attacker), 'crate' (s, v item), 'combo'.
  */
-export const MM_HALF = 9.6;
-export const MM_SPACING = 3.4;
+/** Platform play radius (the grass disc is 8.5 wide; players stay a little inside the stone rim). */
+export const MM_R = 8.0;
+/** Mushrooms pop up inside this radius. */
+export const MM_SPAWN_R = 6.9;
+export const MM_SLOTS = 14;
 const SWING_REACH = 1.9, SWING_CD = 0.42, WAVE_CHARGE = 0.9, WAVE_R = 2.9, WAVE_R_POWER = 5.4;
-export const MM_STARTS: [number, number][] = [[-1, 1], [1, 1], [-1, -1], [1, -1]];
+const RUN = 4.1, RUN_BOOTS = 6.2;
+/** Diagonal starts (screen-left/right, +z = toward the camera): P1 front-left, P2 back-left, P3 back-right, P4 front-right. */
+export const MM_STARTS: [number, number][] = [[-1, 1], [-1, -1], [1, -1], [1, 1]];
+export const MM_START_AXIS = 5.3;
 
+/** A mushroom slot: its position is chosen when the mushroom pops up. */
 export interface Hole { x: number; z: number; st: number; t: number; dur: number; gold: boolean }
 export interface MalletMashData {
   score: number[]; stun: number[]; boots: number[]; power: number[]; hold: number[]; swingCd: number[]; prevA: boolean[];
@@ -71,20 +82,20 @@ export const malletMash: MiniGame = {
   name: 'Mallet Mash',
   description: 'Mushrooms pop out of the ground. Whack them with your mallet! The more they shake, the more they are worth.',
   controls: 'A: swing mallet (hold + release: shock wave).',
-  maxTime: 60,
+  maxTime: 90,
 
   setup(w, slots) {
     const holes: Hole[] = [];
-    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) holes.push({ x: (i - 1.5) * MM_SPACING, z: (j - 1.5) * MM_SPACING, st: 0, t: 0, dur: 0, gold: false });
+    for (let i = 0; i < MM_SLOTS; i++) holes.push({ x: 0, z: 0, st: 0, t: 0, dur: 0, gold: false });
     const d: MalletMashData = {
       score: [0, 0, 0, 0], stun: [0, 0, 0, 0], boots: [0, 0, 0, 0], power: [0, 0, 0, 0], hold: [0, 0, 0, 0], swingCd: [0, 0, 0, 0],
-      prevA: [false, false, false, false], holes, nextSpawn: 0.5, nextCrate: 7,
+      prevA: [false, false, false, false], holes, nextSpawn: 0.5, nextCrate: 9,
     };
     w.data = d;
     for (const s of slots) {
       const [sx, sz] = MM_STARTS[s.slot];
       const sc = w.params.playerScale;
-      const b = addBody(w, 'player', s.slot, sx * (MM_HALF - 1.6), sz * (MM_HALF - 1.6), 0.7 * sc, 3 * sc * sc);
+      const b = addBody(w, 'player', s.slot, sx * MM_START_AXIS, sz * MM_START_AXIS, 0.7 * sc, 3 * sc * sc);
       b.face = Math.atan2(-sx, -sz);
     }
     void MAX_SEATS;
@@ -107,23 +118,32 @@ export const malletMash: MiniGame = {
       if (h.st >= 1 && h.st <= 3) active++;
     }
     d.nextSpawn -= dt;
-    const maxActive = Math.min(9, 5 + Math.floor(w.time / 15));
-    if (d.nextSpawn <= 0 && active < maxActive) {
+    const maxActive = Math.min(9, 5 + Math.floor(w.time / 20));
+    if (d.nextSpawn <= 0 && active < maxActive && active < MM_SLOTS) {
       const free = d.holes.filter((h) => h.st === 0);
-      if (free.length) {
-        const h = free[Math.floor(rand(w) * free.length)];
+      let spot: [number, number] | null = null;
+      for (let tries = 0; tries < 24 && free.length && !spot; tries++) {
+        const a = rand(w) * Math.PI * 2, r = Math.sqrt(rand(w)) * MM_SPAWN_R;
+        const x = Math.cos(a) * r, z = Math.sin(a) * r;
+        if (d.holes.some((o) => o.st !== 0 && Math.hypot(o.x - x, o.z - z) < 2.0)) continue;
+        if (ps.some((p) => Math.hypot(p.x - x, p.z - z) < 1.2)) continue;
+        spot = [x, z];
+      }
+      if (spot) {
+        const h = free[0];
+        h.x = spot[0]; h.z = spot[1];
         h.st = 1; h.t = 0; h.dur = 0.9 + rand(w) * 1.1; h.gold = rand(w) < 0.12;
         emit(w, 'rise', h.x, h.z, -1, h.gold ? 1 : 0);
       }
-      d.nextSpawn = Math.max(0.22, 0.55 - w.time * 0.006) / w.params.spawnRate * (0.7 + rand(w) * 0.6);
+      d.nextSpawn = Math.max(0.3, 0.7 - w.time * 0.005) / w.params.spawnRate * (0.7 + rand(w) * 0.6);
     }
     d.nextCrate -= dt;
     if (d.nextCrate <= 0) {
       if (w.bodies.filter((b) => b.kind === 'crate').length < 2) {
-        // somewhere between the holes
-        const c = addBody(w, 'crate', -1, (Math.floor(rand(w) * 3) - 1) * MM_SPACING, (Math.floor(rand(w) * 3) - 1) * MM_SPACING, 0.7, 1);
-        c.x += MM_SPACING / 2 * (rand(w) < 0.5 ? 1 : -1) ; c.z += MM_SPACING / 2 * (rand(w) < 0.5 ? 1 : -1);
-        c.cd = rand(w) < 0.5 ? 1 : 2; c.y = 7;
+        // drops from the sky somewhere on the grass
+        const a = rand(w) * Math.PI * 2, r = Math.sqrt(rand(w)) * (MM_SPAWN_R - 0.5);
+        const c = addBody(w, 'crate', -1, Math.cos(a) * r, Math.sin(a) * r, 0.9, 1);
+        c.cd = rand(w) < 0.5 ? 1 : 2; c.y = 9;
       }
       d.nextCrate = 9 + rand(w) * 5;
     }
@@ -165,14 +185,13 @@ export const malletMash: MiniGame = {
       }
       if (!inp.a || stunned) d.hold[s] = 0;
       const slow = d.hold[s] > 0.25 ? 0.5 : 1;
-      movePlayer(w, p, stunned ? IDLE : { x: inp.x * slow, y: inp.y * slow, a: false, b: false }, dt, 14, d.boots[s] > 0 ? 10.5 : 7.2);
+      movePlayer(w, p, stunned ? IDLE : { x: inp.x * slow, y: inp.y * slow, a: false, b: false }, dt, 14, d.boots[s] > 0 ? RUN_BOOTS : RUN);
     }
     for (let i = 0; i < ps.length; i++)
       for (let j = i + 1; j < ps.length; j++) collideCircles(ps[i], ps[j], 0.5, effMass(ps[i]), effMass(ps[j]));
     for (const p of ps) {
-      const lim = MM_HALF - p.r;
-      if (Math.abs(p.x) > lim) { p.x = Math.sign(p.x) * lim; p.vx = 0; }
-      if (Math.abs(p.z) > lim) { p.z = Math.sign(p.z) * lim; p.vz = 0; }
+      const lim = MM_R - p.r * 0.5, d2 = Math.hypot(p.x, p.z);
+      if (d2 > lim) { const k = lim / d2; p.x *= k; p.z *= k; const vn = (p.vx * p.x + p.vz * p.z) / lim; if (vn > 0) { p.vx -= (p.x / lim) * vn; p.vz -= (p.z / lim) * vn; } }
     }
 
     // crates
@@ -224,13 +243,13 @@ export const malletMash: MiniGame = {
       let rival = 99;
       for (const q of players(w)) if (q.slot !== slot) rival = Math.min(rival, Math.hypot(h.x - q.x, h.z - q.z));
       const home = MM_STARTS[slot];
-      const s = mushroomValue(h) / (dd + 1.5) * (dd <= rival ? 1.3 : 0.15) * (Math.sign(h.x) === home[0] && Math.sign(h.z) === home[1] ? 1.6 : 1);
+      const s = mushroomValue(h) / (dd + 1.5) * (dd <= rival ? 1.3 : 0.15) * (Math.sign(h.x) === home[0] && Math.sign(h.z) === home[1] ? 1.3 : 1);
       if (s > bs) { bs = s; best = h; }
     }
     // crates
     for (const c of w.bodies) {
       if (c.kind !== 'crate' || c.y > 0.2) continue;
-      if (Math.hypot(c.x - me.x, c.z - me.z) < 5) { go(c.x, c.z); return out; }
+      if (Math.hypot(c.x - me.x, c.z - me.z) < 6) { go(c.x, c.z); return out; }
     }
     if (!best) {
       // pose in the middle; or go for a shock-wave stun on a close rival

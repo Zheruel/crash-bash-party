@@ -4,7 +4,6 @@ import { colorHex, type Look } from '../../shared/look';
 import { createCharacter, teamRing } from '../characters';
 import type { ModelInstance } from '../crash';
 import type { Mode, Stage } from '../view';
-import { Backdrop, skyTexture } from './island';
 import { warpTex } from './tex';
 import { canvasTex } from './util';
 
@@ -19,24 +18,27 @@ function padMaterials(hex: string) {
       if (real) g.drawImage(real, 0, 0, w, h); else { g.fillStyle = '#8a8478'; g.fillRect(0, 0, w, h); }
     }, true);
   }
-  return [new THREE.MeshLambertMaterial({ color: 0x6a655b }), new THREE.MeshLambertMaterial({ map: padTex, color: new THREE.Color(hex).lerp(new THREE.Color(0xffffff), 0.6) }), new THREE.MeshLambertMaterial({ color: 0x3a362f })];
+  return [new THREE.MeshLambertMaterial({ color: 0x6f7b88 }), new THREE.MeshLambertMaterial({ map: padTex, color: new THREE.Color(0x9fb4d0) }), new THREE.MeshLambertMaterial({ color: 0x39424d })];
 }
 
 export class ShowcaseScene implements Mode {
   readonly root = new THREE.Group();
-  readonly background = skyTexture();
-  private backdrop: Backdrop | null = null;
+  /** transparent canvas: the CSS vortex (like the real menus) shows through */
+  readonly background = null;
+  private lit = false;
   private slots: (Slot | null)[] = [];
   private layout: 'title' | 'lobby' | 'between' = 'lobby';
   private viewX = 0.5;
   private viewY = 0.5;
   private az = 0;
 
-  /** Built lazily so the catalog (warp room model) is loaded first. */
   private ensureBackdrop() {
-    if (this.backdrop) return;
-    this.backdrop = new Backdrop();
-    this.root.add(this.backdrop.root);
+    if (this.lit) return;
+    this.lit = true;
+    this.root.add(new THREE.HemisphereLight(0xdfeaff, 0x20404a, 2.3));
+    const sun = new THREE.DirectionalLight(0xfff2d8, 1.6);
+    sun.position.set(-6, 12, 10);
+    this.root.add(sun);
   }
 
   setLayout(l: 'title' | 'lobby' | 'between', fx = 0.5, fy = 0.5) { this.layout = l; this.viewX = fx; this.viewY = fy; this.place(); }
@@ -99,7 +101,7 @@ export class ShowcaseScene implements Mode {
     const fov = (cam.fov * Math.PI) / 360;
     if (this.layout === 'title') {
       this.az = t * 0.16;
-      const dist = Math.max(8, 3.6 / Math.tan(fov) * (cam.aspect < 1 ? 1.25 : 1));
+      const dist = Math.max(6, 2.5 / Math.tan(fov) * (cam.aspect < 1 ? 1.95 : 1));
       cam.position.set(Math.sin(this.az) * dist, 2.0, Math.cos(this.az) * dist);
       cam.lookAt(0, 1.1, 0);
       cam.updateProjectionMatrix();
@@ -120,7 +122,6 @@ export class ShowcaseScene implements Mode {
 
   update(dt: number, t: number, stage: Stage) {
     this.frame(stage, t);
-    this.backdrop?.update(t);
     this.slots.forEach((s, i) => {
       if (!s) return;
       s.bounce = Math.max(0, s.bounce - dt * 2.2);

@@ -22,11 +22,12 @@ import { Confetti } from './shell/confetti';
 import { sfx } from './shell/sound';
 import { TouchControls } from './shell/touch';
 import { FinalOverlay } from './ui/final';
-import { $, div } from './ui/dom';
+import { $, div, esc } from './ui/dom';
 import { Hud, type SeatView } from './ui/hud';
 import { LobbyScreen } from './ui/lobby';
 import { CountOverlay, IntroOverlay, ResultsOverlay, WheelOverlay } from './ui/overlays';
 import { TitleScreen, type Profile } from './ui/title';
+import LOGO from './ui/img/logo.png';
 import { Stage } from './view';
 
 const FASTISH: Timing = { ...NORMAL_TIMING, intro: 1800, countdown: 1500, results: 4200, wheel: 3000, final: 18000, playCap: 5 };
@@ -89,6 +90,7 @@ export class App {
     this.showSplash(true);
 
     const start = performance.now();
+    try { await Promise.race([document.fonts.load('700 40px "Almendra SC"'), new Promise((r) => setTimeout(r, 3000))]); } catch { /* fallback serif */ }
     try {
       await Promise.race([this.preload(), new Promise((r) => setTimeout(r, 9000))]);
     } catch (e) { console.warn('preload failed', e); }
@@ -118,7 +120,7 @@ export class App {
 
   private showSplash(on: boolean) {
     let s = document.getElementById('splash');
-    if (!s) { s = div('splash', '<div class="crate card"><i class="spin"></i><b>Loading the Warp Room...</b></div>'); s.id = 'splash'; this.ui.appendChild(s); }
+    if (!s) { s = div('splash', `<div class="splash-in" role="status"><img src="${LOGO}" alt="Crash Bash"><div class="loading gt or">LOADING</div></div>`); s.id = 'splash'; this.ui.appendChild(s); }
     s.classList.toggle('hidden', !on);
   }
 
@@ -149,9 +151,9 @@ export class App {
     });
     this.statusEl = div('statusbar hidden');
     this.toastEl = div('toast hidden');
-    const top = div('topbar', `<button class="icon-btn" id="mute" title="Sound"></button><button class="icon-btn hidden" id="leave" title="Leave">&times;</button>
-      <div class="soundpanel crate hidden"><label class="chk"><input type="checkbox" id="mutechk"> Mute all</label>
-      <label>Music</label><input type="range" id="vmusic" min="0" max="100"><label>Effects</label><input type="range" id="vsfx" min="0" max="100"></div>`);
+    const top = div('topbar', `<button class="icon-btn" id="mute" title="Sound" aria-label="Sound settings"></button><button class="icon-btn hidden" id="leave" title="Leave" aria-label="Leave party">&times;</button>
+      <div class="soundpanel pnl hidden"><div class="band"><h2 class="gt or">SOUND</h2></div><div class="pbody"><label class="chk sm"><input type="checkbox" id="mutechk"> MUTE ALL</label>
+      <label class="sm" for="vmusic">MUSIC</label><input type="range" id="vmusic" min="0" max="100"><label class="sm" for="vsfx">EFFECTS</label><input type="range" id="vsfx" min="0" max="100"></div></div>`);
     root.append(this.title.el, this.lobby.el, this.hud.el, this.wheel.el, this.intro.el, this.count.el, this.results.el, this.final.el, this.emoteBar, top, this.statusEl, this.toastEl);
     const mute = $('#mute', top);
     const panel = $('.soundpanel', top);
@@ -169,7 +171,7 @@ export class App {
     $('#leave', top).onclick = () => this.leave(true);
     this.skipBtn = document.createElement('button');
     this.skipBtn.id = 'skip';
-    this.skipBtn.className = 'btn small hidden';
+    this.skipBtn.className = 'mi small hidden';
     this.skipBtn.textContent = 'SKIP ▸';
     this.skipBtn.onclick = () => { this.client?.skip(); sfx.play('click'); };
     root.append(this.skipBtn);
@@ -192,7 +194,7 @@ export class App {
   private layoutTitle() {
     if (this.phase !== 'title') return;
     const wide = innerWidth > 860;
-    this.showcase.setLayout('title', wide ? 0.27 : 0.5, wide ? 0.58 : 0.17);
+    this.showcase.setLayout('title', wide ? 0.25 : 0.5, wide ? 0.6 : 0.255);
   }
 
   /** Switch which top-level DOM layers are visible. */
@@ -299,7 +301,10 @@ export class App {
   }
 
   leave(ask = false) {
-    if (ask && this.isHost && (this.client?.room?.seats.filter((s) => s.clientId != null).length ?? 0) > 1 && !confirm('You are the host. Leaving ends the party for everyone. Leave?')) return;
+    if (ask && this.isHost && (this.client?.room?.seats.filter((s) => s.clientId != null).length ?? 0) > 1) {
+      this.modal('LEAVE PARTY?', 'You are the host. Leaving ends the party for everyone.', [['STAY', () => {}], ['LEAVE', () => this.leave(false)]]);
+      return;
+    }
     this.client?.leave();
     this.client = null;
     this.cleanupHost();
@@ -331,14 +336,20 @@ export class App {
 
   private onStatus(s: Status, detail?: string) {
     const el = this.statusEl;
-    if (s === 'reconnecting') { el.innerHTML = '<i class="spin"></i> Connection lost. Reconnecting...'; el.classList.remove('hidden'); }
+    if (s === 'reconnecting') { el.innerHTML = '<i class="spin"></i><span class="gt or">CONNECTION LOST - RECONNECTING...</span>'; el.classList.remove('hidden'); }
     else if (s === 'online') el.classList.add('hidden');
     else if (s === 'hostLeft') {
       el.classList.add('hidden');
-      const m = div('modal', '<div class="crate card"><h2>The host left the party</h2><p>The room is closed. Start a new one and send your friends the link.</p><button class="btn big">BACK TO TITLE</button></div>');
-      m.querySelector('button')!.onclick = () => { m.remove(); this.leave(); };
-      this.ui.appendChild(m);
+      this.modal('THE HOST LEFT', 'The room is closed. Start a new one and send your friends the link.', [['BACK TO TITLE', () => this.leave()]]);
     } else if (s === 'failed') void detail;
+  }
+
+  /** Styled dialog (replaces confirm/alert). Buttons close it, then run. */
+  private modal(title: string, text: string, buttons: [string, () => void][]) {
+    const m = div('modal', `<div class="pnl card" role="alertdialog" aria-modal="true" aria-label="${esc(title)}"><div class="band"><h2 class="gt or">${esc(title)}</h2></div><div class="pbody"><p class="sm">${esc(text.toUpperCase())}</p><div class="menu">${buttons.map((b, i) => `<button class="mi ${i === 0 ? 'big' : ''}">${esc(b[0])}</button>`).join('')}</div></div></div>`);
+    m.querySelectorAll('button').forEach((b, i) => { b.onclick = () => { m.remove(); buttons[i][1](); }; });
+    this.ui.appendChild(m);
+    m.querySelector('button')?.focus();
   }
 
   private inviteLink(code: string) {
@@ -616,6 +627,13 @@ export class App {
       const g = this.stage.activeGame;
       if (world && g?.hud) extra = [0, 1, 2, 3].map((i) => { try { return g.hud!(world, i); } catch { return ''; } });
       this.hud.update(dt, { coins, stars: this.phase === 'final' && this.final.currentStars.length ? this.final.currentStars : stars, extra });
+      // in play: real-game style HUD (big faces + per-game status), clock in the middle like the original
+      const playing = !!world;
+      document.body.classList.toggle('playing', playing);
+      if (world && c?.round) {
+        const mg = getGame(c.round.gameId);
+        if (mg) this.hud.setClock(Math.max(0, mg.maxTime - world.time));
+      }
     }
 
     // countdown text

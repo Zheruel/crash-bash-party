@@ -36,7 +36,9 @@ export function characterRefs(): ModelRef[] {
 /** Loads the catalog and all character models. Await before building boards/lobbies/games. */
 export async function preloadCharacters(): Promise<void> {
   await loadCatalog();
-  await ready(characterRefs());
+  // title screen only needs the 8 base models; per-game variants (pogo/bear/tank) stream in afterwards
+  await ready(getCatalog().characters);
+  setTimeout(() => void ready(characterRefs()), 1500);
 }
 
 /** True when a real per-game variant model (pogo/polarBear/tank: character + vehicle) was used. */

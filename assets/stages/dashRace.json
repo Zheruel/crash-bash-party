@@ -1,0 +1,581 @@
+{
+ "_notes": "CRASH DASH (levels 23-26, group-29 stages 643 Dot / 639 Toxic / 641 Splash / 637 Dante, model units x3.4, origin = track centre, start line on +x, race runs counter-clockwise seen from above). Parts are the static extra_* groups; the hazard frames (monster/trees/bats) and ground-level props are placed by the view. Kart models: 816-830 hover pods (Dot/Toxic/Dante), 800-814 sea creatures (Splash); order koala/rilla/dingodile/brio/tiny/cortex/coco/crash is 816+2i resp. 802,806,808,800,810,812,804,814.",
+ "arenas": {
+  "dashRace": {
+   "model": 643,
+   "scale": 3.4,
+   "parts": [
+    "extra_809c",
+    "extra_99c0",
+    "extra_9b4c",
+    "extra_b474"
+   ]
+  },
+  "dashRace:dotDash": {
+   "model": 643,
+   "scale": 3.4,
+   "parts": [
+    "extra_809c",
+    "extra_99c0",
+    "extra_9b4c",
+    "extra_b474"
+   ]
+  },
+  "dashRace:toxicDash": {
+   "model": 639,
+   "scale": 3.4,
+   "parts": [
+    "extra_9bec",
+    "extra_a240",
+    "extra_a328",
+    "extra_a9a4",
+    "extra_abb0",
+    "extra_bcc8"
+   ]
+  },
+  "dashRace:splashDash": {
+   "model": 641,
+   "scale": 3.4,
+   "parts": [
+    "extra_4e74",
+    "extra_57e4",
+    "extra_5eac",
+    "extra_5c24",
+    "extra_67d0",
+    "extra_6d60"
+   ]
+  },
+  "dashRace:dantesDash": {
+   "model": 637,
+   "scale": 3.4,
+   "parts": [
+    "extra_8d04",
+    "part54",
+    "extra_ae58",
+    "extra_9638"
+   ]
+  }
+ },
+ "props": {
+  "dashRace.kart.koala": {
+   "model": 816,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.sea.koala": {
+   "model": 802,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.kart.rilla": {
+   "model": 820,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.sea.rilla": {
+   "model": 806,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.kart.dingodile": {
+   "model": 824,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.sea.dingodile": {
+   "model": 808,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.kart.brio": {
+   "model": 822,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.sea.brio": {
+   "model": 800,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.kart.tiny": {
+   "model": 826,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.sea.tiny": {
+   "model": 810,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.kart.cortex": {
+   "model": 828,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.sea.cortex": {
+   "model": 812,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.kart.coco": {
+   "model": 818,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.sea.coco": {
+   "model": 804,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.kart.crash": {
+   "model": 830,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.sea.crash": {
+   "model": 814,
+   "scale": 2.8899999999999997,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.toxic.monster": {
+   "model": 639,
+   "scale": 3.4,
+   "parts": [
+    "part53"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.toxic.barrel": {
+   "model": 639,
+   "scale": 3.4,
+   "parts": [
+    "part54"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.toxic.slime": {
+   "model": 639,
+   "scale": 3.4,
+   "parts": [
+    "part59"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.splash.rod": {
+   "model": 641,
+   "scale": 3.4,
+   "parts": [
+    "part24"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.splash.weed": {
+   "model": 641,
+   "scale": 3.4,
+   "parts": [
+    "part50"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.dante.bat": {
+   "model": 637,
+   "scale": 3.4,
+   "parts": [
+    "part55"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.dante.grass": {
+   "model": 637,
+   "scale": 3.4,
+   "parts": [
+    "extra_9ca8"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.dante.grass2": {
+   "model": 637,
+   "scale": 3.4,
+   "parts": [
+    "extra_a294"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.dot.tower1": {
+   "model": 643,
+   "scale": 3.4,
+   "parts": [
+    "extra_a84c"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.dot.tower2": {
+   "model": 643,
+   "scale": 3.4,
+   "parts": [
+    "extra_9f34"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.dot.tower3": {
+   "model": 643,
+   "scale": 3.4,
+   "parts": [
+    "extra_b0dc"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.dot.lamp": {
+   "model": 643,
+   "scale": 3.4,
+   "parts": [
+    "extra_a3b4"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.dot.arrow": {
+   "model": 643,
+   "scale": 3.4,
+   "parts": [
+    "extra_9a6c"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.toxic.arrow": {
+   "model": 639,
+   "scale": 3.4,
+   "parts": [
+    "extra_a9a4"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.splash.arrow": {
+   "model": 641,
+   "scale": 3.4,
+   "parts": [
+    "extra_5c24"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.dante.arrow": {
+   "model": 637,
+   "scale": 3.4,
+   "parts": [
+    "extra_9948"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.dante.back": {
+   "model": 637,
+   "scale": 3.4,
+   "parts": [
+    "extra_9df8"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.force": {
+   "model": 639,
+   "scale": 3.4,
+   "parts": [
+    "part30"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  }
+ }
+}

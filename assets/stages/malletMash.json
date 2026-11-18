@@ -1,0 +1,504 @@
+{
+ "_notes": "Mallet Mash = level 29 (cheat id 0x1D). Stage 0617: stone tower, round grass platform (extra_4948, top y=0). Fitted camera: see client/games/malletMash.ts. Props from pack 0343 (mushrooms, crate, boots, shock rings); per-character mallet models 848-862 (clip roles differ per character, checked on contact sheets). Banners/lid are positioned by the view.",
+ "arenas": {
+  "malletMash": {
+   "model": 617,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "parts": [
+    "extra_2ff0",
+    "extra_3730",
+    "extra_3b14",
+    "extra_4948",
+    "extra_5094"
+   ]
+  }
+ },
+ "props": {
+  "mmMushroom": {
+   "model": 343,
+   "parts": [
+    "part1"
+   ],
+   "scale": 2.379,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmGold": {
+   "model": 343,
+   "parts": [
+    "part20"
+   ],
+   "scale": 2.379,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmCrate": {
+   "model": 343,
+   "parts": [
+    "part14"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmBoots": {
+   "model": 343,
+   "parts": [
+    "part18"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmShock": {
+   "model": 343,
+   "parts": [
+    "part0"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmRingW": {
+   "model": 343,
+   "parts": [
+    "part4"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmRingG": {
+   "model": 343,
+   "parts": [
+    "part5"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmRingB": {
+   "model": 343,
+   "parts": [
+    "part19"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmStar": {
+   "model": 343,
+   "parts": [
+    "part13"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmFlash": {
+   "model": 343,
+   "parts": [
+    "part6"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmSpark": {
+   "model": 343,
+   "parts": [
+    "part21"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmSmoke": {
+   "model": 343,
+   "parts": [
+    "part2"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmSmoke2": {
+   "model": 343,
+   "parts": [
+    "part3"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmBannerBlue": {
+   "model": 617,
+   "parts": [
+    "extra_2e28"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0
+   }
+  },
+  "mmBannerRed": {
+   "model": 617,
+   "parts": [
+    "extra_2f0c"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmLid": {
+   "model": 617,
+   "parts": [
+    "extra_45bc"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmPad0": {
+   "model": 617,
+   "parts": [
+    "part1"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmPad1": {
+   "model": 617,
+   "parts": [
+    "part2"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmPad2": {
+   "model": 617,
+   "parts": [
+    "part3"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmPad3": {
+   "model": 617,
+   "parts": [
+    "part4"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmHammerWood": {
+   "model": 617,
+   "parts": [
+    "part10"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmHammerStone": {
+   "model": 617,
+   "parts": [
+    "part11"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmMallet_crash": {
+   "model": 862,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 2,
+    "run": 0,
+    "charge": 1,
+    "hit": 3,
+    "action": 4,
+    "win": 0,
+    "lose": 3,
+    "jump": 4
+   },
+   "parts": [
+    "part0"
+   ]
+  },
+  "mmMallet_coco": {
+   "model": 860,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "hit": 1,
+    "run": 2,
+    "charge": 3,
+    "action": 4,
+    "win": 4,
+    "lose": 1,
+    "jump": 4
+   },
+   "parts": [
+    "part0"
+   ]
+  },
+  "mmMallet_tiny": {
+   "model": 852,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "hit": 1,
+    "run": 2,
+    "charge": 3,
+    "action": 4,
+    "win": 5,
+    "lose": 1,
+    "jump": 4
+   }
+  },
+  "mmMallet_dingodile": {
+   "model": 850,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "action": 1,
+    "run": 2,
+    "hit": 3,
+    "win": 4,
+    "charge": 5,
+    "lose": 3,
+    "jump": 1
+   }
+  },
+  "mmMallet_cortex": {
+   "model": 858,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "hit": 2,
+    "action": 3,
+    "win": 4,
+    "charge": 5,
+    "lose": 2,
+    "jump": 3
+   }
+  },
+  "mmMallet_brio": {
+   "model": 856,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "hit": 1,
+    "run": 2,
+    "action": 3,
+    "win": 4,
+    "charge": 5,
+    "lose": 1,
+    "jump": 3
+   }
+  },
+  "mmMallet_koala": {
+   "model": 848,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "hit": 1,
+    "run": 2,
+    "action": 3,
+    "charge": 4,
+    "win": 5,
+    "lose": 1,
+    "jump": 3
+   }
+  },
+  "mmMallet_rilla": {
+   "model": 854,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "hit": 1,
+    "run": 2,
+    "action": 3,
+    "charge": 4,
+    "win": 5,
+    "lose": 1,
+    "jump": 3
+   }
+  },
+  "mmAura_crash": {
+   "model": 862,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part1"
+   ]
+  },
+  "mmAura_coco": {
+   "model": 860,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part1"
+   ]
+  }
+ }
+}

@@ -1,18 +1,21 @@
 /**
  * CRATE CRUSH (game id 'crateToss') - after Crash Bash's Crate Crush.
  *
- * Pick up crates and throw them at your rivals (or kick them). Each player has a health bar; last one standing
- * wins, when time runs out the most health wins. Three crate kinds fall from the sky:
+ * Pick up crates and throw them at your rivals (or kick them). Each player has a health bar (with a fruit icon); last
+ * one standing wins, when the 90 s run out the most health wins. Real controls: Circle pick up / throw, Square kick,
+ * Cross jump (here: A = pick up / throw, B = kick a crate in front of you, else jump; DRAIN BASH: B fires a held weapon).
+ * Three crate kinds are scattered over the floor from the start and fall in again as they get used up:
  *   wood  - plain crate, a throw/kick that connects hurts and the crate smashes
  *   TNT   - starts a 3 s fuse when picked up or kicked, then explodes wherever it is (also in your hands!)
  *   nitro - explodes on impact: when it hits a player, a wall, lands after a throw/kick, or is dropped by a
  *           player who gets hurt while carrying it. Explosions also set off nearby nitro/TNT.
- * Pickups: wumpa fruit (+health), speedy boots, slow-motion potion (DRAIN BASH only - avoid it).
- *   Stick = move, A = pick up a crate / throw it, B = kick a crate in front of you (otherwise jump; jump to dodge)
+ * Pickups: wumpa fruit (+health) everywhere; SPACE / SNOW / DRAIN also have speedy boots, the slow-motion potion (avoid),
+ *   the Aku Aku mask (limited immunity) and a weight (slows you and drains health - pass it on by bumping a rival).
  *
- * Variants (world.data.variant): jungle (JUNGLE BASH, plain) |
- *   space (SPACE BASH: explosions blow holes in the floor - fall in and you are out) |
- *   snow (SNOW BASH: slippery ice floor) | drain (DRAIN BASH: slow-motion potions about)
+ * Variants (world.data.variant): jungle (JUNGLE BASH: wood / TNT / nitro, fruit only) |
+ *   space (SPACE BASH: explosive crates destroy the floor - fall in and you are out) |
+ *   snow (SNOW BASH: a sleeping penguin in the middle - hit it or blow up next to it and it wakes up and rams you) |
+ *   drain (DRAIN BASH: purple "?" crates hold weapons: homing energy orb x3, eight-way missile x2, sonic ring x1)
  *
  * world.data:
  *   variant: string
@@ -41,11 +44,12 @@ import { addBody, clamp, collideCircles, effMass, emit, movePlayer, rand } from 
 import { IDLE, MAX_SEATS, type Body, type InputState, type MiniGame, type World } from '../types';
 import { angDiff, pickVariant } from './common';
 
-export const CT_HALF = 9;
+export const CT_HALF = 7.2;
 export const CT_HP = 10;
-export const CT_FLOOR_N = 9; // space bash floor grid (squares are 2 units)
+export const CT_FLOOR_N = 8; // space bash floor grid
 const CT_TILE = (CT_HALF * 2) / CT_FLOOR_N;
-const GRAB_RANGE = 1.9, THROW_SPEED = 15, KICK_SPEED = 13, FLY_TIME = 0.9, STUN = 1.0, MAX_CRATES = 8, FUSE = 3;
+const GRAB_RANGE = 1.9, THROW_SPEED = 15, KICK_SPEED = 13, FLY_TIME = 0.9, STUN = 1.0, MAX_CRATES = 9, FUSE = 3;
+const MASK_TIME = 6, WEIGHT_DPS = 0.35, PENGUIN_TIME = 7;
 const AIM_CONE = 0.45; // radians of aim assist toward the nearest rival
 const WOOD_DMG = 2, TNT_DMG = 4, NITRO_DMG = 5, TNT_R = 2.6, NITRO_R = 3.0;
 const CRATE_KINDS = ['crate', 'tnt', 'nitro'];
@@ -71,6 +75,12 @@ interface Data {
   prevB: boolean[];
   lastBy: number[];
   lastByTick: number[];
+  mask: number[];
+  weight: number; // slot carrying the weight, -1 none
+  weightPass: number; // seconds until the weight can be passed on again
+  weapon: number[]; // 0 none, 1 homing orb, 2 eight-way missile, 3 sonic ring
+  ammo: number[];
+  penguin: number; // 0 asleep, >0 seconds awake
   nextSpawn: number;
   nextPickup: number;
 }
@@ -91,6 +101,7 @@ export function floorAt(d: { floor: number[] }, x: number, z: number): boolean {
 
 function hurt(w: World, d: Data, p: Body, dmg: number, by: number, stun = STUN) {
   if (!p.alive || p.fall) return;
+  if (d.mask[p.slot] > 0) return; // Aku Aku
   d.hp[p.slot] -= dmg;
   d.taken[p.slot]++;
   d.stun[p.slot] = Math.max(d.stun[p.slot], stun);
@@ -146,23 +157,60 @@ function blast(w: World, d: Data, c: Body, by: number) {
     else if (o.kind === 'tnt') { if (!o.fall) { o.fall = true; o.m = 0.3; } else o.m = Math.min(o.m, 0.3); }
   }
   destroyFloor(w, d, c.x, c.z, radius * 0.9);
+  if (d.variant === 'snow' && d.penguin <= 0 && Math.hypot(c.x, c.z) < radius + 2.5) wakePenguin(w, d);
+}
+
+function wakePenguin(w: World, d: Data) {
+  d.penguin = PENGUIN_TIME;
+  const g = w.bodies.find((b) => b.kind === 'penguin');
+  if (g) emit(w, 'penguinWake', g.x, g.z, -1, 1);
+}
+
+function pickupSpot(w: World, d: Data): [number, number] {
+  let x = 0, z = 0;
+  for (let k = 0; k < 12; k++) {
+    x = (rand(w) * 2 - 1) * (CT_HALF - 1.5);
+    z = (rand(w) * 2 - 1) * (CT_HALF - 1.5);
+    if (floorAt(d, x, z) && (d.variant !== 'snow' || Math.hypot(x, z) > 2.5)) break;
+  }
+  return [x, z];
+}
+
+function fireWeapon(w: World, d: Data, p: Body) {
+  const k = d.weapon[p.slot];
+  d.ammo[p.slot]--;
+  if (d.ammo[p.slot] <= 0) d.weapon[p.slot] = 0;
+  const foes = players(w).filter((o) => o.alive && !o.fall && o.slot !== p.slot);
+  if (k === 1) { // homing energy orb
+    const b = addBody(w, 'orb', p.slot, p.x + Math.sin(p.face) * 1.2, p.z + Math.cos(p.face) * 1.2, 0.5, 1);
+    b.y = 1.2; b.vx = Math.sin(p.face) * 9; b.vz = Math.cos(p.face) * 9; b.cd = 4;
+  } else if (k === 2) { // eight-way missile
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + p.face;
+      const b = addBody(w, 'rocket', p.slot, p.x + Math.sin(a) * 1.0, p.z + Math.cos(a) * 1.0, 0.4, 1);
+      b.y = 1.0; b.vx = Math.sin(a) * 12; b.vz = Math.cos(a) * 12; b.cd = 1.1; b.face = a;
+    }
+  } else { // sonic ring
+    for (const o of foes) {
+      const dx = o.x - p.x, dz = o.z - p.z, dd = Math.hypot(dx, dz) || 1;
+      if (dd > 5.5) continue;
+      o.vx += (dx / dd) * 12; o.vz += (dz / dd) * 12; o.vy = 4;
+      hurt(w, d, o, 3, p.slot, 1.5);
+    }
+  }
+  emit(w, 'weapon', p.x, p.z, p.slot, k);
 }
 
 function light(w: World, c: Body) {
   if (c.kind === 'tnt' && !c.fall) { c.fall = true; c.m = FUSE; emit(w, 'lit', c.x, c.z, -1, 1); }
 }
 
-function spawnCrate(w: World, d: Data) {
-  let x = 0, z = 0;
-  for (let k = 0; k < 12; k++) {
-    x = (rand(w) * 2 - 1) * (CT_HALF - 1.5);
-    z = (rand(w) * 2 - 1) * (CT_HALF - 1.5);
-    if (floorAt(d, x, z)) break;
-  }
+function spawnCrate(w: World, d: Data, onFloor = false) {
+  const [x, z] = pickupSpot(w, d);
   const r = rand(w);
-  const kind = r < 0.55 ? 'crate' : r < 0.85 ? 'tnt' : 'nitro';
+  const kind = r < 0.58 ? 'crate' : r < 0.82 ? 'tnt' : 'nitro';
   const c = addBody(w, kind, -1, x, z, 0.55, 1);
-  c.y = 9;
+  c.y = onFloor ? 0 : 9;
   c.vy = 0;
   c.face = rand(w) * Math.PI * 2;
   if (kind === 'tnt') c.m = FUSE;
@@ -172,21 +220,24 @@ export const crateToss: MiniGame = {
   id: 'crateToss',
   name: 'Crate Crush',
   description: 'Pick up and throw crates at your opponents. TNT counts down, nitro explodes on impact. Last one standing - or most health - wins.',
-  controls: 'Space: pick up crate, press again to throw. Shift: kick a crate (or jump).',
+  controls: 'Space: pick up a crate / throw it. Shift: kick a crate (or jump; fire a weapon in DRAIN BASH).',
   variants: CT_VARIANTS,
-  maxTime: 100,
+  maxTime: 90,
 
   setup(w, slots) {
     const variant = pickVariant(w, CT_VARIANTS);
     const d: Data = {
       variant, hp: [CT_HP, CT_HP, CT_HP, CT_HP], score: [0, 0, 0, 0], taken: [0, 0, 0, 0], elim: [-1, -1, -1, -1], stun: [0, 0, 0, 0],
       boots: [0, 0, 0, 0], slow: [0, 0, 0, 0], floor: variant === 'space' ? new Array(CT_FLOOR_N * CT_FLOOR_N).fill(1) : [],
+      mask: [0, 0, 0, 0], weight: -1, weightPass: 0, weapon: [0, 0, 0, 0], ammo: [0, 0, 0, 0], penguin: 0,
       prevA: [false, false, false, false], prevB: [false, false, false, false], lastBy: [-1, -1, -1, -1], lastByTick: [-99, -99, -99, -99],
-      nextSpawn: 0.3, nextPickup: 8,
+      nextSpawn: 2, nextPickup: 6,
     };
     w.data = d;
-    const c = CT_HALF - 2;
-    const spawns: [number, number][] = [[-c, -c], [c, -c], [-c, c], [c, c]];
+    const c = CT_HALF - 1.6;
+    const spawns: [number, number][] = [[-c, c], [-c, -c], [c, -c], [c, c]]; // P1 bottom-left (camera side), P2 top-left, P3 top-right, P4 bottom-right
+    if (variant === 'snow') { const g = addBody(w, 'penguin', -1, 0, 0, 1.1, 8); g.face = 0; }
+    for (let k = 0; k < 6; k++) spawnCrate(w, d, true);
     for (const s of slots) {
       const sc = w.params.playerScale;
       const [x, z] = spawns[s.slot];
@@ -207,18 +258,32 @@ export const crateToss: MiniGame = {
       spawnCrate(w, d);
       d.nextSpawn = (1.5 + rand(w) * 1.2) / w.params.spawnRate;
     }
-    // pickups
+    // pickups (fruit everywhere; SPACE / SNOW / DRAIN add boots, potion, Aku Aku mask, weight; DRAIN adds weapon crates)
     if (w.time >= d.nextPickup && live.length > 1) {
-      d.nextPickup = w.time + 7 + rand(w) * 4;
-      const pk = w.bodies.filter((b) => b.kind === 'fruit' || b.kind === 'boots' || b.kind === 'potion');
-      if (pk.length < 2) {
+      d.nextPickup = w.time + 4 + rand(w) * 3;
+      const isPk = (b: Body) => b.kind === 'fruit' || b.kind === 'boots' || b.kind === 'potion' || b.kind === 'mask' || b.kind === 'weight' || b.kind === 'weapon';
+      if (w.bodies.filter(isPk).length < 4) {
         const hurtSomeone = live.some((p) => d.hp[p.slot] < CT_HP - 2);
         const r = rand(w);
-        const kind = d.variant === 'drain' && r < 0.4 ? 'potion' : hurtSomeone && r < 0.75 ? 'fruit' : r < 0.9 ? 'boots' : 'fruit';
-        let x = 0, z = 0;
-        for (let k = 0; k < 12; k++) { x = (rand(w) * 2 - 1) * (CT_HALF - 1.5); z = (rand(w) * 2 - 1) * (CT_HALF - 1.5); if (floorAt(d, x, z)) break; }
-        addBody(w, kind, -1, x, z, 0.5, 1);
+        let kind = 'fruit';
+        if (d.variant === 'drain') kind = r < 0.3 ? 'weapon' : r < 0.45 ? 'weapon' : r < 0.6 ? 'boots' : r < 0.7 ? 'potion' : r < 0.78 ? 'mask' : r < 0.84 ? 'weight' : 'fruit';
+        else if (d.variant !== 'jungle') kind = r < 0.2 ? 'boots' : r < 0.32 ? 'potion' : r < 0.42 ? 'mask' : r < 0.5 ? 'weight' : 'fruit';
+        else if (!hurtSomeone && r < 0.5) kind = 'fruit';
+        const [x, z] = pickupSpot(w, d);
+        addBody(w, kind, -1, x, z, 0.55, 1);
       }
+    }
+    d.weightPass = Math.max(0, d.weightPass - dt);
+    if (d.weight >= 0) {
+      const wp = live.find((p) => p.slot === d.weight);
+      if (!wp) d.weight = -1;
+      else if (d.weightPass <= 0)
+        for (const o of live) {
+          if (o.slot === d.weight || o.fall || Math.hypot(o.x - wp.x, o.z - wp.z) > o.r + wp.r + 0.3) continue;
+          d.weight = o.slot; d.weightPass = 1.5;
+          emit(w, 'weight', o.x, o.z, o.slot, 1);
+          break;
+        }
     }
 
     const grip = d.variant === 'snow' ? 3.2 : 12;
@@ -234,6 +299,8 @@ export const crateToss: MiniGame = {
       d.stun[slot] = Math.max(0, d.stun[slot] - dt);
       d.boots[slot] = Math.max(0, d.boots[slot] - dt);
       d.slow[slot] = Math.max(0, d.slow[slot] - dt);
+      d.mask[slot] = Math.max(0, d.mask[slot] - dt);
+      if (d.weight === slot) { d.hp[slot] -= WEIGHT_DPS * dt; if (d.hp[slot] <= 0 && p.alive) { knockOut(w, d, p, -1); continue; } }
       const stunned = d.stun[slot] > 0;
       const held = holding(w, slot);
       const aRise = inp.a && !d.prevA[slot], bRise = inp.b && !d.prevB[slot];
@@ -269,7 +336,9 @@ export const crateToss: MiniGame = {
           if (best) { best.cd = slot + 1; best.vx = best.vz = 0; best.slot = slot; light(w, best); emit(w, 'grab', best.x, best.z, slot, 1); }
         }
       }
-      if (bRise && !stunned) {
+      if (bRise && !stunned && !held && d.weapon[slot] > 0 && d.ammo[slot] > 0) {
+        fireWeapon(w, d, p);
+      } else if (bRise && !stunned) {
         let best: Body | null = null, bd = 1.9;
         if (!held) {
           for (const c of crates(w)) {
@@ -291,17 +360,24 @@ export const crateToss: MiniGame = {
           emit(w, 'kick', p.x, p.z, slot, 1);
         } else jump = true;
       }
-      const spd = 6.4 * (held ? 0.85 : 1) * (d.boots[slot] > 0 ? 1.45 : 1) * (d.slow[slot] > 0 ? 0.5 : 1);
+      const spd = 6.4 * (held ? 0.85 : 1) * (d.boots[slot] > 0 ? 1.45 : 1) * (d.slow[slot] > 0 ? 0.5 : 1) * (d.weight === slot ? 0.7 : 1);
       movePlayer(w, p, stunned ? IDLE : { x: inp.x, y: inp.y, a: jump, b: false }, dt, grip, spd);
       // pickups
       for (const o of w.bodies) {
-        if (!(o.kind === 'fruit' || o.kind === 'boots' || o.kind === 'potion') || !o.alive || p.y > 0.8) continue;
+        if (!(o.kind === 'fruit' || o.kind === 'boots' || o.kind === 'potion' || o.kind === 'mask' || o.kind === 'weight' || o.kind === 'weapon') || !o.alive || p.y > 0.8) continue;
         if (Math.hypot(o.x - p.x, o.z - p.z) > p.r + o.r) continue;
         o.alive = false;
         if (o.kind === 'fruit') { d.hp[slot] = Math.min(CT_HP, d.hp[slot] + 3); emit(w, 'pickup', o.x, o.z, slot, 1); }
         else if (o.kind === 'boots') { d.boots[slot] = 8; emit(w, 'pickup', o.x, o.z, slot, 2); }
-        else { d.slow[slot] = 6; emit(w, 'pickup', o.x, o.z, slot, 3); }
+        else if (o.kind === 'potion') { d.slow[slot] = 6; emit(w, 'pickup', o.x, o.z, slot, 3); }
+        else if (o.kind === 'mask') { d.mask[slot] = MASK_TIME; emit(w, 'pickup', o.x, o.z, slot, 4); }
+        else if (o.kind === 'weight') { d.weight = slot; d.weightPass = 1.5; emit(w, 'pickup', o.x, o.z, slot, 5); }
+        else { const k = 1 + Math.floor(rand(w) * 3); d.weapon[slot] = k; d.ammo[slot] = [0, 3, 2, 1][k]; emit(w, 'pickup', o.x, o.z, slot, 5 + k); }
       }
+    }
+    if (d.penguin <= 0) {
+      const g = w.bodies.find((b) => b.kind === 'penguin');
+      if (g) for (const p of live) { const dx = p.x - g.x, dz = p.z - g.z, dd = Math.hypot(dx, dz) || 1, m = g.r + p.r; if (dd < m && !p.fall) { p.x = g.x + (dx / dd) * m; p.z = g.z + (dz / dd) * m; } }
     }
     for (let i = 0; i < live.length; i++)
       for (let j = i + 1; j < live.length; j++)
@@ -390,8 +466,59 @@ export const crateToss: MiniGame = {
       c.x = clamp(c.x, -lim, lim);
       c.z = clamp(c.z, -lim, lim);
     }
+    // weapon projectiles
+    for (const b of w.bodies) {
+      if (!b.alive || (b.kind !== 'orb' && b.kind !== 'rocket')) continue;
+      b.cd -= dt;
+      if (b.kind === 'orb') { // home in on the nearest rival
+        let tgt: Body | null = null, td = Infinity;
+        for (const o of live) { if (o.slot === b.slot || o.fall) continue; const dd = Math.hypot(o.x - b.x, o.z - b.z); if (dd < td) { td = dd; tgt = o; } }
+        if (tgt) {
+          const want = Math.atan2(tgt.x - b.x, tgt.z - b.z), cur = Math.atan2(b.vx, b.vz);
+          const na = cur + Math.max(-4 * dt, Math.min(4 * dt, angDiff(cur, want)));
+          b.vx = Math.sin(na) * 9; b.vz = Math.cos(na) * 9;
+        }
+      }
+      b.x += b.vx * dt; b.z += b.vz * dt;
+      if (b.cd <= 0 || Math.abs(b.x) > CT_HALF || Math.abs(b.z) > CT_HALF) { b.alive = false; emit(w, 'fizzle', b.x, b.z, -1, 0.5); continue; }
+      for (const p of live) {
+        if (p.slot === b.slot || p.fall || Math.hypot(p.x - b.x, p.z - b.z) > p.r + b.r) continue;
+        const sp = Math.hypot(b.vx, b.vz) || 1;
+        p.vx = (b.vx / sp) * 6; p.vz = (b.vz / sp) * 6; p.vy = 3;
+        hurt(w, d, p, b.kind === 'orb' ? 3 : 2, b.slot, 1.0);
+        b.alive = false;
+        emit(w, 'weaponHit', b.x, b.z, p.slot, 1);
+        break;
+      }
+    }
+    // the penguin (SNOW BASH): asleep in the middle until something touches it, then it rams the nearest player
+    const png = w.bodies.find((b) => b.kind === 'penguin');
+    if (png) {
+      if (d.penguin <= 0) {
+        for (const c of crates(w)) if (c.cd === 0 && c.dash > 0 && Math.hypot(c.x - png.x, c.z - png.z) < png.r + c.r) { wakePenguin(w, d); if (c.kind === 'crate') { c.alive = false; emit(w, 'smash', c.x, c.z, -1, 1); } else if (c.kind === 'nitro') blast(w, d, c, c.slot); }
+        for (const p of live) if (!p.fall && Math.hypot(p.x - png.x, p.z - png.z) < png.r + p.r + 0.1) { wakePenguin(w, d); break; }
+        png.vx = png.vz = 0;
+      } else {
+        d.penguin -= dt;
+        let tgt: Body | null = null, td = Infinity;
+        for (const o of live) { if (o.fall) continue; const dd = Math.hypot(o.x - png.x, o.z - png.z); if (dd < td) { td = dd; tgt = o; } }
+        const back = d.penguin < 1.5 || !tgt;
+        const tx = back ? 0 : tgt!.x, tz = back ? 0 : tgt!.z;
+        const dx = tx - png.x, dz = tz - png.z, dd = Math.hypot(dx, dz) || 1;
+        const sp = back ? 3 : 4.6;
+        if (dd > 0.4) { png.x += (dx / dd) * sp * dt; png.z += (dz / dd) * sp * dt; png.face = Math.atan2(dx, dz); }
+        if (!back && tgt && td < png.r + tgt.r + 0.2 && d.mask[tgt.slot] <= 0) {
+          const kx = (tgt.x - png.x) / (td || 1), kz = (tgt.z - png.z) / (td || 1);
+          tgt.vx = kx * 10; tgt.vz = kz * 10; tgt.vy = 4;
+          hurt(w, d, tgt, 2, -1, 1.2);
+          emit(w, 'penguinHit', tgt.x, tgt.z, tgt.slot, 1);
+          d.penguin = Math.min(d.penguin, 1.4);
+        }
+        if (d.penguin <= 0) { png.x = 0; png.z = 0; emit(w, 'penguinSleep', 0, 0, -1, 1); }
+      }
+    }
     // pickups on holes vanish
-    for (const o of w.bodies) if ((o.kind === 'fruit' || o.kind === 'boots' || o.kind === 'potion') && o.alive && !floorAt(d, o.x, o.z)) o.alive = false;
+    for (const o of w.bodies) if ((o.kind === 'fruit' || o.kind === 'boots' || o.kind === 'potion' || o.kind === 'mask' || o.kind === 'weight' || o.kind === 'weapon') && o.alive && !floorAt(d, o.x, o.z)) o.alive = false;
     w.bodies = w.bodies.filter((b) => b.alive || b.kind === 'player');
   },
 
@@ -421,6 +548,7 @@ export const crateToss: MiniGame = {
       const dd = Math.hypot(o.x - me.x, o.z - me.z);
       if (dd < fd) { fd = dd; foe = o; }
     }
+    if (d.weight === slot && foe && !held) { const dx = foe.x - me.x, dz = foe.z - me.z; return { x: dx / (fd || 1), y: dz / (fd || 1), a: false, b: false }; } // pass the weight on
     // 1. get away from lit TNT / flying nitro (unless it is the one in my hands)
     let fx = 0, fz = 0, danger = false;
     for (const c of crates(w)) {
@@ -441,16 +569,27 @@ export const crateToss: MiniGame = {
       }
       return [0, 0];
     };
+    // keep clear of the sleeping penguin and run from the awake one
+    const png = w.bodies.find((b) => b.kind === 'penguin');
+    if (png) {
+      const dx = me.x - png.x, dz = me.z - png.z, dd = Math.hypot(dx, dz);
+      if (dd < (d.penguin > 0 ? 5 : 2.8)) { fx += (dx / (dd || 1)) * 1.5; fz += (dz / (dd || 1)) * 1.5; danger = true; }
+    }
     if (danger) {
       const [sx, sz] = safe(fx, fz);
       return { x: sx, y: sz, a: false, b: false };
+    }
+    if (!held && d.weapon[slot] > 0 && d.ammo[slot] > 0 && foe && fd < 9) {
+      const err = Math.abs(angDiff(me.face, Math.atan2(foe.x - me.x, foe.z - me.z)));
+      const [sx, sz] = safe((foe.x - me.x) / fd, (foe.z - me.z) / fd);
+      return { x: sx, y: sz, a: false, b: (err < 0.5 || d.weapon[slot] !== 1) && w.tick % 2 === 0 };
     }
     if (!held) {
       // wumpa fruit when hurt, boots when close
       let pick: Body | null = null, pd = Infinity;
       for (const o of w.bodies) {
-        if (!o.alive || !(o.kind === 'fruit' || o.kind === 'boots')) continue;
-        const want = o.kind === 'fruit' ? d.hp[slot] <= CT_HP - 3 : d.boots[slot] <= 0;
+        if (!o.alive || !(o.kind === 'fruit' || o.kind === 'boots' || o.kind === 'mask' || o.kind === 'weapon')) continue;
+        const want = o.kind === 'fruit' ? d.hp[slot] <= CT_HP - 3 : o.kind === 'boots' ? d.boots[slot] <= 0 : o.kind === 'mask' ? d.mask[slot] <= 0 : d.weapon[slot] <= 0;
         const dd = Math.hypot(o.x - me.x, o.z - me.z);
         if (want && dd < pd && dd < (o.kind === 'fruit' ? 14 : 6)) { pd = dd; pick = o; }
       }

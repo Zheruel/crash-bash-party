@@ -1,12 +1,20 @@
 import { CHARACTERS, COLORS, type Look } from '../../shared/look';
-import { avatarHtml } from '../shell/avatar';
+import { getCatalog } from '../crash';
 import { sfx } from '../shell/sound';
-import { esc } from './dom';
+import { esc, face } from './dom';
 
-/** Hero grid + colour swatches. Re-renders itself; calls onChange when the player picks. */
-/** Roster entries offered in the picker. */
-export const PICKABLE = CHARACTERS.map((_, i) => i);
+/** Roster indices offered in the picker: only real Crash Bash characters that have a catalog model. */
+export function pickable(): number[] {
+  const cat = getCatalog().characters;
+  return CHARACTERS.map((_, i) => i).filter((i) => {
+    const c = CHARACTERS[i];
+    if ('portrait' in c || (c.id as string) === 'big-stein') return false;
+    return !cat?.length || cat.some((x) => x.id === c.id);
+  });
+}
+export const PICKABLE = CHARACTERS.map((_, i) => i).filter((i) => !('portrait' in CHARACTERS[i]) && (CHARACTERS[i].id as string) !== 'big-stein');
 
+/** Character-select grid (two framed rows like the real game) + team colour pads. */
 export class LookPicker {
   readonly el = document.createElement('div');
   constructor(public look: Look, private onChange: (l: Look) => void, private taken: () => Set<number> = () => new Set()) {
@@ -22,15 +30,19 @@ export class LookPicker {
       sfx.play('click');
       this.render();
       this.onChange(this.look);
+      (this.el.querySelector(t.dataset.char != null ? `[data-char="${t.dataset.char}"]` : `[data-color="${t.dataset.color}"]`) as HTMLElement | null)?.focus({ preventScroll: true });
     });
     this.render();
   }
   setLook(l: Look) { this.look = l; this.render(); }
   render() {
     const taken = this.taken();
+    const ids = pickable();
+    const rows = [ids.slice(0, Math.ceil(ids.length / 2)), ids.slice(Math.ceil(ids.length / 2))];
+    const cur = CHARACTERS[this.look.char];
     this.el.innerHTML = `
-      <div class="chars">${PICKABLE.map((i) => `<button class="chr ${i === this.look.char ? 'sel' : ''}" data-char="${i}" style="--c:${COLORS[this.look.color].hex}">${avatarHtml({ char: i, color: this.look.color })}<span>${esc(CHARACTERS[i].name)}</span></button>`).join('')}</div>
-      <div class="blurb">${esc(CHARACTERS[this.look.char].blurb)}</div>
-      <div class="swatches">${COLORS.map((c, i) => `<button class="sw ${i === this.look.color ? 'sel' : ''} ${taken.has(i) && i !== this.look.color ? 'taken' : ''}" data-color="${i}" style="--c:${c.hex}" title="${c.name}"></button>`).join('')}</div>`;
+      ${rows.map((r, k) => `<div class="chars row${k}" role="radiogroup" aria-label="Character">${r.map((i) => `<button type="button" role="radio" aria-checked="${i === this.look.char}" class="chr ${i === this.look.char ? 'sel' : ''}" data-char="${i}" title="${esc(CHARACTERS[i].name)}" aria-label="${esc(CHARACTERS[i].name)}">${face(i)}${i === this.look.char ? '<i class="p1">P1</i>' : ''}</button>`).join('')}</div>`).join('')}
+      <div class="pk-name"><span class="gt wh">${esc(cur.name.toUpperCase())}</span><span class="blurb">${esc(cur.blurb)}</span></div>
+      <div class="swatches" role="radiogroup" aria-label="Team colour"><span class="sm">TEAM</span>${COLORS.map((c, i) => `<button type="button" role="radio" aria-checked="${i === this.look.color}" class="sw ${i === this.look.color ? 'sel' : ''} ${taken.has(i) && i !== this.look.color ? 'taken' : ''}" data-color="${i}" style="--c:${c.hex}" title="${c.name}" aria-label="${c.name}"></button>`).join('')}</div>`;
   }
 }

@@ -1,0 +1,323 @@
+{
+ "_notes": "Dragon Drop = level 28/29 clock-tower arena (model 0627, k=3.4 same unit as characters). Pieces are in world units at their real positions. Per-character models 928-942 are the Dragon Drop poses (idle, run, jump, hit, win/lose). Power-ups from model 0625 (part0 hover boots, part1 magnet).",
+ "arenas": {
+  "dragonDrop": {
+   "model": 627,
+   "scale": 3.4,
+   "parts": [
+    "extra_1f68",
+    "extra_23a0"
+   ]
+  }
+ },
+ "props": {
+  "ddHoverBoots": {
+   "model": 625,
+   "parts": [
+    "part0"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddMagnet": {
+   "model": 625,
+   "parts": [
+    "part1"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddChar_koala": {
+   "model": 928,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 2,
+    "hit": 3,
+    "win": 4,
+    "lose": 4
+   }
+  },
+  "ddChar_rilla": {
+   "model": 930,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 2,
+    "hit": 3,
+    "win": 4,
+    "lose": 4
+   }
+  },
+  "ddChar_brio": {
+   "model": 932,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 2,
+    "hit": 3,
+    "win": 4,
+    "lose": 4
+   }
+  },
+  "ddChar_dingodile": {
+   "model": 934,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 2,
+    "hit": 3,
+    "win": 4,
+    "lose": 4
+   }
+  },
+  "ddChar_tiny": {
+   "model": 936,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 2,
+    "hit": 3,
+    "win": 4,
+    "lose": 4
+   }
+  },
+  "ddChar_cortex": {
+   "model": 938,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 2,
+    "hit": 3,
+    "win": 4,
+    "lose": 4
+   }
+  },
+  "ddChar_coco": {
+   "model": 940,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 2,
+    "hit": 3,
+    "win": 4,
+    "lose": 4
+   }
+  },
+  "ddChar_crash": {
+   "model": 942,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 2,
+    "hit": 3,
+    "win": 4,
+    "lose": 4
+   }
+  },
+  "ddRing": {
+   "model": 627,
+   "parts": [
+    "extra_149c"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddWall": {
+   "model": 627,
+   "parts": [
+    "extra_698c"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddClock": {
+   "model": 627,
+   "parts": [
+    "extra_7748"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddHands": {
+   "model": 627,
+   "parts": [
+    "extra_7ddc"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddGearA": {
+   "model": 627,
+   "parts": [
+    "extra_4620"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddGearB": {
+   "model": 627,
+   "parts": [
+    "extra_5c74"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddGearC": {
+   "model": 627,
+   "parts": [
+    "extra_3d58"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddShaft": {
+   "model": 627,
+   "parts": [
+    "extra_6770"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddArm": {
+   "model": 627,
+   "parts": [
+    "extra_504c"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddAxle": {
+   "model": 627,
+   "parts": [
+    "extra_291c"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  }
+ }
+}

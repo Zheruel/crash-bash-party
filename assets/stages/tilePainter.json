@@ -1,0 +1,84 @@
+{
+ "_notes": "Pogo Pandemonium = levels 10-13 (stage models 675, 671, 667, 663; alt/backdrop twins 673/669/665/661). Hole (8x8 tiles of 0.5 model units) is centred at the origin, scale 3.6 => tile 1.8. Tile-template quads and in-hole props are omitted via parts. Tile textures: 0674 (053-056 red/blue/green/yellow, 000 neutral), 0662 (038-041, 000).",
+ "arenas": {
+  "tilePainter": {
+   "model": 675,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_2fa0",
+    "extra_4c10"
+   ]
+  },
+  "tilePainter:pogoPainter": {
+   "model": 675,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_2fa0",
+    "extra_4c10"
+   ]
+  },
+  "tilePainter:pogoAGogo": {
+   "model": 671,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_1d044",
+    "extra_1af30",
+    "extra_1b15c",
+    "extra_1c79c",
+    "extra_1a428",
+    "extra_1b438",
+    "extra_1c0a8",
+    "extra_1a708"
+   ]
+  },
+  "tilePainter:elPogoLoco": {
+   "model": 667,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_351c",
+    "extra_5ad8",
+    "extra_5ed8",
+    "extra_6b58"
+   ]
+  },
+  "tilePainter:pogoPadlock": {
+   "model": 663,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_2b58",
+    "extra_51bc"
+   ]
+  }
+ },
+ "props": {}
+}

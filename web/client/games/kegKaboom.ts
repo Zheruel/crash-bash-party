@@ -1,164 +1,96 @@
-// Keg Kaboom view: a wooden pier over the sea, powder kegs (normal / silver / gold), gunpowder trails and explosions.
+// Keg Kaboom view: the real village yard (model 0609: dirt ring inside a low stone wall, houses and windmill on the hills),
+// real powder kegs (pack 0738) and the per-character barrel-carrier models (864-878). Fixed camera fitted against the real
+// game (docs/reference/kegKaboom).
 import * as THREE from 'three';
-import { KK_HALF, KK_KEG_R, POWDER_MAX, type KegKaboomData } from '../../shared/games/kegKaboom';
+import { CHARACTERS } from '../../shared/look';
+import { KK_KEG_R, POWDER_MAX, type KegKaboomData } from '../../shared/games/kegKaboom';
+import { createCharacter } from '../characters';
+import { getCatalog } from '../crash';
 import { sfx } from '../shell/sound';
-import { Kit, canvasTexture, labelSprite, preloadCatalogFor } from './kit';
-import { Bar3D, SPECIAL_CRATE_REF, glowTexture, specialCrate } from './partyBits';
+import { Kit, catalogInstance, preloadCatalogFor } from './kit';
+import { Bar3D, glowTexture } from './partyBits';
 import type { ClientMiniGame } from './types';
 
+const S = 3.398;
 const BURN_LIFE = 0.5;
 const MAX_NODES = 1000;
+/** Real kegs are drawn about 1.45x the raw model size (measured against the disc frame). */
+const KEG_SCALE = 1.45;
 
-interface KegV { group: THREE.Group; body: THREE.Mesh; fuse: THREE.Mesh; spark: THREE.Sprite; label: THREE.Sprite; kind: number; landed: boolean; mat: THREE.MeshStandardMaterial }
+/** Camera fitted to the real frame (image-difference search), arena recentred on its floor: sim units. */
+export const KK_CAM = { pos: [1.2, 9.552, 17.82] as [number, number, number], look: [1.204, 1.688, -0.508] as [number, number, number], fov: 43.76, aspect: 4 / 3 };
+
+/** Sky card (sunset gradient with the sun) hung far behind the hills. */
+const SKY = { pos: [18, 3, -70] as [number, number, number], k: 2.6 };
+const KEG_PROPS = ['kkBarrel', 'kkBarrelB', 'kkBarrelGold', 'kkBarrelSilver'];
+const PROPS = [...KEG_PROPS, 'kkCrate', 'kkBlades', 'kkMill', 'kkSky', 'kkFlash', 'kkPuff', 'kkPuff2', 'kkComet', 'kkRing', 'kkSparks', 'kkDiamond', 'kkBolt', 'kkRingW', 'kkDebris', 'kkDebris2', 'kkShard', 'kkShard2', ...CHARACTERS.map((c) => 'kkCarry_' + c.id)];
+
+/** Level sound bank 0177 (guessed from durations / levels): long blasts, short fuse ticks. */
+const BANK = (n: number) => `sfx/0177/${n}.mp3`;
+
+interface KegV { group: THREE.Group; body: THREE.Object3D; spark: THREE.Sprite; kind: number; landed: boolean }
 
 export function createKegKaboomView(): ClientMiniGame {
   let kit: Kit;
   let loaded = false;
+  let built: THREE.Group;
   const kegs = new Map<number, KegV>();
   const crates = new Map<number, THREE.Object3D>();
   const bars: Bar3D[] = [];
   const auras: THREE.Mesh[] = [];
   let powderMesh: THREE.InstancedMesh, fireMesh: THREE.InstancedMesh;
-  let sea: THREE.Mesh, seaTex: THREE.CanvasTexture;
-  const lanterns: THREE.Mesh[] = [];
+  const blades: THREE.Object3D[] = [];
   const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpP = new THREE.Vector3(), tmpS = new THREE.Vector3(), tmpC = new THREE.Color();
-  let barrelGeo: THREE.LatheGeometry, bandGeo: THREE.TorusGeometry, glow: THREE.CanvasTexture;
-  let flagPole: THREE.Group;
+  let glow: THREE.CanvasTexture;
 
-  function woodTex(base: string, dark: string, vertical: boolean, repeat: [number, number], n = 8) {
-    return canvasTexture(128, (g, s) => {
-      g.fillStyle = base; g.fillRect(0, 0, s, s);
-      for (let i = 0; i < n; i++) {
-        const o = (i * s) / n;
-        g.fillStyle = i % 2 ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.05)';
-        vertical ? g.fillRect(o, 0, s / n, s) : g.fillRect(0, o, s, s / n);
-        g.fillStyle = dark;
-        vertical ? g.fillRect(o, 0, 2, s) : g.fillRect(0, o, s, 2);
-      }
-      g.fillStyle = 'rgba(0,0,0,0.18)';
-      for (let i = 0; i < 24; i++) { const x = Math.random() * s, y = Math.random() * s; vertical ? g.fillRect(x, y, 1.5, 8 + Math.random() * 14) : g.fillRect(x, y, 8 + Math.random() * 14, 1.5); }
-    }, repeat);
+  const prop = (name: string, scale = 1): THREE.Object3D | null => {
+    const inst = catalogInstance(getCatalog().props[name]);
+    if (!inst) return null;
+    inst.root.scale.multiplyScalar(scale);
+    return inst.root;
+  };
+
+  function fallbackKeg(kind: number): THREE.Object3D {
+    const col = kind === 2 ? 0xffcf3a : kind === 1 ? 0xb8c4dc : 0x8a5a2a;
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 1.5, 14), new THREE.MeshStandardMaterial({ color: col }));
+    m.position.y = 0.75;
+    const g = new THREE.Group();
+    g.add(m);
+    return g;
   }
 
-  function makeKeg(kind: number, v: number): KegV {
+  function makeKeg(kind: number, id: number): KegV {
     const group = new THREE.Group();
-    const tex = kind === 0 ? woodTex('#b9763a', '#5a3318', true, [1, 1], 7) : null;
-    const mat = new THREE.MeshStandardMaterial(
-      kind === 0 ? { map: tex, roughness: 0.75 }
-        : kind === 1 ? { color: 0xd4dbe6, roughness: 0.22, metalness: 0.85, emissive: 0x303844, emissiveIntensity: 0.3 }
-          : { color: 0xffcf3a, roughness: 0.2, metalness: 0.9, emissive: 0x7a5200, emissiveIntensity: 0.6 },
-    );
-    const body = new THREE.Mesh(barrelGeo, mat);
-    const bandMat = new THREE.MeshStandardMaterial({ color: kind === 0 ? 0x34343c : kind === 1 ? 0x77808f : 0xa8741a, roughness: 0.4, metalness: 0.7 });
-    for (const y of [0.22, 0.98]) {
-      const band = new THREE.Mesh(bandGeo, bandMat);
-      band.position.y = y; band.scale.setScalar(y < 0.5 ? 0.9 : 0.9);
-      band.rotation.x = Math.PI / 2;
-      group.add(band);
-    }
-    const lid = new THREE.Mesh(new THREE.CircleGeometry(0.62, 20).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: kind === 0 ? 0x9a602c : kind === 1 ? 0xbcc4d0 : 0xe8b020, roughness: 0.5, metalness: kind ? 0.8 : 0 }));
-    lid.position.y = 1.205;
-    // fuse
-    const fuse = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.5, 6), new THREE.MeshStandardMaterial({ color: 0xe8d9a8, roughness: 0.9 }));
-    fuse.position.set(0.08, 1.45, 0);
-    fuse.rotation.z = -0.25;
+    const name = kind === 2 ? 'kkBarrelGold' : kind === 1 ? 'kkBarrelSilver' : id % 3 === 0 ? 'kkBarrelB' : 'kkBarrel';
+    const body = prop(name, KEG_SCALE) ?? fallbackKeg(kind);
     const spark = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: 0xffa030, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
     spark.userData.keepMap = true;
-    spark.scale.setScalar(0.9); spark.position.set(0.16, 1.7, 0); spark.visible = false;
-    // value tag
-    const label = labelSprite(String(v), kind === 2 ? '#ffe14a' : kind === 1 ? '#e8f0ff' : '#ffffff', 0.95);
-    label.position.set(0, 2.5, 0);
-    group.add(body, lid, fuse, spark, label);
+    spark.scale.setScalar(0.9); spark.position.set(0.1, 1.9, 0); spark.visible = false;
+    group.add(body, spark);
     kit.root.add(group);
-    return { group, body, fuse, spark, label, kind, landed: false, mat };
+    return { group, body, spark, kind, landed: false };
   }
 
   function build() {
-    const R = kit.root;
+    built = new THREE.Group();
+    kit.root.add(built);
+    const R = built;
     glow = glowTexture('rgba(255,255,255,1)', 'rgba(255,255,255,0)');
-    // barrel profile
-    const prof: THREE.Vector2[] = [[0, 0], [0.56, 0], [0.66, 0.15], [0.74, 0.45], [0.74, 0.75], [0.66, 1.05], [0.58, 1.2]].map(([x, y]) => new THREE.Vector2(x, y));
-    barrelGeo = new THREE.LatheGeometry(prof, 20);
-    bandGeo = new THREE.TorusGeometry(0.72, 0.045, 6, 24);
-
-    // ---- sea
-    seaTex = canvasTexture(128, (g, s) => {
-      g.fillStyle = '#1d6fa5'; g.fillRect(0, 0, s, s);
-      g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 2;
-      for (let i = 0; i < 9; i++) { g.beginPath(); const y = (i + 0.5) * (s / 9); g.moveTo(0, y); for (let x = 0; x <= s; x += 8) g.lineTo(x, y + Math.sin(x * 0.2 + i) * 3); g.stroke(); }
-    }, [12, 12], false);
-    sea = new THREE.Mesh(new THREE.PlaneGeometry(160, 160).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: seaTex, roughness: 0.4 }));
-    sea.position.y = -1.6;
-    R.add(sea);
-
-    // ---- deck
-    const H = KK_HALF;
-    const deck = new THREE.Mesh(new THREE.PlaneGeometry(H * 2, H * 2).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: woodTex('#a8703a', '#4a2a12', false, [1, 1], 11), roughness: 0.85 }));
-    deck.material.map!.repeat.set(2, 2);
-    R.add(deck);
-    // plank seams (drawn lines to hint boards across the whole deck)
-    const beams = new THREE.MeshStandardMaterial({ color: 0x5a3a1c, roughness: 0.9 });
-    for (const s of [-1, 1]) {
-      const b1 = new THREE.Mesh(new THREE.BoxGeometry(H * 2 + 1.2, 0.5, 0.6), beams); b1.position.set(0, 0.0, s * (H + 0.3));
-      const b2 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, H * 2 + 1.2), beams); b2.position.set(s * (H + 0.3), 0.0, 0);
-      R.add(b1, b2);
-    }
-    const under = new THREE.Mesh(new THREE.BoxGeometry(H * 2 + 1.2, 1.2, H * 2 + 1.2), new THREE.MeshStandardMaterial({ color: 0x3a2412, roughness: 1 }));
-    under.position.y = -0.7;
-    R.add(under);
-    // pier posts with rope + lanterns
-    const postMat = new THREE.MeshStandardMaterial({ color: 0x5b3a1e, roughness: 1 });
-    const ropeMat = new THREE.MeshStandardMaterial({ color: 0xd8c08a, roughness: 1 });
-    const pts: [number, number][] = [];
-    for (let i = -5; i <= 5; i++) { const k = (i / 5) * (H + 0.3); pts.push([k, -H - 0.3], [k, H + 0.3]); if (Math.abs(i) !== 5) pts.push([-H - 0.3, k], [H + 0.3, k]); }
-    for (const [x, z] of pts) {
-      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 3.2, 8), postMat);
-      p.position.set(x, 0.4, z);
-      R.add(p);
-    }
-    for (const s of [-1, 1]) {
-      for (const y of [1.2]) {
-        const r1 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, (H + 0.3) * 2, 6).rotateZ(Math.PI / 2), ropeMat); r1.position.set(0, y, s * (H + 0.3));
-        const r2 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, (H + 0.3) * 2, 6).rotateX(Math.PI / 2), ropeMat); r2.position.set(s * (H + 0.3), y, 0);
-        R.add(r1, r2);
-      }
-    }
-    for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.3, 3.2, 8), postMat);
-      post.position.set(cx * (H + 0.3), 1.4, cz * (H + 0.3));
-      const lan = new THREE.Mesh(new THREE.SphereGeometry(0.4, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffb040 }));
-      lan.position.set(post.position.x, 3.2, post.position.z);
-      R.add(post, lan);
-      lanterns.push(lan);
-    }
-    // pirate flag at the far side
-    flagPole = new THREE.Group();
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 7, 6), postMat);
-    pole.position.y = 3.5;
-    const flagTex = canvasTexture(128, (g, s) => {
-      g.fillStyle = '#17171d'; g.fillRect(0, 0, s, s);
-      g.fillStyle = '#f2f2f2';
-      g.beginPath(); g.arc(s / 2, s * 0.42, s * 0.2, 0, Math.PI * 2); g.fill(); g.fillRect(s * 0.4, s * 0.55, s * 0.2, s * 0.1);
-      g.fillStyle = '#17171d'; g.beginPath(); g.arc(s * 0.42, s * 0.4, s * 0.05, 0, 7); g.arc(s * 0.58, s * 0.4, s * 0.05, 0, 7); g.fill();
-      g.strokeStyle = '#f2f2f2'; g.lineWidth = 8; g.beginPath(); g.moveTo(s * 0.25, s * 0.75); g.lineTo(s * 0.75, s * 0.9); g.moveTo(s * 0.75, s * 0.75); g.lineTo(s * 0.25, s * 0.9); g.stroke();
-    }, undefined, false);
-    const flag = new THREE.Mesh(new THREE.PlaneGeometry(3, 2.2), new THREE.MeshBasicMaterial({ map: flagTex, side: THREE.DoubleSide }));
-    flag.position.set(1.6, 5.6, 0);
-    flag.name = 'flag';
-    flagPole.add(pole, flag);
-    flagPole.position.set(-H - 3.2, -1.4, -H - 3.0);
-    R.add(flagPole);
-    // a few decorative barrels / crates floating off the pier
-    for (let i = 0; i < 5; i++) {
-      const a = 0.6 + i * 1.1;
-      const m = new THREE.Mesh(barrelGeo, new THREE.MeshStandardMaterial({ map: woodTex('#8a5a2a', '#3a2010', true, [1, 1], 7), roughness: 0.9 }));
-      m.position.set(Math.cos(a) * (H + 6 + i), -1.7, Math.sin(a) * (H + 6 + i));
-      m.rotation.set(0.5, a, 1.2);
-      R.add(m);
-    }
+    const arena = catalogInstance(getCatalog().arenas.kegKaboom);
+    if (arena) R.add(arena.root);
+    blades.length = 0;
+    // windmill on the far-left hill (placed by overlaying on the real frame) and the sky card behind everything
+    const MILL: [number, number, number] = [-13.1, 3.1, -14.6], MILL_K = 0.55;
+    const mill = prop('kkMill', MILL_K);
+    if (mill) { mill.position.set(...MILL); R.add(mill); }
+    blades.length = 0;
+    const sails = prop('kkBlades', MILL_K);
+    if (sails) { sails.position.set(MILL[0], MILL[1] + 1.35 * MILL_K * S, MILL[2] + 0.12 * MILL_K * S); R.add(sails); blades.push(sails); }
+    const sky = prop('kkSky', SKY.k);
+    if (sky) { sky.position.set(...SKY.pos); R.add(sky); }
 
     // ---- trail instancing
-    powderMesh = new THREE.InstancedMesh(new THREE.CircleGeometry(0.27, 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x22222a }), MAX_NODES);
+    powderMesh = new THREE.InstancedMesh(new THREE.CircleGeometry(0.27, 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x2a2018 }), MAX_NODES);
     powderMesh.frustumCulled = false; powderMesh.count = 0;
     fireMesh = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.3, 0), new THREE.MeshBasicMaterial({ color: 0xffffff }), MAX_NODES);
     fireMesh.frustumCulled = false; fireMesh.count = 0;
@@ -166,6 +98,7 @@ export function createKegKaboomView(): ClientMiniGame {
     R.add(powderMesh, fireMesh);
 
     // ---- per-player gauge + shockwave aura
+    bars.length = 0; auras.length = 0;
     for (let s = 0; s < 4; s++) {
       const b = new Bar3D(1.5, 0.16, kit.hex(s));
       b.group.visible = false;
@@ -175,36 +108,48 @@ export function createKegKaboomView(): ClientMiniGame {
     }
   }
 
+  function placeCamera(ctx: { camera: THREE.PerspectiveCamera }) {
+    const cam = ctx.camera;
+    const tv = Math.tan((KK_CAM.fov * Math.PI) / 360);
+    const fov = cam.aspect < KK_CAM.aspect ? (2 * Math.atan(tv * (KK_CAM.aspect / cam.aspect)) * 180) / Math.PI : KK_CAM.fov;
+    if (Math.abs(cam.fov - fov) > 1e-3) { cam.fov = fov; cam.updateProjectionMatrix(); }
+    cam.position.set(...KK_CAM.pos);
+    cam.up.set(0, 1, 0);
+    cam.lookAt(...KK_CAM.look);
+  }
+
   return {
     id: 'kegKaboom',
-    async preload() { await preloadCatalogFor('kegKaboom', [], [SPECIAL_CRATE_REF]); loaded = true; },
+    async preload() { await preloadCatalogFor('kegKaboom', PROPS); loaded = true; },
 
     init(ctx, world) {
-      kit = new Kit(ctx, 'kegKaboom', { bg: 0x9ad4f2, fog: [70, 160], hemi: [0xfff4e0, 0x5a7a9a, 1.5], sun: [8, 18, 6] });
+      kit = new Kit(ctx, 'kegKaboom', { bg: 0x000000, hemi: [0xfff4e0, 0x8a7a5a, 1.5], sun: [8, 18, 6] });
       build();
-      ctx.frame(KK_HALF + 2.4);
+      placeCamera(ctx);
       void world;
-      if (!loaded) this.preload!().then(() => { if (kit) kit.reset(); });
+      if (!loaded) this.preload!().then(() => { if (kit) { kit.reset(); for (const v of kegs.values()) kit.root.remove(v.group); kegs.clear(); kit.root.remove(built); build(); } });
     },
 
     render(ctx, w, dt) {
       kit.checkOver(w);
       const d = w.data as KegKaboomData;
       const t = ctx.time;
-      seaTex.offset.set(t * 0.012, t * 0.02);
-      flagPole.getObjectByName('flag')!.rotation.y = Math.sin(t * 2) * 0.15;
-      lanterns.forEach((l, i) => l.scale.setScalar(1 + Math.sin(t * 5 + i) * 0.08));
+      blades.forEach((o) => { o.rotation.z = t * 0.6; });
 
       const seen = new Set<number>(), seenC = new Set<number>();
       for (const b of w.bodies) {
         if (b.kind === 'player') {
           seen.add(b.id);
           const s = b.slot;
-          const a = kit.actor(b);
+          const a = kit.actor(b, () => {
+            const id = CHARACTERS[kit.look(s).char % CHARACTERS.length].id;
+            const inst = catalogInstance(getCatalog().props['kkCarry_' + id]);
+            return inst ? { inst, scale: 1, headY: 1.5, shadow: 0.95 } : { inst: createCharacter(kit.look(s), { ring: false }) };
+          });
+          const laying = (d.laying?.[s] ?? 0) > 0;
           a.update(b, dt, { role: (d.stun?.[s] ?? 0) > 0 ? 'hit' : undefined, blink: (d.invul?.[s] ?? 0) > 0 && (d.stun?.[s] ?? 0) <= 0 });
           const bar = bars[s];
           const pw = (d.powder?.[s] ?? POWDER_MAX) / POWDER_MAX;
-          const laying = (d.laying?.[s] ?? 0) > 0;
           bar.group.visible = pw < 0.995 || laying;
           bar.group.position.set(b.x, b.y + a.headY + 0.45, b.z);
           bar.face(ctx.camera);
@@ -217,8 +162,8 @@ export function createKegKaboomView(): ClientMiniGame {
         } else if (b.kind === 'crate') {
           seenC.add(b.id);
           let o = crates.get(b.id);
-          if (!o) { o = specialCrate(1.25); kit.root.add(o); crates.set(b.id, o); }
-          o.position.set(b.x, b.y + 0.06 + Math.sin(t * 3 + b.id) * 0.05, b.z);
+          if (!o) { o = prop('kkCrate', 1.5) ?? new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 1.2), new THREE.MeshStandardMaterial({ color: 0x8a3fd6 })); kit.root.add(o); crates.set(b.id, o); }
+          o.position.set(b.x, b.y + 0.05 + Math.sin(t * 3 + b.id) * 0.04, b.z);
           o.rotation.y = t * 1.5;
         }
       }
@@ -230,22 +175,20 @@ export function createKegKaboomView(): ClientMiniGame {
       for (const k of d.kegs ?? []) {
         seenK.add(k.id);
         let v = kegs.get(k.id);
-        if (!v) { v = makeKeg(k.kind, k.v); kegs.set(k.id, v); }
+        if (!v) { v = makeKeg(k.kind, k.id); kegs.set(k.id, v); }
         const fall = Math.max(0, 1 - k.age / 0.45);
         v.group.position.set(k.x, fall * fall * 9, k.z);
         if (!v.landed && k.age >= 0.45) { v.landed = true; kit.fx.dust(k.x, k.z, 0.9, 0xc9a070); kit.shake(0.05); }
         const lit = k.fuse >= 0;
         v.spark.visible = lit;
+        v.group.rotation.set(0, 0, 0);
+        v.group.scale.setScalar(1);
         if (lit) {
-          const f = Math.floor(t * 18) % 2;
-          v.mat.emissive.setHex(f ? 0xff2a10 : 0x000000);
-          v.mat.emissiveIntensity = f ? 0.8 : 0;
           v.spark.scale.setScalar(0.7 + Math.random() * 0.5);
           v.group.rotation.z = Math.sin(t * 50) * 0.05;
           v.group.scale.setScalar(1 + (0.5 - Math.max(0, k.fuse)) * 0.18);
-          if (Math.random() < 0.7) kit.fx.sparks(k.x + 0.16, 1.7, k.z, [0xffe14a, 0xff8a20], 1, 3);
-        } else if (v.kind === 2) { v.mat.emissiveIntensity = 0.5 + Math.sin(t * 5 + k.id) * 0.2; if (Math.random() < 0.03) kit.fx.sparks(k.x + (Math.random() - 0.5), 1.3, k.z + (Math.random() - 0.5), [0xffe14a, 0xffffff], 1, 1.5); }
-        v.label.position.y = 2.5 + Math.sin(t * 3 + k.id) * 0.06;
+          if (Math.random() < 0.7) kit.fx.sparks(k.x + 0.1, 1.9, k.z, [0xffe14a, 0xff8a20], 1, 3);
+        } else if (v.kind === 2 && Math.random() < 0.03) kit.fx.sparks(k.x + (Math.random() - 0.5), 1.3, k.z + (Math.random() - 0.5), [0xffe14a, 0xffffff], 1, 1.5);
       }
       for (const [id, v] of kegs) if (!seenK.has(id)) { kit.root.remove(v.group); kegs.delete(id); }
 
@@ -275,6 +218,7 @@ export function createKegKaboomView(): ClientMiniGame {
       powderMesh.count = np; powderMesh.instanceMatrix.needsUpdate = true;
       fireMesh.count = nf; fireMesh.instanceMatrix.needsUpdate = true;
       if (fireMesh.instanceColor) fireMesh.instanceColor.needsUpdate = true;
+      placeCamera(ctx);
       kit.fx.update(dt);
     },
 
@@ -289,7 +233,7 @@ export function createKegKaboomView(): ClientMiniGame {
         case 'light':
           fx.sparks(e.x, 0.4, e.z, [0xffe14a, 0xff8a20], 8, 4);
           fx.ring(e.x, e.z, { color: 0xffa030, radius: 1.3, life: 0.35 });
-          sfx.play('tick', 1.8);
+          if (!sfx.playFile(BANK(16), 0.5)) sfx.play('tick', 1.8);
           break;
         case 'ignite':
           fx.sparks(e.x, 1.7, e.z, [0xffe14a, 0xff8a20], 6, 4);
@@ -303,9 +247,9 @@ export function createKegKaboomView(): ClientMiniGame {
           fx.sparks(e.x, 1, e.z, [0xffe14a, 0xffffff], 14, 9);
           fx.ring(e.x, e.z, { color: 0xffb040, radius: 4.8, life: 0.55 });
           fx.ring(e.x, e.z, { color: 0xffffff, radius: 2.8, life: 0.3 });
-          if (e.s >= 0) fx.text(e.x, 2.8, e.z, `+${e.v}`, { color: e.o === 2 ? '#ffe14a' : kit.hex(e.s), size: e.v >= 10 ? 2.2 : 1.6, life: 1.3 });
+          if (e.s >= 0) fx.text(e.x, 2.8, e.z, `${e.v}`, { color: e.o === 2 ? '#ffe14a' : '#ff9a2a', size: e.v >= 10 ? 2.2 : 1.6, life: 1.3 });
           kit.shake(big ? 0.75 : 0.5);
-          sfx.play('boom', big ? 0.8 : 1);
+          if (!sfx.playFile(BANK(e.v >= 10 ? 13 : 5 + (e.v >> 1) % 4), 0.8)) sfx.play('boom', big ? 0.8 : 1);
           if (e.o === 2) { fx.confetti(e.x, 1.5, e.z, 24, [0xffe14a, 0xffffff, 0xffb000]); sfx.play('coin', 1.2); }
           break;
         }
@@ -338,11 +282,11 @@ export function createKegKaboomView(): ClientMiniGame {
 
     hud(w, slot) {
       const d = w.data as KegKaboomData;
-      return `${d.score?.[slot] ?? 0}${(d.shock?.[slot] ?? 0) > 0 ? ' ◎' : ''}`;
+      return `${String(d.score?.[slot] ?? 0).padStart(3, '0')}${(d.shock?.[slot] ?? 0) > 0 ? ' ◎' : ''}`;
     },
 
     dispose(ctx) {
-      kegs.clear(); crates.clear(); bars.length = 0; auras.length = 0; lanterns.length = 0;
+      kegs.clear(); crates.clear(); bars.length = 0; auras.length = 0; blades.length = 0;
       kit.dispose();
       void ctx; void KK_KEG_R;
     },

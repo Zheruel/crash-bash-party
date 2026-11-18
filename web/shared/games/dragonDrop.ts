@@ -27,11 +27,11 @@ import { IDLE, MAX_SEATS, type Body, type InputState, type MiniGame, type World 
  * Events: 'pop' (s popper, o balloon owner, v 1 = own colour), 'score' (s, v points), 'black' (s, v effect 0..2),
  *   'reverse', 'crate' (s, v item), 'punch' (s attacker, o victim), 'spawn' (balloon spit out), 'fade'.
  */
-export const DD_IN = 4.2; // inner ring radius
-export const DD_OUT = 10.6; // outer ring radius
-export const DD_DRAGON = 2.2; // solid dragon radius
+export const DD_IN = 2.7; // hub radius (stone pit in the middle; players start here, it does not turn)
+export const DD_OUT = 8.5; // outer ring radius
+export const DD_DRAGON = 0; // kept for the old view API (the hub is open: players start in it)
 const RING_W = 0.32;
-export const DD_STARTS: [number, number][] = [[0, 1], [-1, 0], [0, -1], [1, 0]];
+export const DD_STARTS: [number, number][] = [[0, 0.9], [-0.9, 0], [0, -0.9], [0.9, 0]]; // inside the hub
 const MAX_BALLOONS = 28;
 export const DD_MAX_AGE = 15;
 
@@ -44,7 +44,7 @@ const players = (w: World) => w.bodies.filter((b) => b.kind === 'player');
 
 function spawnBalloon(w: World, slot: number) {
   const a = rand(w) * Math.PI * 2;
-  const R = DD_IN + 0.8 + rand(w) * (DD_OUT - DD_IN - 1.6);
+  const R = 1.5 + rand(w) * (DD_OUT + 1.5);
   const b = addBody(w, 'balloon', slot, Math.cos(a) * 1.8, Math.sin(a) * 1.8, 0.5, 1);
   b.y = 4.6;
   b.vx = Math.cos(a) * R * 1.6; b.vz = Math.sin(a) * R * 1.6;
@@ -56,7 +56,7 @@ function spawnBalloon(w: World, slot: number) {
 
 function spawnCrate(w: World) {
   const a = rand(w) * Math.PI * 2;
-  const R = DD_IN + 1 + rand(w) * (DD_OUT - DD_IN - 2);
+  const R = DD_IN + 0.8 + rand(w) * (DD_OUT - DD_IN - 2);
   const c = addBody(w, 'crate', -1, Math.cos(a) * R, Math.sin(a) * R, 0.7, 1);
   c.cd = rand(w) < 0.5 ? 1 : 2;
   c.y = 6; c.vy = 0;
@@ -67,7 +67,7 @@ export const dragonDrop: MiniGame = {
   name: 'Dragon Drop',
   description: 'The dragon drops balloons on a spinning ring. Jump to burst the ones in YOUR colour. Black balloons shake things up!',
   controls: 'A: jump (burst balloons). B: attack rivals.',
-  maxTime: 60,
+  maxTime: 90,
 
   setup(w, slots) {
     const d: DragonDropData = {
@@ -78,8 +78,7 @@ export const dragonDrop: MiniGame = {
     for (const s of slots) {
       const [nx, nz] = DD_STARTS[s.slot];
       const sc = w.params.playerScale;
-      const R = (DD_IN + DD_OUT) / 2;
-      const b = addBody(w, 'player', s.slot, nx * R, nz * R, 0.7 * sc, 3 * sc * sc);
+      const b = addBody(w, 'player', s.slot, nx * 1.7, nz * 1.7, 0.7 * sc, 3 * sc * sc);
       b.face = Math.atan2(-nx, -nz);
     }
     for (let i = 0; i < 8; i++) spawnBalloon(w, i % 4);
@@ -144,10 +143,9 @@ export const dragonDrop: MiniGame = {
     for (const p of ps) {
       const hov = d.hover[p.slot] > 0;
       const dd = Math.hypot(p.x, p.z) || 1;
-      const lo = hov ? DD_DRAGON + p.r : DD_IN + p.r, hi = (hov ? DD_OUT + 1.4 : DD_OUT) - p.r;
-      if (dd < lo) { p.x = (p.x / dd) * lo; p.z = (p.z / dd) * lo; }
-      else if (dd > hi) { p.x = (p.x / dd) * hi; p.z = (p.z / dd) * hi; p.vx *= 0.3; p.vz *= 0.3; }
-      if (!hov) rot(p); // the ring carries you
+      const hi = (hov ? DD_OUT + 1.4 : DD_OUT) - p.r;
+      if (dd > hi) { p.x = (p.x / dd) * hi; p.z = (p.z / dd) * hi; p.vx *= 0.3; p.vz *= 0.3; }
+      if (!hov && dd > DD_IN) rot(p); // the ring carries you (the hub stays put)
     }
 
     // balloons
@@ -162,7 +160,7 @@ export const dragonDrop: MiniGame = {
       const ty = b.cd > DD_MAX_AGE - 2 ? 8 : b.face + Math.sin(w.time * 2 + b.id) * 0.18;
       b.vy += (ty - b.y) * 6 * dt - b.vy * 2.2 * dt;
       b.y += b.vy * dt;
-      if (b.cd > 0.6) rot(b);
+      if (b.cd > 0.6 && Math.hypot(b.x, b.z) > DD_IN) rot(b);
       // magnets
       if (b.slot >= 0 && d.magnet[b.slot] > 0) {
         const m = ps.find((q) => q.slot === b.slot);
@@ -173,8 +171,7 @@ export const dragonDrop: MiniGame = {
       }
       // keep over the ring (loosely)
       const dd = Math.hypot(b.x, b.z) || 1;
-      if (b.cd > 0.6 && dd < DD_IN - 0.2) { const k = (DD_IN - 0.2) / dd; b.x *= k; b.z *= k; }
-      if (b.cd > 0.6 && dd > DD_OUT + 0.3) { const k = (DD_OUT + 0.3) / dd; b.x *= k; b.z *= k; }
+      if (b.cd > 0.6 && dd > DD_OUT + 3) { const k = (DD_OUT + 3) / dd; b.x *= k; b.z *= k; }
       if (b.cd > DD_MAX_AGE) { b.alive = false; emit(w, 'fade', b.x, b.z, b.slot, 1); continue; }
     }
 

@@ -49,11 +49,24 @@ let catalogP: Promise<Catalog> | null = null;
 const cache = new Map<number, Promise<{ scene: THREE.Object3D; anims: THREE.AnimationClip[] } | null>>();
 const loader = new GLTFLoader();
 
+/** One stage file per mini-game, owned by whoever tunes that game. Missing files are fine. */
+const STAGE_FILES = ['ballDefence', 'pushOff', 'tilePainter', 'tankArena', 'crateToss', 'dashRace', 'ringDing', 'dragonDrop', 'malletMash', 'kegKaboom'];
+
 export function loadCatalog(): Promise<Catalog> {
   catalogP ??= fetch(ASSET_BASE + 'catalog.json')
     .then((r) => (r.ok ? r.json() : EMPTY))
     .catch(() => EMPTY)
-    .then((c: Catalog) => (catalog = { ...EMPTY, ...c }));
+    .then(async (c: Catalog) => {
+      // per-game stage files (assets/stages/<gameId>.json: { arenas?, props? }) override catalog.json
+      const parts = await Promise.all(STAGE_FILES.map((id) => fetch(`${ASSET_BASE}stages/${id}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null)));
+      const merged: Catalog = { ...EMPTY, ...c, arenas: { ...(c.arenas ?? {}) }, props: { ...(c.props ?? {}) } };
+      for (const p of parts) {
+        if (!p) continue;
+        Object.assign(merged.arenas, p.arenas ?? {});
+        Object.assign(merged.props, p.props ?? {});
+      }
+      return (catalog = merged);
+    });
   return catalogP;
 }
 export const getCatalog = () => catalog;

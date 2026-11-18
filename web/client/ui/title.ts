@@ -2,6 +2,7 @@ import { type Look } from '../../shared/look';
 import { sfx } from '../shell/sound';
 import { $, esc } from './dom';
 import { LookPicker, PICKABLE } from './picker';
+import LOGO from './img/logo.png';
 
 export interface Profile { name: string; look: Look }
 export interface TitleHandlers {
@@ -43,27 +44,28 @@ export class TitleScreen {
     const joining = !!this.room;
     this.el.classList.remove('hidden');
     this.el.innerHTML = `
-      <div class="logo" aria-label="Crash Bash Party"><span class="l1">CRASH BASH</span><span class="l2">PARTY</span></div>
-      <div class="crate card setup">
-        <label for="name">Your name</label>
-        <input id="name" type="text" maxlength="16" autocomplete="off" placeholder="Player" value="${esc(this.profile.name)}" />
-        <label>Pick your hero</label>
-        <div id="pickerhost"></div>
-        <div class="actions">
-          ${joining ? `
-            <div class="joining">Joining party <b>${esc(this.room)}</b></div>
-            <button class="btn big" id="join">JOIN PARTY</button>
-            <button class="btn ghost small" id="mine">Create my own party instead</button>`
-          : `
-            <button class="btn big" id="create">${this.lan ? 'CREATE LAN PARTY' : 'CREATE PARTY'}</button>
-            <div class="or"><span>or join a friend</span></div>
-            <div class="joinrow"><input id="code" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE" /><button class="btn" id="join">JOIN</button></div>`}
+      <div class="brand"><img class="logo" src="${LOGO}" alt="Crash Bash"><div class="party gt pink">PARTY</div></div>
+      <section class="pnl setup" aria-label="${joining ? 'Join party' : 'New party'}">
+        <div class="band"><h1 class="gt or">${joining ? 'JOIN PARTY' : 'CHARACTER SELECT'}</h1></div>
+        <div class="pbody">
+          <div id="pickerhost"></div>
+          <div class="field"><label for="name" class="sm">YOUR NAME</label>
+          <input id="name" type="text" maxlength="16" autocomplete="off" placeholder="PLAYER" value="${esc(this.profile.name)}" /></div>
+          <div class="menu actions">
+            ${joining ? `
+              <div class="joining sm">ROOM <b class="gt wh">${esc(this.room)}</b></div>
+              <button class="mi big" id="join">JOIN PARTY</button>
+              <button class="mi small" id="mine">CREATE MY OWN PARTY</button>`
+            : `
+              <button class="mi big" id="create">${this.lan ? 'CREATE LAN PARTY' : 'CREATE PARTY'}</button>
+              <div class="joinrow"><label for="code" class="sm">JOIN A FRIEND</label><input id="code" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE" /><button class="mi" id="join">JOIN</button></div>`}
+          </div>
+          <div class="err" id="err" role="alert">${esc(opts.error ?? '')}</div>
+          ${opts.solo ? '<button class="mi small" id="solo">PLAY SOLO VS BOTS</button>' : ''}
         </div>
-        <div class="err" id="err">${esc(opts.error ?? '')}</div>
-        ${opts.solo ? '<button class="btn ghost small" id="solo">Play solo vs bots instead</button>' : ''}
-        ${opts.busy ? `<div class="busy"><i class="spin"></i>${esc(opts.busy)}</div>` : ''}
-      </div>
-      <div class="foot">Up to 4 players &middot; empty seats are bots &middot; share a link, no sign-up</div>`;
+        ${opts.busy ? `<div class="busy" role="status"><i class="spin"></i><span class="gt or">${esc(opts.busy)}</span></div>` : ''}
+      </section>
+      <div class="foot sm">UP TO 4 PLAYERS &middot; EMPTY SEATS ARE BOTS &middot; SHARE A LINK, NO SIGN-UP</div>`;
     $('#pickerhost', this.el).appendChild(this.picker.el);
     this.picker.render();
     const busy = !!opts.busy;

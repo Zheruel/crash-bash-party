@@ -10,3 +10,5 @@ assets/portraits/
 web/test-results/
 tools/build_big_stein.py
 local-backup/
+tools/emu/*.png
+assets/hd-raw/

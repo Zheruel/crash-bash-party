@@ -1,16 +1,16 @@
 import { COLORS, EMOTES, type Look } from '../../shared/look';
-import { avatarHtml } from '../shell/avatar';
-import { div, esc, icon, pop } from './dom';
+import { div, esc, face, icon, pop } from './dom';
 
 export interface SeatView { name: string; look: Look; bot: boolean }
 
-interface Card { el: HTMLElement; wumpa: HTMLElement; crystal: HTMLElement; extra: HTMLElement; emo: HTMLElement; disp: number; shown: number; stars: number }
+interface Card { el: HTMLElement; wumpa: HTMLElement; cup: HTMLElement; extra: HTMLElement; emo: HTMLElement; disp: number; shown: number; stars: number }
 
 /** Always-on-top gameplay UI: player cards (points + trophies), round pill, banners, floating numbers. */
 export class Hud {
   readonly el = div('hud hidden');
-  private cardsEl = div('cards', '', this.el);
-  private pill = div('turnpill crate', '', this.el);
+  private top = div('hudtop', '', this.el);
+  private cardsEl = div('cards', '', this.top);
+  private pill = div('turnpill', '', this.top);
   private bannerEl = div('banner', '', this.el);
   private pops = div('floaters');
   private cards: Card[] = [];
@@ -32,14 +32,15 @@ export class Hud {
     this.cards = seats.map((s, i) => {
       const el = div(`pcard ${i === me ? 'me' : ''} ${s.bot ? 'bot' : ''}`);
       el.style.setProperty('--c', COLORS[s.look.color % COLORS.length].hex);
-      el.innerHTML = `<div class="pc-av">${avatarHtml(s.look)}</div>
+      el.innerHTML = `<div class="pc-av">${face(s.look.char, true)}${i === me ? '<i class="badge">YOU</i>' : ''}</div>
         <div class="pc-info"><div class="pc-name">${esc(s.name)}</div>
-        <div class="pc-stats"><span class="st crystal">${icon('crystal')}<b>0</b></span><span class="st wumpa">${icon('wumpa')}<b>0</b></span></div>
+        <div class="pc-bar"></div>
+        <div class="pc-stats"><span class="st wumpa">${icon('wumpa')}<b>0</b></span><span class="st cup">${icon('cup')}<b>0</b></span></div>
         <div class="pc-extra"></div></div><div class="pc-emote"></div>`;
       this.cardsEl.appendChild(el);
       const q = (c: string) => el.querySelector(c) as HTMLElement;
       const prev = old[i];
-      return { el, wumpa: q('.wumpa b'), crystal: q('.crystal b'), extra: q('.pc-extra'), emo: q('.pc-emote'), disp: prev?.disp ?? -1, shown: -999, stars: prev?.stars ?? -1 };
+      return { el, wumpa: q('.wumpa b'), cup: q('.cup b'), extra: q('.pc-extra'), emo: q('.pc-emote'), disp: prev?.disp ?? -1, shown: -999, stars: prev?.stars ?? -1 };
     });
   }
 
@@ -65,8 +66,8 @@ export class Hud {
       }
       const s = st.stars[i] ?? 0;
       if (s !== c.stars) {
-        c.crystal.textContent = String(s);
-        if (c.stars >= 0 && s > c.stars) pop(c.crystal.parentElement!, 'bump');
+        c.cup.textContent = String(s);
+        if (c.stars >= 0 && s > c.stars) pop(c.cup.parentElement!, 'bump');
         c.stars = s;
       }
       c.el.classList.toggle('lead', lead > 0 && target === lead);
@@ -80,21 +81,31 @@ export class Hud {
 
   setRound(round: number, total: number) {
     const last = round >= total;
-    this.pill.innerHTML = `<small>ROUND</small><b>${round}<i>/${total}</i></b>${last ? '<em>DOUBLE POINTS!</em>' : ''}`;
+    this.pill.innerHTML = `<small class="sm">ROUND</small><b class="gt or">${round}<i>/${total}</i></b>${last ? '<em>DOUBLE POINTS!</em>' : ''}`;
     this.pill.classList.toggle('last', last);
   }
-  setPillText(small: string, big: string) { this.pill.innerHTML = `<small>${esc(small)}</small><b>${esc(big)}</b>`; this.pill.classList.remove('last'); }
+  /** Mini-game clock, shown in the centre like the original (m:ss). */
+  setClock(sec: number) {
+    const s = Math.ceil(sec);
+    const txt = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    if (this.pill.dataset.clock === txt) return;
+    this.pill.dataset.clock = txt;
+    this.pill.innerHTML = `<b class="gt or clock">${txt}</b>`;
+    this.pill.classList.toggle('hurry', s <= 10);
+    this.pill.classList.remove('last');
+  }
+  setPillText(small: string, big: string) { delete this.pill.dataset.clock; this.pill.classList.remove('hurry'); this.pill.innerHTML = `<small class="sm">${esc(small)}</small><b class="gt or">${esc(big)}</b>`; this.pill.classList.remove('last'); }
 
   banner(title: string, sub = '', kind = 'info', ms = 2200) {
     this.bannerEl.className = `banner ${kind}`;
-    this.bannerEl.innerHTML = `<div class="bt">${esc(title)}</div>${sub ? `<div class="bs">${esc(sub)}</div>` : ''}`;
+    this.bannerEl.innerHTML = `<div class="bt gt">${esc(title)}</div>${sub ? `<div class="bs">${esc(sub)}</div>` : ''}`;
     pop(this.bannerEl, 'in');
     clearTimeout(this.bannerTimer);
     this.bannerTimer = window.setTimeout(() => this.bannerEl.classList.add('out'), ms);
   }
 
   float(x: number, y: number, text: string, kind: 'plus' | 'minus' | 'star' | 'info' = 'info') {
-    const f = div(`float ${kind}`, esc(text), this.pops);
+    const f = div(`float gt ${kind}`, esc(text), this.pops);
     f.style.left = `${x}px`;
     f.style.top = `${y}px`;
     setTimeout(() => f.remove(), 1700);

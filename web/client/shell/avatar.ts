@@ -10,7 +10,7 @@ const cache = new Map<number, string>();
 const SIZE = 160;
 
 export function initPortraits(r: THREE.WebGLRenderer) { renderer = r; cache.clear(); }
-export function resetPortraits() { cache.clear(); iconCache.clear(); }
+export function resetPortraits() { cache.clear(); faceCache.clear(); iconCache.clear(); }
 
 /** Data URL of the character's head and shoulders (transparent PNG), or '' if it can't be rendered. */
 export function portrait(char: number): string {
@@ -26,11 +26,24 @@ export function portrait(char: number): string {
   return url;
 }
 
-function render(char: number): string {
+function render(char: number, face = false): string {
   const mi = createCharacter({ char, color: 0 }, { ring: false });
   mi.play('idle');
   mi.update(0.05);
-  return shot(mi.root, true);
+  return shot(mi.root, face ? 'face' : 'bust');
+}
+
+const faceCache = new Map<number, string>();
+/** Tight head shot (like the character-select icons), transparent PNG, rendered from the real 3D model. */
+export function faceShot(char: number): string {
+  const key = ((char % CHARACTERS.length) + CHARACTERS.length) % CHARACTERS.length;
+  if ('portrait' in CHARACTERS[key]) return '';
+  const hit = faceCache.get(key);
+  if (hit != null) return hit;
+  let url = '';
+  try { url = render(key, true); } catch (e) { console.warn('face failed', e); }
+  if (url) faceCache.set(key, url);
+  return url;
 }
 
 const iconCache = new Map<string, string>();
@@ -43,14 +56,16 @@ export function propIcon(name: string): string {
   if (ref) {
     try {
       const mi = new ModelInstance(ref);
-      if (mi.build()) url = shot(mi.root, false);
+      if (mi.build()) url = shot(mi.root, 'prop');
     } catch (e) { console.warn('icon failed', name, e); }
   }
   if (url) iconCache.set(name, url);
   return url;
 }
 
-function shot(model: THREE.Object3D, head: boolean): string {
+type ShotKind = 'bust' | 'face' | 'prop';
+function shot(model: THREE.Object3D, kind: ShotKind): string {
+  const head = kind !== 'prop', face = kind === 'face';
   const r = renderer;
   if (!r) return '';
   const scene = new THREE.Scene();
@@ -64,11 +79,11 @@ function shot(model: THREE.Object3D, head: boolean): string {
   const size = box.getSize(new THREE.Vector3());
   if (!isFinite(size.y) || size.y <= 0) return '';
   const top = box.max.y, h = size.y;
-  const regionH = head ? h * 0.5 : Math.max(h, size.x, size.z);
-  const cy = head ? top - regionH * 0.52 : (box.min.y + box.max.y) / 2;
+  const regionH = face ? h * 0.37 : head ? h * 0.5 : Math.max(h, size.x, size.z);
+  const cy = face ? top - regionH * 0.6 : head ? top - regionH * 0.52 : (box.min.y + box.max.y) / 2;
   const cx = (box.min.x + box.max.x) / 2;
   const cam = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
-  const dist = (Math.max(regionH, head ? size.x * 0.75 : 0) * 0.5) / Math.tan((28 * Math.PI) / 360) * 1.12;
+  const dist = (Math.max(regionH, head ? size.x * (face ? 0.5 : 0.75) : 0) * 0.5) / Math.tan((28 * Math.PI) / 360) * 1.12;
   cam.position.set(cx + dist * 0.18, cy + dist * 0.1, (box.min.z + box.max.z) / 2 + dist);
   cam.lookAt(cx, cy, (box.min.z + box.max.z) / 2);
 
@@ -97,7 +112,7 @@ function shot(model: THREE.Object3D, head: boolean): string {
 }
 
 export function avatarHtml(look: Look, cls = ''): string {
-  const url = portrait(look.char);
+  const url = faceShot(look.char) || portrait(look.char);
   const c = CHARACTERS[look.char % CHARACTERS.length];
   return url ? `<img class="av ${cls}" src="${url}" alt="${c.name}">` : `<span class="av fb ${cls}">${c.name[0]}</span>`;
 }

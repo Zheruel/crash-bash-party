@@ -24,31 +24,23 @@ interface Entry {
   celebrate: number;
 }
 
-function sky() {
-  return canvasTex(8, 256, (g, w, h) => {
-    const gr = g.createLinearGradient(0, 0, 0, h);
-    gr.addColorStop(0, '#2a0f55'); gr.addColorStop(0.55, '#b3306a'); gr.addColorStop(1, '#ff9a3c');
-    g.fillStyle = gr; g.fillRect(0, 0, w, h);
-  });
-}
-
 export class PodiumScene implements Mode {
   readonly root = new THREE.Group();
-  readonly background = sky();
+  readonly background = null; // CSS vortex shows through
   private entries: Entry[] = [];
   private rays: THREE.Mesh[] = [];
   private lights = new THREE.Group();
   private time = 0;
 
   constructor() {
-    this.root.add(new THREE.HemisphereLight(0xffffff, 0x7a5a8a, 2.2));
+    this.root.add(new THREE.HemisphereLight(0xdfeaff, 0x20404a, 2.2));
     const sun = new THREE.DirectionalLight(0xfff0d0, 2);
     sun.position.set(2, 8, 8);
     this.root.add(sun);
-    const floor = new THREE.Mesh(new THREE.CylinderGeometry(11, 11.4, 0.4, 48), new THREE.MeshLambertMaterial({ color: 0x3a1a5a }));
+    const floor = new THREE.Mesh(new THREE.CylinderGeometry(11, 11.4, 0.4, 48), new THREE.MeshLambertMaterial({ color: 0x26323e }));
     floor.position.y = -0.2;
     this.root.add(floor);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(10.8, 0.14, 6, 64).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd21f }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(10.8, 0.14, 6, 64).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xcfd024 }));
     this.root.add(ring);
     const ref = getCatalog().props?.podium;
     if (ref) {
@@ -77,7 +69,7 @@ export class PodiumScene implements Mode {
         g.fillStyle = FACE[rank]; g.fillRect(0, 0, w, hh);
         g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(0, hh - 16, w, 16);
         g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,.35)'; g.strokeRect(4, 4, w - 8, hh - 8);
-        g.font = `84px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.font = `700 84px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
         strokeText(g, String(rank + 1), 64, 64, '#fff', '#2a1608', 9);
       }, true);
       const plain = new THREE.MeshLambertMaterial({ color: FACE[rank] });

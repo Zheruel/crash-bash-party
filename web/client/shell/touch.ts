@@ -15,7 +15,7 @@ export class TouchControls {
     this.el.id = 'touch';
     this.el.className = 'hidden';
     this.el.innerHTML = `<div class="tstick"><div class="tbase"><div class="tknob"></div></div></div>
-      <div class="tbtns"><button class="tbtn tb" data-b="b">B</button><button class="tbtn ta" data-b="a">A</button></div>`;
+      <div class="tbtns"><button class="tbtn tb" data-b="b" aria-label="Button B"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="3.4"/></svg></button><button class="tbtn ta" data-b="a" aria-label="Button A"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.500 5.500l13 13M18.500 5.500l-13 13" stroke="currentColor" stroke-width="3.600" stroke-linecap="round"/></svg></button></div>`;
     parent.appendChild(this.el);
     this.base = this.el.querySelector('.tbase')!;
     this.knob = this.el.querySelector('.tknob')!;

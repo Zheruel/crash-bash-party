@@ -1,0 +1,500 @@
+{
+ "_notes": "Keg Kaboom = level 30 (cheat id 0x1E). Stage 0609: dirt ring, stone wall, windmill village on hills. Arena is recentred on the floor (extra_5aec centre (-0.272,0.169), top y 0.07) in raw units x3.398. Props from pack 0738 (barrels by value, explosion bits); per-character barrel carriers 864-878.",
+ "arenas": {
+  "kegKaboom": {
+   "model": 609,
+   "scale": 3.398,
+   "offset": [
+    0.924,
+    -0.238,
+    -0.574
+   ],
+   "parts": [
+    "extra_2a3c",
+    "extra_2c14",
+    "extra_2dd0",
+    "extra_3670",
+    "extra_5aec",
+    "extra_1eac"
+   ]
+  }
+ },
+ "props": {
+  "kkBarrel": {
+   "model": 738,
+   "parts": [
+    "part0"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkBarrelB": {
+   "model": 738,
+   "parts": [
+    "part15"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkBarrelGold": {
+   "model": 738,
+   "parts": [
+    "part21"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkBarrelSilver": {
+   "model": 738,
+   "parts": [
+    "part22"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkBarrelLit": {
+   "model": 738,
+   "parts": [
+    "part5"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkCrate": {
+   "model": 738,
+   "parts": [
+    "part19"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkFlash": {
+   "model": 738,
+   "parts": [
+    "part8"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkPuff": {
+   "model": 738,
+   "parts": [
+    "part9"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkPuff2": {
+   "model": 738,
+   "parts": [
+    "part10"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkComet": {
+   "model": 738,
+   "parts": [
+    "part6"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkRing": {
+   "model": 738,
+   "parts": [
+    "part7"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkSparks": {
+   "model": 738,
+   "parts": [
+    "part11"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkDiamond": {
+   "model": 738,
+   "parts": [
+    "part12"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkBolt": {
+   "model": 738,
+   "parts": [
+    "part18"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkRingW": {
+   "model": 738,
+   "parts": [
+    "part20"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkDebris": {
+   "model": 738,
+   "parts": [
+    "part2"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkDebris2": {
+   "model": 738,
+   "parts": [
+    "part3"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkShard": {
+   "model": 738,
+   "parts": [
+    "part1"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkShard2": {
+   "model": 738,
+   "parts": [
+    "part14"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkBlades": {
+   "model": 609,
+   "parts": [
+    "part9"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkBlades2": {
+   "model": 609,
+   "parts": [
+    "part10"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkCarry_tiny": {
+   "model": 864,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 4,
+    "run": 1,
+    "action": 0,
+    "hit": 2,
+    "jump": 3,
+    "win": 3,
+    "lose": 2
+   },
+   "parts": [
+    "part1"
+   ]
+  },
+  "kkCarry_koala": {
+   "model": 866,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 4,
+    "run": 1,
+    "action": 0,
+    "hit": 3,
+    "jump": 2,
+    "win": 2,
+    "lose": 3
+   },
+   "parts": [
+    "part1"
+   ]
+  },
+  "kkCarry_rilla": {
+   "model": 868,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 1,
+    "run": 0,
+    "action": 2,
+    "hit": 3,
+    "jump": 4,
+    "win": 4,
+    "lose": 3
+   },
+   "parts": [
+    "part0"
+   ]
+  },
+  "kkCarry_brio": {
+   "model": 870,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 4,
+    "run": 3,
+    "action": 1,
+    "hit": 0,
+    "jump": 2,
+    "win": 2,
+    "lose": 0
+   },
+   "parts": [
+    "part2"
+   ]
+  },
+  "kkCarry_dingodile": {
+   "model": 872,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "jump": 2,
+    "hit": 3,
+    "action": 4,
+    "win": 2,
+    "lose": 3
+   },
+   "parts": [
+    "part0"
+   ]
+  },
+  "kkCarry_cortex": {
+   "model": 874,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 3,
+    "hit": 2,
+    "jump": 1,
+    "action": 4,
+    "win": 1,
+    "lose": 2
+   },
+   "parts": [
+    "part0"
+   ]
+  },
+  "kkCarry_coco": {
+   "model": 876,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 3,
+    "hit": 2,
+    "jump": 4,
+    "action": 1,
+    "win": 4,
+    "lose": 2
+   },
+   "parts": [
+    "part2"
+   ]
+  },
+  "kkCarry_crash": {
+   "model": 878,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "hit": 2,
+    "jump": 3,
+    "action": 4,
+    "win": 3,
+    "lose": 2
+   },
+   "parts": [
+    "part1"
+   ]
+  },
+  "kkMill": {
+   "model": 609,
+   "parts": [
+    "extra_2928",
+    "extra_281c"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkSky": {
+   "model": 609,
+   "parts": [
+    "extra_2000"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  }
+ }
+}

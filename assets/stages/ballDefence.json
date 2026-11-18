@@ -1,0 +1,136 @@
+{
+ "_notes": "BALLISTIX levels 14-17 (cheat ids 0x0E-0x11). Stage models (native units, scale 4 = 1 sim unit per 0.25 native; camera fit in native units: y 3.989 z 2.951 pitch 52.5 deg fov 65 x-stretch 1.295): CRASHBALL 659 (t08 658), BEACH BALL 655 (t08 654), N.BALLISM 651 (t08 650), SKY BALLS 647 (t08 646). Floors/walls of the first three are not in the t29 files and are built in the view from the t08 textures. Ship = model 766 (t08 765), pilot = tank bust variant.",
+ "arenas": {
+  "ballDefence": {
+   "model": 659,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part11",
+    "part12",
+    "part13",
+    "part14",
+    "part15",
+    "part16",
+    "part17",
+    "part23",
+    "part24",
+    "part25",
+    "part26",
+    "extra_7cd0",
+    "extra_bc58"
+   ]
+  },
+  "ballDefence:crashball": {
+   "model": 659,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part11",
+    "part12",
+    "part13",
+    "part14",
+    "part15",
+    "part16",
+    "part17",
+    "part23",
+    "part24",
+    "part25",
+    "part26",
+    "extra_7cd0",
+    "extra_bc58"
+   ]
+  },
+  "ballDefence:beachBall": {
+   "model": 655,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_4664",
+    "extra_5660",
+    "extra_8c78"
+   ],
+   "extra": [
+    {
+     "model": 655,
+     "scale": 4,
+     "offset": [
+      0,
+      0,
+      0
+     ],
+     "yaw": 3.141592653589793,
+     "parts": [
+      "extra_8c78"
+     ]
+    }
+   ]
+  },
+  "ballDefence:nballism": {
+   "model": 651,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part30",
+    "part31",
+    "part32",
+    "part33",
+    "part34",
+    "part35",
+    "part36",
+    "part37"
+   ]
+  },
+  "ballDefence:skyBalls": {
+   "model": 647,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_56bc",
+    "extra_8b68",
+    "extra_9114",
+    "extra_8e70"
+   ]
+  }
+ },
+ "props": {
+  "bdShip": {
+   "model": 766,
+   "scale": 5,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 3.141592653589793,
+   "parts": [
+    "part3"
+   ]
+  }
+ }
+}

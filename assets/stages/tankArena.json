@@ -1,0 +1,92 @@
+{
+ "_notes": "TANK WARS (levels 5-8). Stage models are in group 29: Metal Fox 689, Desert Fox 693, Jungle Fox 691 (the Swamp Fox stage model was not found among the extracted models, it is built procedurally by the view). Scale 2.6 = world units per model unit; offset centres the play field on the origin. Tank body 774 at 0.68 of the stage scale (the real tank is 0.63 model units wide); driver busts 880-894 are in catalog characters[].variants.tank.",
+ "arenas": {
+  "tankArena": {
+   "model": 689,
+   "scale": 2.6,
+   "offset": [
+    -0.676,
+    0,
+    -0.65
+   ],
+   "parts": [
+    "extra_2ab4",
+    "extra_6924",
+    "extra_6c60",
+    "extra_7614"
+   ]
+  },
+  "tankArena:metalFox": {
+   "model": 689,
+   "scale": 2.6,
+   "offset": [
+    -0.676,
+    0,
+    -0.65
+   ],
+   "parts": [
+    "extra_2ab4",
+    "extra_6924",
+    "extra_6c60",
+    "extra_7614"
+   ]
+  },
+  "tankArena:desertFox": {
+   "model": 693,
+   "scale": 2.6,
+   "offset": [
+    0.169,
+    0,
+    -0.325
+   ],
+   "parts": [
+    "extra_10a4",
+    "extra_3fc8",
+    "extra_4a50",
+    "extra_4910"
+   ]
+  },
+  "tankArena:jungleFox": {
+   "model": 691,
+   "scale": 2.6,
+   "offset": [
+    -5.59,
+    0,
+    5.46
+   ],
+   "parts": [
+    "extra_12f8",
+    "extra_277c",
+    "extra_35c4",
+    "extra_3de0",
+    "extra_4a24",
+    "extra_4d38"
+   ]
+  }
+ },
+ "props": {
+  "tankArena.tank": {
+   "model": 774,
+   "scale": 1.768,
+   "offset": [
+    -0.004,
+    0.321,
+    0.189
+   ],
+   "yaw": 0
+  },
+  "tankArena.foliage": {
+   "model": 691,
+   "scale": 2.6,
+   "parts": [
+    "extra_4744",
+    "extra_48dc"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  }
+ }
+}
