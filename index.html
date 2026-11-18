@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crash Bash</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; }
+    #game { width: 100vw; height: 100vh; max-width: calc(100vh * 4 / 3); margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <script>
+    // Runs your local disc image (bin+cue in a zip) with the PS1 core (PCSX ReARMed, HLE BIOS).
+    EJS_player = "#game";
+    EJS_core = "psx";
+    EJS_gameName = "Crash Bash (USA)";
+    EJS_gameUrl = "rom/crash-bash.zip";
+    EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
+    EJS_startOnLoaded = true;
+    // Optional: drop a real BIOS at rom/scph1001.bin and uncomment for better compatibility.
+    // EJS_biosUrl = "rom/scph1001.bin";
+  </script>
+  <script src="https://cdn.emulatorjs.org/stable/data/loader.js"></script>
+</body>
+</html>

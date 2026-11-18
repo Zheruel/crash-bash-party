@@ -1,0 +1,1094 @@
+{
+ "characters": [
+  {
+   "id": "crash",
+   "name": "Crash",
+   "model": 990,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0.007,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ],
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "jump": 9,
+    "hit": 3,
+    "lose": 8,
+    "win": 12
+   },
+   "height": 1.5,
+   "variants": {
+    "pogo": {
+     "model": 974,
+     "scale": 3.398,
+     "offset": [
+      0,
+      -0.003,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 0,
+      "hop": 0,
+      "jump": 1
+     }
+    },
+    "polarBear": {
+     "model": 958,
+     "scale": 3.398,
+     "offset": [
+      0,
+      -0.206,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 1,
+      "push": 0
+     }
+    },
+    "tank": {
+     "model": 894,
+     "scale": 2.6,
+     "offset": [
+      0,
+      0.472,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "coco",
+   "name": "Coco",
+   "model": 988,
+   "scale": 2.613,
+   "offset": [
+    0,
+    0.0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ],
+   "anims": {
+    "idle": 0,
+    "run": 2,
+    "jump": 5,
+    "hit": 1,
+    "lose": 11,
+    "win": 12
+   },
+   "height": 1.6,
+   "variants": {
+    "pogo": {
+     "model": 972,
+     "scale": 2.613,
+     "offset": [
+      0,
+      0.013,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 1,
+      "hop": 1,
+      "jump": 3
+     }
+    },
+    "polarBear": {
+     "model": 956,
+     "scale": 2.613,
+     "offset": [
+      0,
+      0.0,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 0,
+      "push": 0
+     }
+    },
+    "tank": {
+     "model": 892,
+     "scale": 2.6,
+     "offset": [
+      0,
+      0.472,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 5
+     }
+    }
+   }
+  },
+  {
+   "id": "tiny",
+   "name": "Tiny",
+   "model": 982,
+   "scale": 2.687,
+   "offset": [
+    0,
+    0.0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ],
+   "anims": {
+    "idle": 0,
+    "run": 2,
+    "jump": 3,
+    "hit": 1,
+    "lose": 12,
+    "win": 13
+   },
+   "height": 1.9,
+   "variants": {
+    "pogo": {
+     "model": 966,
+     "scale": 2.687,
+     "offset": [
+      0,
+      0.003,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 2,
+      "hop": 2,
+      "jump": 3
+     }
+    },
+    "polarBear": {
+     "model": 952,
+     "scale": 2.687,
+     "offset": [
+      0,
+      0.0,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 0,
+      "push": 0
+     }
+    },
+    "tank": {
+     "model": 888,
+     "scale": 2.6,
+     "offset": [
+      0,
+      0.472,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 5
+     }
+    }
+   }
+  },
+  {
+   "id": "dingodile",
+   "name": "Dingodile",
+   "model": 980,
+   "scale": 2.644,
+   "offset": [
+    0,
+    0.0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ],
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "jump": 4,
+    "hit": 3,
+    "lose": 9,
+    "win": 13
+   },
+   "height": 1.8,
+   "variants": {
+    "pogo": {
+     "model": 962,
+     "scale": 2.644,
+     "offset": [
+      0,
+      0.013,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 1,
+      "hop": 1,
+      "jump": 3
+     }
+    },
+    "polarBear": {
+     "model": 950,
+     "scale": 2.644,
+     "offset": [
+      0,
+      0.0,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 0,
+      "push": 1
+     }
+    },
+    "tank": {
+     "model": 884,
+     "scale": 2.6,
+     "offset": [
+      0,
+      0.472,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "cortex",
+   "name": "Dr. Neo Cortex",
+   "model": 986,
+   "scale": 3.048,
+   "offset": [
+    0,
+    0.0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ],
+   "anims": {
+    "idle": 1,
+    "run": 2,
+    "jump": 3,
+    "hit": 0,
+    "lose": 11,
+    "win": 12
+   },
+   "height": 1.5,
+   "variants": {
+    "pogo": {
+     "model": 970,
+     "scale": 3.048,
+     "offset": [
+      0,
+      -0.119,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 2,
+      "hop": 2,
+      "jump": 3
+     }
+    },
+    "polarBear": {
+     "model": 954,
+     "scale": 3.048,
+     "offset": [
+      0,
+      0.0,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 0,
+      "push": 0
+     }
+    },
+    "tank": {
+     "model": 890,
+     "scale": 2.6,
+     "offset": [
+      0,
+      0.472,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 4
+     }
+    }
+   }
+  },
+  {
+   "id": "brio",
+   "name": "Dr. N. Brio",
+   "model": 984,
+   "scale": 2.868,
+   "offset": [
+    0,
+    0.003,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ],
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "jump": 3,
+    "hit": 2,
+    "lose": 8,
+    "win": 13
+   },
+   "height": 1.7,
+   "variants": {
+    "pogo": {
+     "model": 968,
+     "scale": 2.868,
+     "offset": [
+      0,
+      -0.165,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 2,
+      "hop": 2,
+      "jump": 3
+     }
+    },
+    "polarBear": {
+     "model": 948,
+     "scale": 2.868,
+     "offset": [
+      0,
+      0.0,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 0,
+      "push": 1
+     }
+    },
+    "tank": {
+     "model": 886,
+     "scale": 2.6,
+     "offset": [
+      0,
+      0.472,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "koala",
+   "name": "Koala Kong",
+   "model": 978,
+   "scale": 2.832,
+   "offset": [
+    0,
+    0.0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ],
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "jump": 4,
+    "hit": 3,
+    "lose": 5,
+    "win": 13
+   },
+   "height": 1.9,
+   "variants": {
+    "pogo": {
+     "model": 960,
+     "scale": 2.832,
+     "offset": [
+      0,
+      0.0,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 4,
+      "hop": 4,
+      "jump": 2
+     }
+    },
+    "polarBear": {
+     "model": 944,
+     "scale": 2.832,
+     "offset": [
+      0,
+      -0.039,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 0,
+      "push": 2
+     }
+    },
+    "tank": {
+     "model": 880,
+     "scale": 2.6,
+     "offset": [
+      0,
+      0.472,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 4
+     }
+    }
+   }
+  },
+  {
+   "id": "rilla",
+   "name": "Rilla Roo",
+   "model": 976,
+   "scale": 2.464,
+   "offset": [
+    0,
+    0.0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ],
+   "anims": {
+    "idle": 1,
+    "run": 0,
+    "jump": 2,
+    "hit": 3,
+    "lose": 4,
+    "win": 13
+   },
+   "height": 1.8,
+   "variants": {
+    "pogo": {
+     "model": 964,
+     "scale": 2.464,
+     "offset": [
+      0,
+      0.01,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 4,
+      "hop": 4,
+      "jump": 2
+     }
+    },
+    "polarBear": {
+     "model": 946,
+     "scale": 2.464,
+     "offset": [
+      0,
+      0.0,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 0,
+      "push": 0
+     }
+    },
+    "tank": {
+     "model": 882,
+     "scale": 2.6,
+     "offset": [
+      0,
+      0.472,
+      0
+     ],
+     "yaw": 0,
+     "parts": [
+      "part0"
+     ],
+     "anims": {
+      "idle": 1
+     }
+    }
+   }
+  }
+ ],
+ "arenas": {
+  "ballDefence": {
+   "model": 691,
+   "scale": 4.151,
+   "offset": [
+    -7.887,
+    0.0,
+    7.472
+   ],
+   "yaw": 0
+  },
+  "ballDefence:crashball": {
+   "model": 691,
+   "scale": 4.151,
+   "offset": [
+    -7.887,
+    0.0,
+    7.472
+   ],
+   "yaw": 0
+  },
+  "ballDefence:beachBall": {
+   "model": 681,
+   "scale": 3.492,
+   "offset": [
+    -0.349,
+    0.0,
+    2.794
+   ],
+   "yaw": 0
+  },
+  "ballDefence:nballism": {
+   "model": 703,
+   "scale": 4.681,
+   "offset": [
+    1.685,
+    0.0,
+    0.0
+   ],
+   "yaw": 0
+  },
+  "ballDefence:skyBalls": {
+   "model": 685,
+   "scale": 2.444,
+   "offset": [
+    -6.11,
+    0.0,
+    8.554
+   ],
+   "yaw": 0
+  },
+  "pushOff": {
+   "model": 466,
+   "scale": 3.929,
+   "offset": [
+    -0.314,
+    0.157,
+    0.0
+   ],
+   "yaw": 0
+  },
+  "pushOff:tiltPanic": {
+   "model": 466,
+   "scale": 3.929,
+   "offset": [
+    -0.314,
+    0.157,
+    0.0
+   ],
+   "yaw": 0
+  },
+  "pushOff:polarPanic": {
+   "model": 460,
+   "scale": 3.929,
+   "offset": [
+    -0.157,
+    0.157,
+    0.0
+   ],
+   "yaw": 0
+  },
+  "pushOff:meltPanic": {
+   "model": 458,
+   "scale": 3.385,
+   "offset": [
+    0.0,
+    -0.609,
+    0.0
+   ],
+   "yaw": 0
+  },
+  "pushOff:manicPanic": {
+   "model": 478,
+   "scale": 4.4,
+   "offset": [
+    0.0,
+    0.44,
+    -1.848
+   ],
+   "yaw": 0
+  },
+  "tilePainter": {
+   "model": 679,
+   "scale": 3.667,
+   "offset": [
+    -0.733,
+    0.0,
+    -0.367
+   ],
+   "yaw": 0
+  },
+  "tilePainter:pogoPainter": {
+   "model": 679,
+   "scale": 3.667,
+   "offset": [
+    -0.733,
+    0.0,
+    -0.367
+   ],
+   "yaw": 0
+  },
+  "tilePainter:pogoAGogo": {
+   "model": 683,
+   "scale": 5.238,
+   "offset": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "yaw": 0
+  },
+  "tilePainter:elPogoLoco": {
+   "model": 693,
+   "scale": 5.238,
+   "offset": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "yaw": 0
+  },
+  "tilePainter:pogoPadlock": {
+   "model": 689,
+   "scale": 4.4,
+   "offset": [
+    -0.88,
+    0.0,
+    2.64
+   ],
+   "yaw": 0
+  },
+  "tankArena": {
+   "model": 663,
+   "scale": 2.619,
+   "offset": [
+    -0.733,
+    0.0,
+    2.226
+   ],
+   "yaw": 0
+  },
+  "tankArena:metalFox": {
+   "model": 663,
+   "scale": 2.619,
+   "offset": [
+    -0.733,
+    0.0,
+    2.226
+   ],
+   "yaw": 0
+  },
+  "tankArena:swampFox": {
+   "model": 661,
+   "scale": 2.444,
+   "offset": [
+    -0.489,
+    0.0,
+    1.466
+   ],
+   "yaw": 0
+  },
+  "tankArena:desertFox": {
+   "model": 671,
+   "scale": 2.75,
+   "offset": [
+    -0.825,
+    0.0,
+    0.275
+   ],
+   "yaw": 0
+  },
+  "tankArena:jungleFox": {
+   "model": 675,
+   "scale": 4.0,
+   "offset": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "yaw": 0
+  },
+  "crateToss": {
+   "model": 707,
+   "scale": 2.2,
+   "offset": [
+    0.0,
+    -0.022,
+    -0.66
+   ],
+   "yaw": 0
+  },
+  "crateToss:snowBash": {
+   "model": 707,
+   "scale": 2.2,
+   "offset": [
+    0.0,
+    -0.022,
+    -0.66
+   ],
+   "yaw": 0
+  },
+  "crateToss:jungleBash": {
+   "model": 713,
+   "scale": 5.238,
+   "offset": [
+    0.0,
+    0.0,
+    -5.238
+   ],
+   "yaw": 0
+  },
+  "crateToss:spaceBash": {
+   "model": 701,
+   "scale": 5.116,
+   "offset": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "yaw": 0
+  },
+  "crateToss:drainBash": {
+   "model": 709,
+   "scale": 5.116,
+   "offset": [
+    0.0,
+    8.544,
+    0.0
+   ],
+   "yaw": 0
+  },
+  "dashRace": {
+   "model": 647,
+   "scale": 0.4,
+   "offset": [
+    0.0,
+    0.92,
+    3.2
+   ],
+   "yaw": 0
+  },
+  "dashRace:dotDash": {
+   "model": 647,
+   "scale": 0.4,
+   "offset": [
+    0.0,
+    0.92,
+    3.2
+   ],
+   "yaw": 0
+  },
+  "dashRace:toxicDash": {
+   "model": 653,
+   "scale": 1.1,
+   "offset": [
+    0.0,
+    0.539,
+    7.7
+   ],
+   "yaw": 0
+  },
+  "dashRace:splashDash": {
+   "model": 655,
+   "scale": 1.833,
+   "offset": [
+    0.0,
+    0.916,
+    3.666
+   ],
+   "yaw": 0
+  },
+  "dashRace:dantesDash": {
+   "model": 645,
+   "scale": 0.4,
+   "offset": [
+    0.0,
+    0.8,
+    2.0
+   ],
+   "yaw": 0
+  },
+  "board": {
+   "model": 617,
+   "scale": 4.0,
+   "offset": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "yaw": 0
+  }
+ },
+ "props": {
+  "crate": {
+   "model": 796,
+   "scale": 4.0,
+   "offset": [
+    -0.004,
+    0.5,
+    -0.0
+   ],
+   "yaw": 0
+  },
+  "crateStar": {
+   "model": 333,
+   "scale": 2.0,
+   "offset": [
+    -0.026,
+    0.832,
+    0.002
+   ],
+   "yaw": 0
+  },
+  "ball": {
+   "model": 307,
+   "scale": 3.0,
+   "offset": [
+    -0.029,
+    0.665,
+    0.623
+   ],
+   "yaw": 0
+  },
+  "crystal": {
+   "model": 345,
+   "scale": 1.5,
+   "offset": [
+    -0.007,
+    0.466,
+    0.001
+   ],
+   "yaw": 0
+  },
+  "gem": {
+   "model": 794,
+   "scale": 2.0,
+   "offset": [
+    -0.024,
+    0.326,
+    0.046
+   ],
+   "yaw": 0
+  },
+  "tank": {
+   "model": 774,
+   "scale": 2.6,
+   "offset": [
+    -0.006,
+    0.472,
+    0.278
+   ],
+   "yaw": 0
+  },
+  "tankAlt": {
+   "model": 489,
+   "scale": 2.3,
+   "offset": [
+    -0.0,
+    0.584,
+    -0.0
+   ],
+   "yaw": 0
+  },
+  "polarBear": {
+   "model": 464,
+   "scale": 1.2,
+   "offset": [
+    0.013,
+    0.0,
+    -0.309
+   ],
+   "yaw": 0
+  },
+  "akuAku": {
+   "model": 399,
+   "scale": 1.0,
+   "offset": [
+    0.002,
+    0.998,
+    -0.046
+   ],
+   "yaw": 0
+  },
+  "bonusStar": {
+   "model": 405,
+   "scale": 2.0,
+   "offset": [
+    -0.006,
+    0.74,
+    -0.039
+   ],
+   "yaw": 0
+  },
+  "penguin": {
+   "model": 581,
+   "scale": 2.5,
+   "offset": [
+    -0.0,
+    0.085,
+    -0.007
+   ],
+   "yaw": 0
+  },
+  "papuPapu": {
+   "model": 567,
+   "scale": 1.4,
+   "offset": [
+    -0.075,
+    0.15,
+    -0.317
+   ],
+   "yaw": 0
+  },
+  "weight": {
+   "model": 309,
+   "scale": 2.0,
+   "offset": [
+    -0.001,
+    0.5,
+    0.002
+   ],
+   "yaw": 0
+  },
+  "padlockCrate": {
+   "model": 521,
+   "scale": 2.0,
+   "offset": [
+    -0.253,
+    0.512,
+    0.001
+   ],
+   "yaw": 0
+  },
+  "podium": {
+   "model": 135,
+   "scale": 3.0,
+   "offset": [
+    -0.001,
+    -0.006,
+    2.6
+   ],
+   "yaw": 0
+  },
+  "logo": {
+   "model": 133,
+   "scale": 1.5,
+   "offset": [
+    0.029,
+    -0.018,
+    0.229
+   ],
+   "yaw": 0
+  }
+ }
+}

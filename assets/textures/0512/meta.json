@@ -1,0 +1,82 @@
+{
+ "source": "0512.t08.bin",
+ "header": {
+  "type": 8,
+  "size": 224,
+  "num_textures": 1,
+  "num_cluts": 1,
+  "tex_section_rel": 56,
+  "clut_color_bits": 16,
+  "unk14": 22612,
+  "extra_offset": 0,
+  "pad1c": 0,
+  "trailer_zero_bytes": 8
+ },
+ "cluts": [
+  {
+   "index": 0,
+   "file_offset": 36,
+   "colors": 16,
+   "rgb555": [
+    "8000",
+    "bdef",
+    "8200",
+    "8210",
+    "c000",
+    "c010",
+    "c200",
+    "e318",
+    "e378",
+    "fb34",
+    "fbff",
+    "d294",
+    "c210",
+    "801f",
+    "83e0",
+    "83ff"
+   ]
+  }
+ ],
+ "textures": [
+  {
+   "index": 0,
+   "w16": 4,
+   "h": 16,
+   "width": 16,
+   "height": 16,
+   "bpp": 4,
+   "clut": 0,
+   "clut_ref_raw": 65534,
+   "clut_is_last_alias": true,
+   "flags": 0,
+   "frames": 1,
+   "crop_x_bytes": 0,
+   "crop_y": 0,
+   "crop_w_bytes": 8,
+   "crop_h": 16,
+   "zero8": 0,
+   "anim_head": null,
+   "file_offset": 88,
+   "png": "tex000.png",
+   "png_all_cluts": null
+  }
+ ],
+ "sheet": {
+  "png": "sheet.png",
+  "size": [
+   1024,
+   16
+  ],
+  "placements": {
+   "0": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   }
+  }
+ },
+ "extra": null,
+ "vram_placement": null,
+ "notes": "No VRAM x/y in this format: textures are packed into VRAM by the engine at load time. Polygons reference a texture by block index; palette = textures[i].clut."
+}

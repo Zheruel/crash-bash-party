@@ -1,0 +1,458 @@
+{
+ "warp": {
+  "file": "music/warp.mp3",
+  "source": "0294.t14.bin",
+  "seq": 1,
+  "seconds": 52.005,
+  "loopStart": 12.0045,
+  "loopEnd": 52.0045,
+  "bpm": 120,
+  "peak": 0.94,
+  "rms": 0.1101,
+  "notes": 1434,
+  "bytes": 624744,
+  "keys": [
+   "warp"
+  ]
+ },
+ "warp2": {
+  "file": "music/warp2.mp3",
+  "source": "0294.t14.bin",
+  "seq": 2,
+  "seconds": 51.594,
+  "loopStart": 15.2311,
+  "loopEnd": 51.5936,
+  "bpm": 132,
+  "peak": 0.787,
+  "rms": 0.12,
+  "notes": 1825,
+  "bytes": 620042,
+  "keys": [
+   "warp2"
+  ]
+ },
+ "title": {
+  "file": "music/title.mp3",
+  "source": "0303.t10.bin",
+  "seq": 1,
+  "seconds": 45.886,
+  "loopStart": 10.5926,
+  "loopEnd": 45.8862,
+  "bpm": 136,
+  "peak": 0.94,
+  "rms": 0.102,
+  "notes": 1627,
+  "bytes": 551392,
+  "keys": [
+   "title"
+  ]
+ },
+ "podium": {
+  "file": "music/podium.mp3",
+  "source": "0288.t10.bin",
+  "seq": 1,
+  "seconds": 28.466,
+  "loopStart": 3.8506,
+  "loopEnd": 28.4657,
+  "bpm": 156,
+  "peak": 0.939,
+  "rms": 0.12,
+  "notes": 1332,
+  "bytes": 342308,
+  "keys": [
+   "podium"
+  ]
+ },
+ "crashball": {
+  "file": "music/crashball.mp3",
+  "source": "0296.t10.bin",
+  "seq": 1,
+  "seconds": 102.661,
+  "loopStart": 12.6608,
+  "loopEnd": 102.6608,
+  "bpm": 160,
+  "peak": 0.94,
+  "rms": 0.1026,
+  "notes": 3942,
+  "bytes": 1232561,
+  "keys": [
+   "crashball"
+  ]
+ },
+ "beachBall": {
+  "file": "music/beachBall.mp3",
+  "source": "0287.t10.bin",
+  "seq": 1,
+  "seconds": 149.147,
+  "loopStart": 12.0044,
+  "loopEnd": 149.1468,
+  "bpm": 140,
+  "peak": 0.94,
+  "rms": 0.0945,
+  "notes": 3840,
+  "bytes": 1790537,
+  "keys": [
+   "beachBall"
+  ]
+ },
+ "nballism": {
+  "file": "music/nballism.mp3",
+  "source": "0286.t10.bin",
+  "seq": 1,
+  "seconds": 107.867,
+  "loopStart": 32.363,
+  "loopEnd": 107.8666,
+  "bpm": 178,
+  "peak": 0.94,
+  "rms": 0.1146,
+  "notes": 3227,
+  "bytes": 1295255,
+  "keys": [
+   "nballism",
+   "pogoAGogo"
+  ]
+ },
+ "skyBalls": {
+  "file": "music/skyBalls.mp3",
+  "source": "0302.t10.bin",
+  "seq": 1,
+  "seconds": 73.286,
+  "loopStart": 3.6686,
+  "loopEnd": 73.2861,
+  "bpm": 131,
+  "peak": 0.94,
+  "rms": 0.1074,
+  "notes": 1357,
+  "bytes": 880222,
+  "keys": [
+   "skyBalls"
+  ]
+ },
+ "tiltPanic": {
+  "file": "music/tiltPanic.mp3",
+  "source": "0279.t10.bin",
+  "seq": 1,
+  "seconds": 123.628,
+  "loopStart": 48.8398,
+  "loopEnd": 123.6278,
+  "bpm": 215,
+  "peak": 0.94,
+  "rms": 0.1192,
+  "notes": 4032,
+  "bytes": 1484277,
+  "keys": [
+   "tiltPanic",
+   "ringDing"
+  ]
+ },
+ "polarPanic": {
+  "file": "music/polarPanic.mp3",
+  "source": "0295.t10.bin",
+  "seq": 1,
+  "seconds": 81.004,
+  "loopStart": 12.0045,
+  "loopEnd": 81.0045,
+  "bpm": 160,
+  "peak": 0.905,
+  "rms": 0.12,
+  "notes": 2486,
+  "bytes": 972695,
+  "keys": [
+   "polarPanic"
+  ]
+ },
+ "meltPanic": {
+  "file": "music/meltPanic.mp3",
+  "source": "0298.t10.bin",
+  "seq": 1,
+  "seconds": 100.003,
+  "loopStart": 6.6711,
+  "loopEnd": 100.0029,
+  "bpm": 144,
+  "peak": 0.807,
+  "rms": 0.12,
+  "notes": 2775,
+  "bytes": 1200901,
+  "keys": [
+   "meltPanic",
+   "drainBash"
+  ]
+ },
+ "manicPanic": {
+  "file": "music/manicPanic.mp3",
+  "source": "0453.t10.bin",
+  "seq": 1,
+  "seconds": 115.423,
+  "loopStart": 27.4851,
+  "loopEnd": 115.423,
+  "bpm": 131,
+  "peak": 0.94,
+  "rms": 0.1017,
+  "notes": 2639,
+  "bytes": 1385848,
+  "keys": [
+   "manicPanic"
+  ]
+ },
+ "pogoPainter": {
+  "file": "music/pogoPainter.mp3",
+  "source": "0299.t10.bin",
+  "seq": 1,
+  "seconds": 90.004,
+  "loopStart": 32.2264,
+  "loopEnd": 90.0036,
+  "bpm": 108,
+  "peak": 0.94,
+  "rms": 0.1184,
+  "notes": 3489,
+  "bytes": 1080842,
+  "keys": [
+   "pogoPainter"
+  ]
+ },
+ "elPogoLoco": {
+  "file": "music/elPogoLoco.mp3",
+  "source": "0291.t10.bin",
+  "seq": 1,
+  "seconds": 76.505,
+  "loopStart": 4.5045,
+  "loopEnd": 76.5045,
+  "bpm": 160,
+  "peak": 0.94,
+  "rms": 0.1039,
+  "notes": 2521,
+  "bytes": 918778,
+  "keys": [
+   "elPogoLoco"
+  ]
+ },
+ "pogoPadlock": {
+  "file": "music/pogoPadlock.mp3",
+  "source": "0454.t10.bin",
+  "seq": 1,
+  "seconds": 111.161,
+  "loopStart": 5.0571,
+  "loopEnd": 111.1608,
+  "bpm": 95,
+  "peak": 0.92,
+  "rms": 0.12,
+  "notes": 2583,
+  "bytes": 1334752,
+  "keys": [
+   "pogoPadlock"
+  ]
+ },
+ "swampFox": {
+  "file": "music/swampFox.mp3",
+  "source": "0283.t10.bin",
+  "seq": 1,
+  "seconds": 113.336,
+  "loopStart": 5.0044,
+  "loopEnd": 113.336,
+  "bpm": 144,
+  "peak": 0.94,
+  "rms": 0.1161,
+  "notes": 4156,
+  "bytes": 1360770,
+  "keys": [
+   "swampFox",
+   "dantesDash",
+   "dragonDrop"
+  ]
+ },
+ "desertFox": {
+  "file": "music/desertFox.mp3",
+  "source": "0281.t10.bin",
+  "seq": 1,
+  "seconds": 112.375,
+  "loopStart": 21.3406,
+  "loopEnd": 112.3748,
+  "bpm": 116,
+  "peak": 0.94,
+  "rms": 0.1169,
+  "notes": 2338,
+  "bytes": 1349172,
+  "keys": [
+   "desertFox"
+  ]
+ },
+ "jungleFox": {
+  "file": "music/jungleFox.mp3",
+  "source": "0282.t10.bin",
+  "seq": 1,
+  "seconds": 67.441,
+  "loopStart": 7.9379,
+  "loopEnd": 67.4411,
+  "bpm": 121,
+  "peak": 0.797,
+  "rms": 0.12,
+  "notes": 2176,
+  "bytes": 810004,
+  "keys": [
+   "jungleFox"
+  ]
+ },
+ "metalFox": {
+  "file": "music/metalFox.mp3",
+  "source": "0280.t10.bin",
+  "seq": 1,
+  "seconds": 114.599,
+  "loopStart": 15.1396,
+  "loopEnd": 114.599,
+  "bpm": 111,
+  "peak": 0.94,
+  "rms": 0.0996,
+  "notes": 2331,
+  "bytes": 1375817,
+  "keys": [
+   "metalFox",
+   "bigBadFox"
+  ]
+ },
+ "jungleBash": {
+  "file": "music/jungleBash.mp3",
+  "source": "0293.t10.bin",
+  "seq": 1,
+  "seconds": 88.444,
+  "loopStart": 10.5223,
+  "loopEnd": 88.4443,
+  "bpm": 154,
+  "peak": 0.94,
+  "rms": 0.1023,
+  "notes": 3139,
+  "bytes": 1062034,
+  "keys": [
+   "jungleBash"
+  ]
+ },
+ "spaceBash": {
+  "file": "music/spaceBash.mp3",
+  "source": "0297.t10.bin",
+  "seq": 1,
+  "seconds": 85.371,
+  "loopStart": 4.1956,
+  "loopEnd": 85.3709,
+  "bpm": 136,
+  "peak": 0.94,
+  "rms": 0.1078,
+  "notes": 1649,
+  "bytes": 1025358,
+  "keys": [
+   "spaceBash"
+  ]
+ },
+ "snowBash": {
+  "file": "music/snowBash.mp3",
+  "source": "0289.t10.bin",
+  "seq": 1,
+  "seconds": 84.269,
+  "loopStart": 24.5372,
+  "loopEnd": 84.269,
+  "bpm": 225,
+  "peak": 0.94,
+  "rms": 0.1003,
+  "notes": 2202,
+  "bytes": 1011879,
+  "keys": [
+   "snowBash"
+  ]
+ },
+ "dotDash": {
+  "file": "music/dotDash.mp3",
+  "source": "0285.t10.bin",
+  "seq": 1,
+  "seconds": 74.404,
+  "loopStart": 9.6045,
+  "loopEnd": 74.4045,
+  "bpm": 200,
+  "peak": 0.905,
+  "rms": 0.12,
+  "notes": 2298,
+  "bytes": 893701,
+  "keys": [
+   "dotDash",
+   "splashDash",
+   "oxideRide"
+  ]
+ },
+ "toxicDash": {
+  "file": "music/toxicDash.mp3",
+  "source": "0284.t10.bin",
+  "seq": 1,
+  "seconds": 66.95,
+  "loopStart": 16.4251,
+  "loopEnd": 66.9499,
+  "bpm": 190,
+  "peak": 0.822,
+  "rms": 0.12,
+  "notes": 2071,
+  "bytes": 804049,
+  "keys": [
+   "toxicDash"
+  ]
+ },
+ "papuPummel": {
+  "file": "music/papuPummel.mp3",
+  "source": "0290.t10.bin",
+  "seq": 1,
+  "seconds": 90.003,
+  "loopStart": 14.122,
+  "loopEnd": 90.0032,
+  "bpm": 136,
+  "peak": 0.93,
+  "rms": 0.12,
+  "notes": 3150,
+  "bytes": 1080842,
+  "keys": [
+   "papuPummel",
+   "tieBreaker"
+  ]
+ },
+ "bearminator": {
+  "file": "music/bearminator.mp3",
+  "source": "0452.t10.bin",
+  "seq": 1,
+  "seconds": 87.137,
+  "loopStart": 7.6477,
+  "loopEnd": 87.137,
+  "bpm": 157,
+  "peak": 0.93,
+  "rms": 0.12,
+  "notes": 2359,
+  "bytes": 1046360,
+  "keys": [
+   "bearminator"
+  ]
+ },
+ "malletMash": {
+  "file": "music/malletMash.mp3",
+  "source": "0292.t10.bin",
+  "seq": 1,
+  "seconds": 112.108,
+  "loopStart": 11.057,
+  "loopEnd": 112.1078,
+  "bpm": 152,
+  "peak": 0.94,
+  "rms": 0.103,
+  "notes": 2385,
+  "bytes": 1346037,
+  "keys": [
+   "malletMash",
+   "kegKaboom"
+  ]
+ },
+ "extra_0300": {
+  "file": "music/extra_0300.mp3",
+  "source": "0300.t10.bin",
+  "seq": 1,
+  "seconds": 12.005,
+  "loopStart": 0.0045,
+  "loopEnd": 12.0045,
+  "bpm": 160,
+  "peak": 0.878,
+  "rms": 0.12,
+  "notes": 353,
+  "bytes": 144822,
+  "keys": []
+ }
+}

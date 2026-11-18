@@ -1,0 +1,133 @@
+{
+ "source": "0570.t08.bin",
+ "header": {
+  "type": 8,
+  "size": 2328,
+  "num_textures": 2,
+  "num_cluts": 2,
+  "tex_section_rel": 92,
+  "clut_color_bits": 16,
+  "unk14": 1260,
+  "extra_offset": 0,
+  "pad1c": 0,
+  "trailer_zero_bytes": 8
+ },
+ "cluts": [
+  {
+   "index": 0,
+   "file_offset": 36,
+   "colors": 16,
+   "rgb555": [
+    "0000",
+    "94a5",
+    "9ce7",
+    "a108",
+    "a529",
+    "a94a",
+    "b18c",
+    "b5ad",
+    "b9ce",
+    "c210",
+    "c631",
+    "ca52",
+    "ce73",
+    "d294",
+    "d6b5",
+    "dad6"
+   ]
+  },
+  {
+   "index": 1,
+   "file_offset": 72,
+   "colors": 16,
+   "rgb555": [
+    "0000",
+    "8421",
+    "8842",
+    "8c63",
+    "9084",
+    "98c6",
+    "9ce7",
+    "a108",
+    "a94a",
+    "ad6b",
+    "b18c",
+    "b9ce",
+    "bdef",
+    "c210",
+    "ca52",
+    "ce73"
+   ]
+  }
+ ],
+ "textures": [
+  {
+   "index": 0,
+   "w16": 16,
+   "h": 64,
+   "width": 64,
+   "height": 64,
+   "bpp": 4,
+   "clut": 0,
+   "clut_ref_raw": 0,
+   "clut_is_last_alias": false,
+   "flags": 0,
+   "frames": 1,
+   "crop_x_bytes": 0,
+   "crop_y": 0,
+   "crop_w_bytes": 32,
+   "crop_h": 64,
+   "zero8": 0,
+   "anim_head": null,
+   "file_offset": 124,
+   "png": "tex000.png",
+   "png_all_cluts": null
+  },
+  {
+   "index": 1,
+   "w16": 4,
+   "h": 16,
+   "width": 16,
+   "height": 16,
+   "bpp": 4,
+   "clut": 1,
+   "clut_ref_raw": 2,
+   "clut_is_last_alias": false,
+   "flags": 0,
+   "frames": 1,
+   "crop_x_bytes": 0,
+   "crop_y": 0,
+   "crop_w_bytes": 8,
+   "crop_h": 16,
+   "zero8": 0,
+   "anim_head": null,
+   "file_offset": 2192,
+   "png": "tex001.png",
+   "png_all_cluts": null
+  }
+ ],
+ "sheet": {
+  "png": "sheet.png",
+  "size": [
+   1024,
+   64
+  ],
+  "placements": {
+   "0": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "1": {
+    "x": 66,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   }
+  }
+ },
+ "extra": null,
+ "vram_placement": null,
+ "notes": "No VRAM x/y in this format: textures are packed into VRAM by the engine at load time. Polygons reference a texture by block index; palette = textures[i].clut."
+}

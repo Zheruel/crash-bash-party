@@ -1,0 +1,307 @@
+{
+ "source": "0765.t08.bin",
+ "header": {
+  "type": 8,
+  "size": 2136,
+  "num_textures": 5,
+  "num_cluts": 5,
+  "tex_section_rel": 200,
+  "clut_color_bits": 16,
+  "unk14": 9676,
+  "extra_offset": 2104,
+  "pad1c": 0
+ },
+ "cluts": [
+  {
+   "index": 0,
+   "file_offset": 36,
+   "colors": 16,
+   "rgb555": [
+    "0000",
+    "8000",
+    "8000",
+    "8000",
+    "8000",
+    "8000",
+    "8000",
+    "8000",
+    "8421",
+    "8c63",
+    "94a5",
+    "a108",
+    "a94a",
+    "b18c",
+    "b9ce",
+    "c210"
+   ]
+  },
+  {
+   "index": 1,
+   "file_offset": 72,
+   "colors": 16,
+   "rgb555": [
+    "0000",
+    "8000",
+    "8420",
+    "8841",
+    "8c81",
+    "90a2",
+    "90c2",
+    "94e2",
+    "9903",
+    "a164",
+    "a584",
+    "a9a5",
+    "a9c5",
+    "adc5",
+    "ade5",
+    "b1e5"
+   ]
+  },
+  {
+   "index": 2,
+   "file_offset": 108,
+   "colors": 16,
+   "rgb555": [
+    "0000",
+    "88e7",
+    "9526",
+    "850a",
+    "914a",
+    "9d87",
+    "856e",
+    "a5a6",
+    "85d2",
+    "8657",
+    "8a9a",
+    "8afe",
+    "875f",
+    "937f",
+    "a39f",
+    "b39f"
+   ]
+  },
+  {
+   "index": 3,
+   "file_offset": 144,
+   "colors": 16,
+   "rgb555": [
+    "0000",
+    "8000",
+    "8021",
+    "8420",
+    "8042",
+    "8441",
+    "8063",
+    "8861",
+    "8064",
+    "90c2",
+    "80a6",
+    "80c7",
+    "8109",
+    "9d23",
+    "812b",
+    "a584"
+   ]
+  },
+  {
+   "index": 4,
+   "file_offset": 180,
+   "colors": 16,
+   "rgb555": [
+    "8000",
+    "904f",
+    "bdef",
+    "8210",
+    "c000",
+    "c010",
+    "c200",
+    "e318",
+    "e378",
+    "fb34",
+    "fbff",
+    "d294",
+    "c210",
+    "801f",
+    "83e0",
+    "83ff"
+   ]
+  }
+ ],
+ "textures": [
+  {
+   "index": 0,
+   "w16": 4,
+   "h": 16,
+   "width": 16,
+   "height": 16,
+   "bpp": 4,
+   "clut": 0,
+   "clut_ref_raw": 0,
+   "clut_is_last_alias": false,
+   "flags": 0,
+   "frames": 1,
+   "crop_x_bytes": 0,
+   "crop_y": 0,
+   "crop_w_bytes": 8,
+   "crop_h": 16,
+   "zero8": 0,
+   "anim_head": null,
+   "file_offset": 232,
+   "png": "tex000.png",
+   "png_all_cluts": null
+  },
+  {
+   "index": 1,
+   "w16": 8,
+   "h": 32,
+   "width": 32,
+   "height": 32,
+   "bpp": 4,
+   "clut": 1,
+   "clut_ref_raw": 2,
+   "clut_is_last_alias": false,
+   "flags": 0,
+   "frames": 1,
+   "crop_x_bytes": 0,
+   "crop_y": 0,
+   "crop_w_bytes": 16,
+   "crop_h": 32,
+   "zero8": 0,
+   "anim_head": null,
+   "file_offset": 380,
+   "png": "tex001.png",
+   "png_all_cluts": null
+  },
+  {
+   "index": 2,
+   "w16": 8,
+   "h": 32,
+   "width": 32,
+   "height": 32,
+   "bpp": 4,
+   "clut": 2,
+   "clut_ref_raw": 4,
+   "clut_is_last_alias": false,
+   "flags": 0,
+   "frames": 1,
+   "crop_x_bytes": 0,
+   "crop_y": 0,
+   "crop_w_bytes": 16,
+   "crop_h": 32,
+   "zero8": 0,
+   "anim_head": null,
+   "file_offset": 912,
+   "png": "tex002.png",
+   "png_all_cluts": null
+  },
+  {
+   "index": 3,
+   "w16": 8,
+   "h": 32,
+   "width": 32,
+   "height": 32,
+   "bpp": 4,
+   "clut": 3,
+   "clut_ref_raw": 6,
+   "clut_is_last_alias": false,
+   "flags": 0,
+   "frames": 1,
+   "crop_x_bytes": 0,
+   "crop_y": 0,
+   "crop_w_bytes": 16,
+   "crop_h": 32,
+   "zero8": 0,
+   "anim_head": null,
+   "file_offset": 1444,
+   "png": "tex003.png",
+   "png_all_cluts": null
+  },
+  {
+   "index": 4,
+   "w16": 4,
+   "h": 16,
+   "width": 16,
+   "height": 16,
+   "bpp": 4,
+   "clut": 4,
+   "clut_ref_raw": 65534,
+   "clut_is_last_alias": true,
+   "flags": 0,
+   "frames": 1,
+   "crop_x_bytes": 0,
+   "crop_y": 0,
+   "crop_w_bytes": 8,
+   "crop_h": 16,
+   "zero8": 0,
+   "anim_head": null,
+   "file_offset": 1976,
+   "png": "tex004.png",
+   "png_all_cluts": null
+  }
+ ],
+ "sheet": {
+  "png": "sheet.png",
+  "size": [
+   1024,
+   32
+  ],
+  "placements": {
+   "0": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "1": {
+    "x": 18,
+    "y": 0,
+    "w": 32,
+    "h": 32
+   },
+   "2": {
+    "x": 52,
+    "y": 0,
+    "w": 32,
+    "h": 32
+   },
+   "3": {
+    "x": 86,
+    "y": 0,
+    "w": 32,
+    "h": 32
+   },
+   "4": {
+    "x": 120,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   }
+  }
+ },
+ "extra": {
+  "offset": 2104,
+  "length": 32,
+  "head_u32": [
+   0,
+   4,
+   1,
+   0,
+   4294967232,
+   0,
+   0,
+   0
+  ],
+  "kind": 0,
+  "entries_guess": [
+   {
+    "tex": 0,
+    "value_s32": -64,
+    "z0": 0,
+    "z1": 0
+   }
+  ]
+ },
+ "vram_placement": null,
+ "notes": "No VRAM x/y in this format: textures are packed into VRAM by the engine at load time. Polygons reference a texture by block index; palette = textures[i].clut."
+}

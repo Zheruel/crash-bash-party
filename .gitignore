@@ -1,0 +1,12 @@
+# disc images / raw rips stay local
+rom/
+disc/
+*.bin.zip
+node_modules/
+dist/
+__pycache__/
+.DS_Store
+assets/portraits/
+web/test-results/
+tools/build_big_stein.py
+local-backup/

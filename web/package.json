@@ -1,0 +1,32 @@
+{
+  "name": "crash-party-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:web": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "start": "tsx server/index.ts",
+    "test:e2e": "node scripts/e2e.mjs",
+    "test:loopback": "tsx scripts/e2e-loopback.ts",
+    "test:disc": "tsx scripts/test-disc.ts"
+  },
+  "dependencies": {
+    "fflate": "0.8.3",
+    "peerjs": "1.5.5",
+    "three": "0.187.0",
+    "ws": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/three": "0.187.0",
+    "@types/ws": "8.18.2",
+    "concurrently": "10.0.7",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vite": "8.3.8"
+  }
+}
