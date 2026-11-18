@@ -5,6 +5,7 @@ import type { ActorParts } from './kit';
 import { canvasTexture, catalogInstance, disposeTree, hasProp, Kit, makeCrate, preloadCatalogFor, propObject } from './kit';
 import { getCatalog } from '../crash';
 import type { BlobShadow } from '../fx';
+import { sfx } from '../shell/sound';
 import type { ClientMiniGame } from './types';
 
 /**
@@ -27,6 +28,14 @@ const LOOKS: Record<string, Look> = {
   desert: { bg: 0xd6b878, tank: 0x6aa63a, tint: [0.62, 1, 0.5] },
   jungle: { bg: 0x030a05, tank: 0x6aa63a, tint: [0.62, 1, 0.5] },
   metal: { bg: 0x0a0d18, tank: 0x6aa63a, tint: [0.62, 1, 0.5] },
+};
+
+/** Per-level sound bank (t0c 0159-0162) and sample numbers; samples picked by length (short = shot / hit, long = blast), unverified by ear. */
+const SND: Record<string, { bank: string; shoot: number; explode: number; hit: number; pickup: number; mine: number }> = {
+  swamp: { bank: '0159', shoot: 7, explode: 1, hit: 8, pickup: 9, mine: 5 },
+  desert: { bank: '0160', shoot: 2, explode: 0, hit: 6, pickup: 7, mine: 8 },
+  jungle: { bank: '0161', shoot: 1, explode: 4, hit: 0, pickup: 3, mine: 2 },
+  metal: { bank: '0162', shoot: 2, explode: 0, hit: 3, pickup: 9, mine: 4 },
 };
 
 interface TankVis { group: THREE.Group; bar: THREE.Sprite; back: THREE.Sprite; pipGroup: THREE.Group }
@@ -352,8 +361,10 @@ export function createTankArenaView(): ClientMiniGame {
       const fx = kit.fx;
       if (kit.baseEvent(e)) return;
       const hex = e.s >= 0 ? kit.hex(e.s) : 0xffffff;
+      const S = SND[variant] ?? SND.metal;
+      const play = (n: number, v = 0.4) => sfx.playFile(`sfx/${S.bank}/${n}.mp3`, v);
       switch (e.k) {
-        case 'shoot': {
+        case 'shoot': { play(S.shoot, 0.35);
           const a = kit.actorForSlot(e.s);
           const f = a?.face ?? 0;
           const mx = e.x + Math.sin(f) * 1.1, mz = e.z + Math.cos(f) * 1.1;
@@ -369,15 +380,15 @@ export function createTankArenaView(): ClientMiniGame {
         case 'fizzle':
           fx.smoke(e.x, 0.5, e.z, 3, 0x9aa0b0);
           break;
-        case 'lob':
+        case 'lob': play(S.shoot, 0.4);
           fx.smoke(e.x, 0.8, e.z, 4, 0x888899);
           fx.text(e.x, 1.9, e.z, 'BOMB!', { color: '#ffb030', size: 0.6, life: 0.8 });
           break;
-        case 'mine':
+        case 'mine': play(S.mine, 0.35);
           fx.ring(e.x, e.z, { color: hex, radius: 0.9, life: 0.3 });
           fx.dust(e.x, e.z, 0.3, 0x9a9486);
           break;
-        case 'explode': {
+        case 'explode': { play(S.explode, 0.5);
           const r = Math.max(1, e.v);
           fx.burst(e.x, 0.6, e.z, { shape: 'soft', color: [0xff5a20, 0xffb030, 0xffe070], count: 20, speed: 3.5, size: 0.8, life: 0.7, up: 2.5, grow: 1.6 });
           fx.smoke(e.x, 0.8, e.z, 7, 0x3a3a40);
@@ -386,13 +397,13 @@ export function createTankArenaView(): ClientMiniGame {
           kit.shake(0.35);
           break;
         }
-        case 'pickup': {
+        case 'pickup': { play(S.pickup, 0.4);
           const t = ['', '+MINES', '+HEALTH', 'BOMB!'][Math.round(e.v)] ?? '';
           fx.stars(e.x, 0.9, e.z, 8, [0xffe14a, 0xffffff]);
           fx.text(e.x, 2.0, e.z, t, { color: e.v === 2 ? '#7ef08a' : '#ffe14a', size: 0.7, life: 1.1 });
           break;
         }
-        case 'hit': {
+        case 'hit': { play(S.hit, 0.4);
           fx.sparks(e.x, 0.7, e.z, [0xffe08a, 0xff8a30], 12, 5);
           fx.ring(e.x, e.z, { color: 0xff9a40, radius: 1.5, life: 0.35 });
           fx.text(e.x, 1.9, e.z, `-${Math.max(1, Math.round(e.v * TA_HP))}`, { color: '#ff6a5a', size: 0.7, life: 0.9 });
@@ -400,7 +411,7 @@ export function createTankArenaView(): ClientMiniGame {
           kit.shake(0.25);
           break;
         }
-        case 'ko': {
+        case 'ko': { play(S.explode, 0.7);
           fx.burst(e.x, 0.7, e.z, { shape: 'soft', color: [0xff5a20, 0xffb030, 0xffe070], count: 24, speed: 4.5, size: 0.9, life: 0.8, up: 3, grow: 1.6 });
           fx.smoke(e.x, 0.8, e.z, 9, 0x2a2a30);
           fx.sparks(e.x, 0.8, e.z, [0xffe08a, 0xffffff], 16, 7);
@@ -409,7 +420,7 @@ export function createTankArenaView(): ClientMiniGame {
           kit.shake(0.7);
           break;
         }
-        case 'spawn':
+        case 'spawn': play(S.pickup, 0.25);
           fx.ring(e.x, e.z, { color: hex, radius: 1.8, life: 0.6 });
           fx.stars(e.x, 0.9, e.z, 8, [0xffffff, hex]);
           break;

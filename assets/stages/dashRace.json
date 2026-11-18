@@ -1,5 +1,5 @@
 {
- "_notes": "CRASH DASH (levels 23-26, group-29 stages 643 Dot / 639 Toxic / 641 Splash / 637 Dante, model units x3.4, origin = track centre, start line on +x, race runs counter-clockwise seen from above). Parts are the static extra_* groups; the hazard frames (monster/trees/bats) and ground-level props are placed by the view. Kart models: 816-830 hover pods (Dot/Toxic/Dante), 800-814 sea creatures (Splash); order koala/rilla/dingodile/brio/tiny/cortex/coco/crash is 816+2i resp. 802,806,808,800,810,812,804,814.",
+ "_notes": "CRASH DASH (levels 23-26, group-29 stages 643 Dot / 639 Toxic / 641 Splash / 637 Dante, model units x3.4, origin = track centre, start line on +x, race runs clockwise seen from above). Parts are the static extra_* groups; the hazard frames (monster/trees/bats) and ground-level props are placed by the view. Kart models: 816-830 hover pods (Dot/Toxic/Dante), 800-814 sea creatures (Splash); order koala/rilla/dingodile/brio/tiny/cortex/coco/crash is 816+2i resp. 802,806,808,800,810,812,804,814.",
  "arenas": {
   "dashRace": {
    "model": 643,
@@ -28,7 +28,6 @@
     "extra_9bec",
     "extra_a240",
     "extra_a328",
-    "extra_a9a4",
     "extra_abb0",
     "extra_bcc8"
    ]
@@ -40,7 +39,6 @@
     "extra_4e74",
     "extra_57e4",
     "extra_5eac",
-    "extra_5c24",
     "extra_67d0",
     "extra_6d60"
    ]
@@ -52,7 +50,8 @@
     "extra_8d04",
     "part54",
     "extra_ae58",
-    "extra_9638"
+    "extra_9638",
+    "extra_a548"
    ]
   }
  },

@@ -41,6 +41,8 @@ import { pickVariant } from './common';
 
 export const PO_RADIUS = 8;
 export const PO_CHARGE_COST = 0.4;
+/** Bear collision radius: the real bears are ~1/6 of the platform across. */
+export const PO_BEAR_R = 1.1;
 const HANG_TIME = 1.5, CLIMB_TAPS = 4, BOLT_WARN = 1.0, POWER_TIME = 8;
 /** Platform radius of the melting variant at time t (kept for older renderers; prefer world.data.radius). */
 export const platformRadius = (time: number) => Math.max(3.2, PO_RADIUS - Math.max(0, time - 20) * 0.1);
@@ -100,7 +102,7 @@ export const pushOff: MiniGame = {
     for (const s of slots) {
       const a = (s.slot * Math.PI) / 2 + Math.PI / 4;
       const sc = w.params.playerScale;
-      const b = addBody(w, 'player', s.slot, Math.sin(a) * 4.5, Math.cos(a) * 4.5, 0.8 * sc, 3 * sc * sc);
+      const b = addBody(w, 'player', s.slot, Math.sin(a) * 6, Math.cos(a) * 6, PO_BEAR_R * sc, 3 * sc * sc);
       b.face = Math.atan2(-Math.sin(a), -Math.cos(a));
     }
   },

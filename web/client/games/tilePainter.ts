@@ -140,7 +140,16 @@ export function createTilePainterView(): ClientMiniGame {
     const R = kit.root;
     const ref = getCatalog().arenas[lv.arena];
     const inst = catalogInstance(ref);
-    if (inst) { arena = new THREE.Group(); arena.add(inst.root); R.add(arena); }
+    if (inst) {
+      arena = new THREE.Group(); arena.add(inst.root);
+      for (const ex of (ref as { extra?: (typeof ref)[] } | undefined)?.extra ?? []) { const m = catalogInstance(ex); if (m) arena.add(m.root); } // instanced props (bulldozer, vans, signs...)
+      R.add(arena);
+    }
+    if (lv.mode !== 'tex') { // the real level ground runs on to the far sky strip: a flat desert/dirt apron beyond the model's own patch
+      const apron = new THREE.Mesh(new THREE.PlaneGeometry(300, 300).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: lv.mode === 'hole' ? 0xb4803c : 0xa0644a }));
+      apron.position.y = -0.03;
+      R.add(apron);
+    }
     const geo = new THREE.PlaneGeometry(TP_TILE * 0.995, TP_TILE * 0.995).rotateX(-Math.PI / 2);
     const mk = (map: THREE.Texture | null, color = 0xffffff, transparent = false) => new THREE.MeshBasicMaterial({ map, color, transparent, alphaTest: transparent ? 0.02 : 0, depthWrite: !transparent });
     if (lv.mode === 'tex') {

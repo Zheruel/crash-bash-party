@@ -1,0 +1,151 @@
+{
+ "_notes": "POLAR PUSH levels 18-21 (cheat ids 0x12-0x15). TILT PANIC = 486 (t08 485): sea + icebergs; POLAR PANIC = 478 (t08 477): aurora; MELT PANIC = 474 (t08 473): crystal cave (platform not in file, reuses the 486 tile platform); MANIC PANIC = 466 (t08 467): canyon with Uka Uka beam. Platform pieces (486 extra_18e4+34e8, 478 extra_16b0+3a68, 466 extra_2338) are split into props so the view can tilt/shrink them. Scale 3.2 for all: platform half-width incl. jagged rim 2.5 native = PO_RADIUS 8.",
+ "arenas": {
+  "pushOff": {
+   "model": 486,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0.32,
+    -1.344
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_2828",
+    "extra_2b80"
+   ],
+   "anims": {}
+  },
+  "pushOff:tiltPanic": {
+   "model": 486,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0.32,
+    -1.344
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_2828",
+    "extra_2b80"
+   ],
+   "anims": {}
+  },
+  "pushOff:polarPanic": {
+   "model": 478,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0.32,
+    -1.344
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_25d8",
+    "extra_36a0",
+    "extra_3c34",
+    "extra_3970",
+    "extra_39ec"
+   ],
+   "anims": {}
+  },
+  "pushOff:meltPanic": {
+   "model": 474,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_c140",
+    "extra_c1e0",
+    "extra_c280",
+    "extra_c51c",
+    "extra_c730",
+    "extra_cb84",
+    "extra_cd88",
+    "extra_d36c"
+   ],
+   "anims": {}
+  },
+  "pushOff:manicPanic": {
+   "model": 466,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0.128,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_3310",
+    "extra_4958",
+    "extra_4b90"
+   ],
+   "anims": {}
+  }
+ },
+ "props": {
+  "poPlatTilt": {
+   "model": 486,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0.32,
+    -1.344
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_18e4",
+    "extra_34e8"
+   ],
+   "anims": {}
+  },
+  "poPlatPolar": {
+   "model": 478,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0.32,
+    -1.344
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_16b0",
+    "extra_3a68"
+   ],
+   "anims": {}
+  },
+  "poPlatMelt": {
+   "model": 486,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0.32,
+    -1.344
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_18e4",
+    "extra_34e8"
+   ],
+   "anims": {}
+  },
+  "poPlatManic": {
+   "model": 466,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0.128,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_2338"
+   ],
+   "anims": {}
+  }
+ }
+}

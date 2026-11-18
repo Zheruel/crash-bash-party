@@ -12,3 +12,10 @@ tools/build_big_stein.py
 local-backup/
 tools/emu/*.png
 assets/hd-raw/
+tools/emu/node_modules
+# reverse-engineering workspace: keep notes + scripts, not dumps/decompiles/projects
+re/*
+!re/notes/
+!re/scripts/
+!re/*.py
+!re/*.sh

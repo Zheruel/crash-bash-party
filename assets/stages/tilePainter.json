@@ -43,10 +43,127 @@
     "extra_1af30",
     "extra_1b15c",
     "extra_1c79c",
-    "extra_1a428",
-    "extra_1b438",
     "extra_1c0a8",
-    "extra_1a708"
+    "extra_1b438"
+   ],
+   "extra": [
+    {
+     "model": 671,
+     "scale": 4.6,
+     "offset": [
+      7.79,
+      0.82,
+      -7.25
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_191f0"
+     ]
+    },
+    {
+     "model": 671,
+     "scale": 3.6,
+     "offset": [
+      -11.66,
+      -0.07,
+      -7.28
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_1b28c"
+     ]
+    },
+    {
+     "model": 671,
+     "scale": 3.6,
+     "offset": [
+      -9.61,
+      2.93,
+      -8.14
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_19e90"
+     ]
+    },
+    {
+     "model": 671,
+     "scale": 3.6,
+     "offset": [
+      -0.46,
+      5.22,
+      -8.91
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_1a920"
+     ]
+    },
+    {
+     "model": 671,
+     "scale": 3.6,
+     "offset": [
+      -9.54,
+      0.0,
+      -1.85
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_1a660"
+     ]
+    },
+    {
+     "model": 671,
+     "scale": 3.6,
+     "offset": [
+      8.93,
+      4.43,
+      3.02
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_1d84c"
+     ]
+    },
+    {
+     "model": 671,
+     "scale": 3.6,
+     "offset": [
+      8.29,
+      5.04,
+      3.73
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_1d91c"
+     ]
+    },
+    {
+     "model": 671,
+     "scale": 3.6,
+     "offset": [
+      8.62,
+      0.94,
+      -2.32
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_1a174"
+     ]
+    },
+    {
+     "model": 671,
+     "scale": 3.6,
+     "offset": [
+      -7.3,
+      0,
+      -27
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_1a428"
+     ]
+    }
    ]
   },
   "tilePainter:elPogoLoco": {
@@ -60,9 +177,75 @@
    "yaw": 0,
    "parts": [
     "extra_351c",
-    "extra_5ad8",
     "extra_5ed8",
     "extra_6b58"
+   ],
+   "extra": [
+    {
+     "model": 667,
+     "scale": 3.6,
+     "offset": [
+      -6.98,
+      -0.02,
+      -7.91
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_5c2c"
+     ]
+    },
+    {
+     "model": 667,
+     "scale": 3.6,
+     "offset": [
+      9.21,
+      0.53,
+      -6.43
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_6450"
+     ]
+    },
+    {
+     "model": 667,
+     "scale": 3.6,
+     "offset": [
+      9.82,
+      -0.75,
+      -1.9
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_67a0"
+     ]
+    },
+    {
+     "model": 667,
+     "scale": 3.6,
+     "offset": [
+      7.41,
+      0.11,
+      -10.47
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_697c"
+     ]
+    },
+    {
+     "model": 667,
+     "scale": 3.6,
+     "offset": [
+      0,
+      0,
+      -27
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_5ad8"
+     ]
+    }
    ]
   },
   "tilePainter:pogoPadlock": {
@@ -77,6 +260,112 @@
    "parts": [
     "extra_2b58",
     "extra_51bc"
+   ],
+   "extra": [
+    {
+     "model": 663,
+     "scale": 3.0,
+     "offset": [
+      -9.86,
+      0.01,
+      0.41
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_5a88"
+     ]
+    },
+    {
+     "model": 663,
+     "scale": 3.6,
+     "offset": [
+      3.71,
+      0.02,
+      -12.48
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_6164"
+     ]
+    },
+    {
+     "model": 663,
+     "scale": 3.6,
+     "offset": [
+      -10.52,
+      -0.01,
+      -7.19
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_572c"
+     ]
+    },
+    {
+     "model": 663,
+     "scale": 3.6,
+     "offset": [
+      -3.47,
+      -0.01,
+      -10.6
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_54cc"
+     ]
+    },
+    {
+     "model": 663,
+     "scale": 3.6,
+     "offset": [
+      10.35,
+      -0.01,
+      -3.44
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_4560"
+     ]
+    },
+    {
+     "model": 663,
+     "scale": 3.6,
+     "offset": [
+      -7.39,
+      0.01,
+      -7.85
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_5938"
+     ]
+    },
+    {
+     "model": 663,
+     "scale": 3.6,
+     "offset": [
+      9.45,
+      0.01,
+      -6.38
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_4ac8"
+     ]
+    },
+    {
+     "model": 663,
+     "scale": 3.6,
+     "offset": [
+      4.75,
+      8.17,
+      2.6
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_4c18"
+     ]
+    }
    ]
   }
  },

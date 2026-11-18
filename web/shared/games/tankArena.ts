@@ -44,7 +44,7 @@ import { angDiff, pickVariant } from './common';
 /** world units per stage model unit (stage models are decoded at 1 unit = 1/1024 of PS1 space) */
 export const TA_K = 2.6;
 export const TA_HP = 16;
-const SHELL_DMG = 2, MINE_DMG = 5, BOMB_DMG = 5, FRUIT = 4, MINE_R = 1.25, BOMB_R = 1.4, START_MINES = 3, MAX_MINES = 6;
+const SHELL_DMG = 1, MINE_DMG = 5, BOMB_DMG = 5, FRUIT = 4, MINE_R = 1.25, BOMB_R = 1.4, START_MINES = 3, MAX_MINES = 6;
 const TANK_R = 0.55, BULLET_R = 0.16, BULLET_SPEED = 11, TANK_SPEED = 4.6, TURN = 7, LOB_RANGE = 4.6;
 
 type Block = [number, number, number, number];
@@ -256,7 +256,7 @@ export const tankArena: MiniGame = {
           b.vx = (tx - t.x) / 0.9; b.vz = (tz - t.z) / 0.9; b.dash = 0.9; b.face = t.face;
           emit(w, 'lob', t.x, t.z, s, 1);
         } else {
-          t.cd = 1.0 / w.params.fireRate;
+          t.cd = 1.4 / w.params.fireRate;
           const bl = addBody(w, 'bullet', s, t.x + Math.sin(t.face) * (TANK_R + 0.2), t.z + Math.cos(t.face) * (TANK_R + 0.2), BULLET_R, 0.3);
           bl.y = 0.5;
           bl.vx = Math.sin(t.face) * BULLET_SPEED;
@@ -451,7 +451,7 @@ export const tankArena: MiniGame = {
     const out: InputState = { x: clamp(mx, -1, 1), y: clamp(mz, -1, 1), a: false, b: false };
     out.b = behind && fd < 3.6 && d.mines[slot] > 0 && d.mcd[slot] <= 0 && w.tick % 4 === 0;
     const lob = d.bomb[slot] > 0;
-    out.a = lob ? err < 0.25 && fd < LOB_RANGE + 1.5 : clear && err < 0.22 && fd < 14;
+    out.a = lob ? err < 0.25 && fd < LOB_RANGE + 1.5 : clear && err < 0.13 && fd < 12;
     return out;
   },
 };

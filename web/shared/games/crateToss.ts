@@ -45,14 +45,20 @@ import { IDLE, MAX_SEATS, type Body, type InputState, type MiniGame, type World 
 import { angDiff, pickVariant } from './common';
 
 export const CT_HALF = 7.2;
-export const CT_HP = 10;
+export const CT_HP = 14;
 export const CT_FLOOR_N = 8; // space bash floor grid
 const CT_TILE = (CT_HALF * 2) / CT_FLOOR_N;
-const GRAB_RANGE = 1.9, THROW_SPEED = 15, KICK_SPEED = 13, FLY_TIME = 0.9, STUN = 1.0, MAX_CRATES = 9, FUSE = 3;
-const MASK_TIME = 6, WEIGHT_DPS = 0.35, PENGUIN_TIME = 7;
+const GRAB_RANGE = 1.9, THROW_SPEED = 15, KICK_SPEED = 13, FLY_TIME = 0.9, STUN = 1.0, FUSE = 3;
+/** Crates on the floor at any time (counted from the real frames: Jungle ~6, Space ~15, Snow ~10, Drain ~9). */
+const CT_TARGET: Record<string, number> = { jungle: 7, space: 15, snow: 10, drain: 9 };
+/** Cumulative share of [wood, TNT] per level, rest = nitro (Jungle is nitro-heavy, Drain has almost none). */
+const CT_MIX: Record<string, [number, number]> = { jungle: [0.5, 0.72], space: [0.58, 0.82], snow: [0.68, 0.9], drain: [0.78, 0.95] };
+const MASK_TIME = 6, WEIGHT_DPS = 0.2, PENGUIN_TIME = 7;
 const AIM_CONE = 0.45; // radians of aim assist toward the nearest rival
-const WOOD_DMG = 2, TNT_DMG = 4, NITRO_DMG = 5, TNT_R = 2.6, NITRO_R = 3.0;
+const WOOD_DMG = 1, TNT_DMG = 2, NITRO_DMG = 3, TNT_R = 2.6, NITRO_R = 3.0;
 const CRATE_KINDS = ['crate', 'tnt', 'nitro'];
+const FALL_DMG = 4;
+const spawnPos = (slot: number): [number, number] => { const c = CT_HALF - 1.6; return [[-c, c], [-c, -c], [c, -c], [c, c]][slot] as [number, number]; };
 
 export const CT_VARIANTS = [
   { id: 'jungle', name: 'JUNGLE BASH' },
@@ -156,7 +162,7 @@ function blast(w: World, d: Data, c: Body, by: number) {
     if (o.kind === 'nitro') blast(w, d, o, by);
     else if (o.kind === 'tnt') { if (!o.fall) { o.fall = true; o.m = 0.3; } else o.m = Math.min(o.m, 0.3); }
   }
-  destroyFloor(w, d, c.x, c.z, radius * 0.9);
+  destroyFloor(w, d, c.x, c.z, radius * 0.5);
   if (d.variant === 'snow' && d.penguin <= 0 && Math.hypot(c.x, c.z) < radius + 2.5) wakePenguin(w, d);
 }
 
@@ -195,7 +201,7 @@ function fireWeapon(w: World, d: Data, p: Body) {
       const dx = o.x - p.x, dz = o.z - p.z, dd = Math.hypot(dx, dz) || 1;
       if (dd > 5.5) continue;
       o.vx += (dx / dd) * 12; o.vz += (dz / dd) * 12; o.vy = 4;
-      hurt(w, d, o, 3, p.slot, 1.5);
+      hurt(w, d, o, 2, p.slot, 1.5);
     }
   }
   emit(w, 'weapon', p.x, p.z, p.slot, k);
@@ -208,7 +214,8 @@ function light(w: World, c: Body) {
 function spawnCrate(w: World, d: Data, onFloor = false) {
   const [x, z] = pickupSpot(w, d);
   const r = rand(w);
-  const kind = r < 0.58 ? 'crate' : r < 0.82 ? 'tnt' : 'nitro';
+  const mix = CT_MIX[d.variant] ?? CT_MIX.jungle;
+  const kind = r < mix[0] ? 'crate' : r < mix[1] ? 'tnt' : 'nitro';
   const c = addBody(w, kind, -1, x, z, 0.55, 1);
   c.y = onFloor ? 0 : 9;
   c.vy = 0;
@@ -235,9 +242,9 @@ export const crateToss: MiniGame = {
     };
     w.data = d;
     const c = CT_HALF - 1.6;
-    const spawns: [number, number][] = [[-c, c], [-c, -c], [c, -c], [c, c]]; // P1 bottom-left (camera side), P2 top-left, P3 top-right, P4 bottom-right
+    const spawns: [number, number][] = [0, 1, 2, 3].map(spawnPos); // P1 bottom-left (camera side), P2 top-left, P3 top-right, P4 bottom-right
     if (variant === 'snow') { const g = addBody(w, 'penguin', -1, 0, 0, 1.1, 8); g.face = 0; }
-    for (let k = 0; k < 6; k++) spawnCrate(w, d, true);
+    for (let k = 0, n = Math.round((CT_TARGET[variant] ?? 7) * 0.75); k < n; k++) spawnCrate(w, d, true);
     for (const s of slots) {
       const sc = w.params.playerScale;
       const [x, z] = spawns[s.slot];
@@ -254,15 +261,15 @@ export const crateToss: MiniGame = {
 
     // spawn rain
     d.nextSpawn -= dt;
-    if (d.nextSpawn <= 0 && crates(w).length < MAX_CRATES && aliveCount(w) > 1) {
+    if (d.nextSpawn <= 0 && crates(w).length < (CT_TARGET[d.variant] ?? 7) && aliveCount(w) > 1) {
       spawnCrate(w, d);
-      d.nextSpawn = (1.5 + rand(w) * 1.2) / w.params.spawnRate;
+      d.nextSpawn = (0.35 + rand(w) * 0.6) / w.params.spawnRate;
     }
     // pickups (fruit everywhere; SPACE / SNOW / DRAIN add boots, potion, Aku Aku mask, weight; DRAIN adds weapon crates)
     if (w.time >= d.nextPickup && live.length > 1) {
-      d.nextPickup = w.time + 4 + rand(w) * 3;
+      d.nextPickup = w.time + 2.5 + rand(w) * 2.5;
       const isPk = (b: Body) => b.kind === 'fruit' || b.kind === 'boots' || b.kind === 'potion' || b.kind === 'mask' || b.kind === 'weight' || b.kind === 'weapon';
-      if (w.bodies.filter(isPk).length < 4) {
+      if (w.bodies.filter(isPk).length < 5) {
         const hurtSomeone = live.some((p) => d.hp[p.slot] < CT_HP - 2);
         const r = rand(w);
         let kind = 'fruit';
@@ -293,7 +300,11 @@ export const crateToss: MiniGame = {
       const slot = p.slot;
       if (p.fall) { // dropping through a hole
         movePlayer(w, p, IDLE, dt, grip, 6);
-        if (p.y < -15) { p.alive = false; p.vx = p.vz = p.vy = 0; }
+        if (p.y < -15) {
+          p.vx = p.vz = p.vy = 0;
+          if (d.hp[slot] > 0) { [p.x, p.z] = spawnPos(slot); p.y = 0; p.fall = false; d.stun[slot] = 0.5; d.mask[slot] = 2; } // fell off: lose health, back to the start corner
+          else p.alive = false;
+        }
         continue;
       }
       d.stun[slot] = Math.max(0, d.stun[slot] - dt);
@@ -390,12 +401,12 @@ export const crateToss: MiniGame = {
       // space bash: no floor under you = you fall
       if (p.y <= 0.05 && !floorAt(d, p.x, p.z)) {
         p.fall = true;
-        d.hp[p.slot] = 0;
-        d.elim[p.slot] = w.tick;
+        d.hp[p.slot] = Math.max(0, d.hp[p.slot] - FALL_DMG);
         const by = w.tick - d.lastByTick[p.slot] < 90 ? d.lastBy[p.slot] : -1;
         const h = holding(w, p.slot);
         if (h) { h.cd = 0; h.y = 0.5; }
-        emit(w, 'ko', p.x, p.z, p.slot, 1, by);
+        emit(w, 'hit', p.x, p.z, p.slot, FALL_DMG / CT_HP, -1);
+        if (d.hp[p.slot] <= 0) { d.elim[p.slot] = w.tick; emit(w, 'ko', p.x, p.z, p.slot, 1, by); }
       }
     }
 
@@ -442,7 +453,7 @@ export const crateToss: MiniGame = {
             emit(w, 'smash', c.x, c.z, -1, 1);
             c.alive = false;
           } else { // TNT thuds off the player and keeps burning
-            hurt(w, d, p, 1, c.slot, 0.5);
+            hurt(w, d, p, 0.5, c.slot, 0.5);
             c.vx *= -0.3; c.vz *= -0.3; c.dash = 0;
           }
           break;
@@ -485,7 +496,7 @@ export const crateToss: MiniGame = {
         if (p.slot === b.slot || p.fall || Math.hypot(p.x - b.x, p.z - b.z) > p.r + b.r) continue;
         const sp = Math.hypot(b.vx, b.vz) || 1;
         p.vx = (b.vx / sp) * 6; p.vz = (b.vz / sp) * 6; p.vy = 3;
-        hurt(w, d, p, b.kind === 'orb' ? 3 : 2, b.slot, 1.0);
+        hurt(w, d, p, b.kind === 'orb' ? 2 : 1, b.slot, 1.0);
         b.alive = false;
         emit(w, 'weaponHit', b.x, b.z, p.slot, 1);
         break;
@@ -510,7 +521,7 @@ export const crateToss: MiniGame = {
         if (!back && tgt && td < png.r + tgt.r + 0.2 && d.mask[tgt.slot] <= 0) {
           const kx = (tgt.x - png.x) / (td || 1), kz = (tgt.z - png.z) / (td || 1);
           tgt.vx = kx * 10; tgt.vz = kz * 10; tgt.vy = 4;
-          hurt(w, d, tgt, 2, -1, 1.2);
+          hurt(w, d, tgt, 1.5, -1, 1.2);
           emit(w, 'penguinHit', tgt.x, tgt.z, tgt.slot, 1);
           d.penguin = Math.min(d.penguin, 1.4);
         }

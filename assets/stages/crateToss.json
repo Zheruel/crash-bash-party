@@ -1,5 +1,5 @@
 {
- "_notes": "Crate Crush = levels 0-3. Stage models: Jungle Bash 715 (dirt clearing, shifted so it is centred), Space Bash 711 (rails + skyline; floor tiles drawn by the view from 0710 tex000/001; towers placed around), Snow Bash 707, Drain Bash 703. Alt/night twins 713 / 705 / 701 / 709. Arena floors are ~4.2 model units square (x3.6 = 15 world).",
+ "_notes": "Crate Crush = levels 0-3. Stage models: Jungle Bash 715 (dirt clearing + temple/ruins mesh extra_15d0, re-decoded because tools/t29.py strict scan skipped it; ferns are instanced parts), Space Bash 711 (rails + skyline; floor tiles drawn by the view from 0710 tex000/001; towers placed around), Snow Bash 707, Drain Bash 703. Alt/night twins 713 / 705 / 701 / 709. Arena floors are ~4.2 model units square (x3.6 = 15 world).",
  "arenas": {
   "crateToss": {
    "model": 715,
@@ -11,10 +11,89 @@
    ],
    "yaw": 0,
    "parts": [
+    "extra_15d0",
     "extra_7268",
-    "extra_5cd8",
-    "extra_6830",
     "extra_6fe0"
+   ],
+   "extra": [
+    {
+     "model": 715,
+     "scale": 2.8800000000000003,
+     "offset": [
+      -9.18,
+      0.0,
+      -2.88
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_6020"
+     ]
+    },
+    {
+     "model": 715,
+     "scale": 2.52,
+     "offset": [
+      -6.12,
+      0.0,
+      -6.84
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_6694"
+     ]
+    },
+    {
+     "model": 715,
+     "scale": 2.52,
+     "offset": [
+      5.4,
+      0.0,
+      -6.84
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_5a90"
+     ]
+    },
+    {
+     "model": 715,
+     "scale": 2.52,
+     "offset": [
+      9.360000000000001,
+      0.0,
+      -3.6
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_6354"
+     ]
+    },
+    {
+     "model": 715,
+     "scale": 2.8800000000000003,
+     "offset": [
+      9.0,
+      0.0,
+      5.040000000000001
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_6020"
+     ]
+    },
+    {
+     "model": 715,
+     "scale": 2.52,
+     "offset": [
+      -9.360000000000001,
+      0.0,
+      5.4
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_6c10"
+     ]
+    }
    ]
   },
   "crateToss:jungleBash": {
@@ -27,10 +106,89 @@
    ],
    "yaw": 0,
    "parts": [
+    "extra_15d0",
     "extra_7268",
-    "extra_5cd8",
-    "extra_6830",
     "extra_6fe0"
+   ],
+   "extra": [
+    {
+     "model": 715,
+     "scale": 2.8800000000000003,
+     "offset": [
+      -9.18,
+      0.0,
+      -2.88
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_6020"
+     ]
+    },
+    {
+     "model": 715,
+     "scale": 2.52,
+     "offset": [
+      -6.12,
+      0.0,
+      -6.84
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_6694"
+     ]
+    },
+    {
+     "model": 715,
+     "scale": 2.52,
+     "offset": [
+      5.4,
+      0.0,
+      -6.84
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_5a90"
+     ]
+    },
+    {
+     "model": 715,
+     "scale": 2.52,
+     "offset": [
+      9.360000000000001,
+      0.0,
+      -3.6
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_6354"
+     ]
+    },
+    {
+     "model": 715,
+     "scale": 2.8800000000000003,
+     "offset": [
+      9.0,
+      0.0,
+      5.040000000000001
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_6020"
+     ]
+    },
+    {
+     "model": 715,
+     "scale": 2.52,
+     "offset": [
+      -9.360000000000001,
+      0.0,
+      5.4
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_6c10"
+     ]
+    }
    ]
   },
   "crateToss:spaceBash": {
@@ -45,9 +203,7 @@
    "parts": [
     "extra_6660",
     "extra_3904",
-    "extra_64b8",
-    "extra_3fac",
-    "extra_43bc"
+    "extra_64b8"
    ],
    "extra": [
     {
@@ -126,6 +282,32 @@
      "yaw": 0,
      "parts": [
       "extra_49a8"
+     ]
+    },
+    {
+     "model": 711,
+     "scale": 3.6,
+     "offset": [
+      0.0,
+      1.8,
+      -32.4
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_43bc"
+     ]
+    },
+    {
+     "model": 711,
+     "scale": 3.6,
+     "offset": [
+      0.0,
+      -3.6,
+      -28.8
+     ],
+     "yaw": 0,
+     "parts": [
+      "extra_3fac"
      ]
     }
    ]

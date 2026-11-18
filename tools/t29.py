@@ -144,7 +144,8 @@ def parse_model(d):
         if e in have or (u32(d, e) >> 12) not in (0x40, 0x50, 0x60, 0x70):
             continue
         m = parse_mesh(d, e, colours, uvs, n + len(info['meshes']))
-        if m and m.verts_off + 0x14 + 8 * m.nvert == m.uvi_off and m.ntri == m.flags & 0xFFF:
+        # vertex block may end before the UV index list (padding) - strict equality dropped e.g. the Jungle Bash temple
+        if m and (m.verts_off + 0x14 + 8 * m.nvert == m.uvi_off or (m.verts_off + 0x14 + 8 * m.nvert < m.uvi_off and m.ntri >= 4)) and m.ntri == m.flags & 0xFFF:
             m.extra = True
             info['meshes'].append(m)
     info['anims'] = parse_anims(d, info['meshes'])
