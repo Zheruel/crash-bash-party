@@ -1,5 +1,5 @@
 {
- "_notes": "Mallet Mash = level 29 (cheat id 0x1D). Stage 0617: stone tower, round grass platform (extra_4948, top y=0). Fitted camera: see client/games/malletMash.ts. Props from pack 0343 (mushrooms, crate, boots, shock rings); per-character mallet models 848-862 (clip roles differ per character, checked on contact sheets). Banners/lid are positioned by the view.",
+ "_notes": "Mallet Mash = level 29 (cheat id 0x1D). Stage 0617: stone tower, round grass platform (extra_4948, top y=0). Fitted camera: see client/games/malletMash.ts. Props from pack 0343 (mushrooms, crate, boots, shock rings); per-character mallet models 848-862 (clip roles differ per character, checked on contact sheets). Banners/lid are positioned by the view. Effects (re/notes/malletMash.md): pack 0343 effect scripts 0 mushroom blast (ring part5, flash 6, glow 7, green smoke 8/9), 1 hit puff (smoke 2/3 + star 13 emitter), 2 crate break (purple shards 15-17 + smoke + stars), 3 gold sparkle (part 21); shock wave ring = part 19; held shock icon = shared pack 0736 part 11; floating scores = HUD pack 0732 parts 13-22.",
  "arenas": {
   "malletMash": {
    "model": 617,
@@ -355,26 +355,6 @@
    ]
   },
   "mmMallet_tiny": {
-   "model": 852,
-   "scale": 3.398,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0,
-   "anims": {
-    "idle": 0,
-    "hit": 1,
-    "run": 2,
-    "charge": 3,
-    "action": 4,
-    "win": 5,
-    "lose": 1,
-    "jump": 4
-   }
-  },
-  "mmMallet_dingodile": {
    "model": 850,
    "scale": 3.398,
    "offset": [
@@ -392,6 +372,26 @@
     "charge": 5,
     "lose": 3,
     "jump": 1
+   }
+  },
+  "mmMallet_dingodile": {
+   "model": 854,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "hit": 1,
+    "run": 2,
+    "action": 3,
+    "charge": 4,
+    "win": 5,
+    "lose": 1,
+    "jump": 3
    }
   },
   "mmMallet_cortex": {
@@ -435,7 +435,7 @@
    }
   },
   "mmMallet_koala": {
-   "model": 848,
+   "model": 852,
    "scale": 3.398,
    "offset": [
     0,
@@ -447,15 +447,15 @@
     "idle": 0,
     "hit": 1,
     "run": 2,
-    "action": 3,
-    "charge": 4,
+    "charge": 3,
+    "action": 4,
     "win": 5,
     "lose": 1,
-    "jump": 3
+    "jump": 4
    }
   },
   "mmMallet_rilla": {
-   "model": 854,
+   "model": 848,
    "scale": 3.398,
    "offset": [
     0,
@@ -499,6 +499,149 @@
    "parts": [
     "part1"
    ]
+  },
+  "mmShockIcon": {
+   "model": 736,
+   "parts": [
+    "part11"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmSparkle": {
+   "model": 343,
+   "parts": [
+    "part21"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmShardG0": {
+   "model": 343,
+   "parts": [
+    "part10"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmShardG1": {
+   "model": 343,
+   "parts": [
+    "part11"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmShardG2": {
+   "model": 343,
+   "parts": [
+    "part12"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmShardP0": {
+   "model": 343,
+   "parts": [
+    "part15"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmShardP1": {
+   "model": 343,
+   "parts": [
+    "part16"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmShardP2": {
+   "model": 343,
+   "parts": [
+    "part17"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmSmokeG": {
+   "model": 343,
+   "parts": [
+    "part8"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmSmokeG2": {
+   "model": 343,
+   "parts": [
+    "part9"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "mmGlow": {
+   "model": 343,
+   "parts": [
+    "part7"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
   }
  }
 }

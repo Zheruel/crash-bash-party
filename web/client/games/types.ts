@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 import type { Body, GameEvent, World } from '../../shared/types';
 import type { Look } from '../../shared/look';
 import type { AssetRequest, AssetSource } from '../assets';
+import type { HudSprite } from '../ui/ps1hud';
 
 export interface RenderContext {
   scene: THREE.Scene;
@@ -43,5 +44,7 @@ export interface ClientMiniGame {
   onEvent?(ctx: RenderContext, e: GameEvent): void;
   /** Short per-player status text for the scoreboard (e.g. lives). */
   hud?(world: RenderWorld, slot: number): string;
+  /** The real game's own 2D HUD for this frame (replaces the party cards and clock while playing). */
+  ps1Hud?(world: RenderWorld, ctx: RenderContext): HudSprite[];
   dispose(ctx: RenderContext): void;
 }

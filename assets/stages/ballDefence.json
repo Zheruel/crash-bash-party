@@ -1,5 +1,5 @@
 {
- "_notes": "BALLISTIX levels 14-17 (cheat ids 0x0E-0x11). Stage models (native units, scale 4 = 1 sim unit per 0.25 native; camera fit in native units: y 3.989 z 2.951 pitch 52.5 deg fov 65 x-stretch 1.295): CRASHBALL 659 (t08 658), BEACH BALL 655 (t08 654), N.BALLISM 651 (t08 650), SKY BALLS 647 (t08 646). Floors/walls of the first three are not in the t29 files and are built in the view from the t08 textures. Ship = model 766 (t08 765), pilot = tank bust variant.",
+ "_notes": "BALLISTIX levels 14-17 (cheat ids 0x0E-0x11). Stage models (native units, scale 4 = 1 sim unit per 0.25 native; camera fit in native units: y 3.989 z 2.951 pitch 52.5 deg fov 65 x-stretch 1.295): CRASHBALL 659 (t08 658), BEACH BALL 655 (t08 654), N.BALLISM 651 (t08 650), SKY BALLS 647 (t08 646). Floors/walls of the first three are not in the t29 files and are built in the view from the t08 textures. Ship = model 766 (t08 765), pilot = tank bust variant. Real assembly (emulator RAM, player render chain d534 -> +0x5c): pilot = model 896+2i (rilla, tiny, koala, dingodile, brio, cortex, coco, crash; animated), hull = 766, same origin at the entity (y -128 u). Ball = model 762 native mesh 8 (render id 0x2009). Pilot 'win' = the one clip no game state uses (the long one each pilot has), played by the kit at round end for the winner. EFFECTS: the only effect script in the overlay is the knocked-out ship's explosion (FUN_800b79f4: FUN_8007a524(script 0, ship pos, pack 0762) + sfx 0x586) = bdBoom* (ring part 13, flash 14, glow 15, smoke 16/17, six shards 18), played by realFx. Ball hits, bounces, serves, goals, catches and launches spawn no effect object (sound only).",
  "arenas": {
   "ballDefence": {
    "model": 659,
@@ -121,7 +121,7 @@
  "props": {
   "bdShip": {
    "model": 766,
-   "scale": 5,
+   "scale": 4,
    "offset": [
     0,
     0,
@@ -130,6 +130,397 @@
    "yaw": 3.141592653589793,
    "parts": [
     "part3"
+   ]
+  },
+  "bdPilot.koala": {
+   "model": 900,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "hit": 4,
+    "action": 5,
+    "lose": 2,
+    "win": 3
+   }
+  },
+  "bdPilot.dingodile": {
+   "model": 902,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 4,
+    "hit": 3,
+    "action": 2,
+    "lose": 5,
+    "win": 1
+   }
+  },
+  "bdPilot.brio": {
+   "model": 904,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 4,
+    "hit": 3,
+    "action": 2,
+    "lose": 5,
+    "win": 1
+   }
+  },
+  "bdPilot.cortex": {
+   "model": 906,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 4,
+    "hit": 3,
+    "action": 2,
+    "lose": 5,
+    "win": 1
+   }
+  },
+  "bdPilot.coco": {
+   "model": 908,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 4,
+    "hit": 3,
+    "action": 2,
+    "lose": 5,
+    "win": 1
+   }
+  },
+  "bdPilot.crash": {
+   "model": 910,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 3,
+    "hit": 4,
+    "action": 2,
+    "lose": 5,
+    "win": 1
+   }
+  },
+  "bdPilot.rilla": {
+   "model": 896,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 3,
+    "hit": 4,
+    "action": 1,
+    "lose": 5,
+    "win": 2
+   }
+  },
+  "bdPilot.tiny": {
+   "model": 898,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "hit": 3,
+    "action": 2,
+    "lose": 5,
+    "win": 4
+   }
+  },
+  "bdBall": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part8"
+   ]
+  },
+  "bdZap0": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ]
+  },
+  "bdZap1": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part1"
+   ]
+  },
+  "bdZap2": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part2"
+   ]
+  },
+  "bdZap3": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part3"
+   ]
+  },
+  "bdZap4": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part4"
+   ]
+  },
+  "bdZap5": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part5"
+   ]
+  },
+  "bdZap6": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part6"
+   ]
+  },
+  "bdZap7": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part7"
+   ]
+  },
+  "bdGlow": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part12"
+   ]
+  },
+  "bdBoomRing": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part13"
+   ]
+  },
+  "bdBoomFlash": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part14"
+   ]
+  },
+  "bdBoomGlow": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part15"
+   ]
+  },
+  "bdBoomSmoke": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part16"
+   ]
+  },
+  "bdBoomSmoke2": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part17"
+   ]
+  },
+  "bdBoomShard": {
+   "model": 762,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part18"
+   ]
+  },
+  "bdMachine": {
+   "model": 764,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ]
+  },
+  "bdMachineSpit": {
+   "model": 764,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part5"
+   ]
+  },
+  "bdShipDim": {
+   "model": 766,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 3.141592653589793,
+   "parts": [
+    "part5"
    ]
   }
  }

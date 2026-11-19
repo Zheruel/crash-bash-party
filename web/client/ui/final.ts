@@ -47,7 +47,9 @@ export class FinalOverlay {
     const awardSlot = this.el.querySelector('.award-slot') as HTMLElement;
     const winSlot = this.el.querySelector('.winner-slot') as HTMLElement;
     const actions = this.el.querySelector('.final-actions') as HTMLElement;
-    deps.podium.setup(rank, seats.map((s) => s.look), seats.map((s) => s.name));
+    // equal points and trophies share a place on the podium, as tied scores do in the game
+    deps.podium.setup(rank, seats.map((s) => s.look), seats.map((s) => s.name), m.scores.map((p, i) => p * 1000 + (m.stars[i] ?? 0)));
+    deps.podium.setStrip(seats.map((s) => s.look), m.scores);
     deps.showPodium();
     if (!(await wait(0.8))) return;
 
@@ -80,11 +82,17 @@ export class FinalOverlay {
       <div class="gt or">${m.winners.length > 1 ? "IT'S A TIE!" : `${esc(CHARACTERS[w0.look.char % CHARACTERS.length].name.toUpperCase())} WINS!`}</div>
       <small class="gt wh">${esc(names.join(' & ').toUpperCase())}</small></div>`;
     pop(winSlot.firstElementChild as HTMLElement, 'award-in');
-    sfx.play('win');
-    deps.confetti.burst(innerWidth * 0.25, innerHeight * 0.5, 90);
-    deps.confetti.burst(innerWidth * 0.75, innerHeight * 0.5, 90);
-    deps.confetti.rain(8);
+    sfx.play('win'); // the scene brings the game's own fireworks, trophy and crowd (no confetti over them)
+    // the game's score strip comes up under the podium, holds 240 frames and slides away (a tap or key skips the
+    // hold, as cross does); the buttons come in where it was
+    const skip = () => deps.podium.skipStrip();
+    addEventListener('pointerdown', skip); addEventListener('keydown', skip);
+    const t0 = performance.now();
+    while (!deps.podium.stripDone && performance.now() - t0 < 14000) if (!(await sleep(100), alive())) break;
+    removeEventListener('pointerdown', skip); removeEventListener('keydown', skip);
+    if (!alive()) return;
     actions.classList.remove('hidden');
+    pop(actions, 'award-in');
     actions.innerHTML = '<div class="menu"><button class="mi big" id="rematch">REMATCH</button><button class="mi" id="tolobby">BACK TO LOBBY</button></div>';
     this.rematchBtn = actions.querySelector('#rematch');
     this.rematchBtn!.onclick = () => { sfx.play('click'); deps.onRematch(); };

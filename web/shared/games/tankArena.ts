@@ -1,457 +1,839 @@
 /**
- * TANK WARS (game id 'tankArena') - after Crash Bash's Tank Wars.
+ * TANK WARS (game id 'tankArena', levels 5-8) - rules taken from the decompiled overlay (re/notes/tankWars.md).
  *
- * Tanks fight in an arena with obstacles. Fire shells (A, hold to keep firing) and lay mines (B). Every tank has a
- * health bar; a destroyed tank is out for good. Last tank standing wins; when time runs out the tank with the most
- * health wins. Collect extra mines, wumpa fruit (health) and the lobbing bomb from pickups.
- *   Stick = drive / turn (the tank faces the way you steer and fires that way), A = fire, B = lay a mine
+ * Everything is simulated in the game's own units (1/512 tile, 30 Hz frame counts, angles 0..4095) and mapped to world
+ * units for the bodies: x_w = (x_g - cx) * G, z_w = -(z_g - cz) * G (G = TA_K / 1024), shell face = -yaw * 2pi / 4096.
  *
- * Variants (world.data.variant) are the four real fox pens, in model units of the stage x TA_K (2.6) = world units,
- * centred on the pen: swamp (SWAMP FOX: open black pit inside a wooden fence) | desert (DESERT FOX: 3x3 camo crates
- * and grates) | jungle (JUNGLE FOX: log fence round a clearing with a stone pedestal) | metal (METAL FOX: 4x3 raised
- * steel crates). The pen is ~4.5x3.7 model units while a tank is ~0.63 wide, so everything here is small compared
- * to the old 20x20 arena. Shells explode on walls and crates; the Super Bounce modifier (params.bounces 5) lets
- * them ricochet 3 times.
+ * Levels (variant -> level id): swamp = 5 (SWAMP FOX, open pen, hover boats), desert = 6 (4x4 crates, grid driving),
+ * jungle = 7 (centre pedestal, free driving), metal = 8 (4x3 raised crates, grid driving).
+ *   Stick = d-pad (L5: left/right turn, up thrust), A = fire (square, tap), B = lay a mine (circle).
+ * Deviation from the disc: the real turret turns with L1/R1; here it slews towards the stick direction at the real
+ * speed (0x40 per frame). CPU tanks run the original AI inside step() (skill from SlotInfo.level).
  *
- * world.data:
- *   variant: string
- *   blocks:  [cx, cz, halfW, halfD][]   static obstacles of this map (same as TA_MAPS[variant].blocks)
- *   hx, hz:  pen half extents (world units)
- *   hp:      number[4]  health 0..TA_HP (<= 0 = destroyed)
- *   kills / deaths: number[4]
- *   elim:    number[4]  tick of destruction, -1 while alive
- *   mines:   number[4]  mines left to lay (start 3, max 6)
- *   bomb:    number[4]  lobbing-bomb shots left (A fires them instead of shells)
- *   stun:    number[4]  hit flash / slow (s)
- *   inv:     number[4]  spawn protection (s), currently only at the start
- *   mcd, prevB, nextPick: (internal)
- *
- * Bodies:
- *   'tank':   r 0.55, alive=false once destroyed (stays in the list), cd = shell reload (s), face = hull/aim yaw
- *   'bullet': shell, y 0.6, slot = shooter, dash = bounces left, cd = age (s), face = heading
- *   'mine':   slot = owner, cd > 0 while arming (not dangerous yet), dash = remaining life
- *   'pickup': cd = 1 extra mines, 2 wumpa fruit (+health), 3 lobbing bomb
- *   'bomb':   lobbed shell in the air, slot = owner, dash = seconds until it lands (y is the arc height)
- *
- * Events: shoot, lob (bomb thrown), mine (mine laid), explode (mine/bomb blew up at x/z, v=radius),
- *   hit (s=tank damaged, o=attacker or -1 for self/none, v=dmg/TA_HP), ko (s=destroyed tank, o=killer or -1),
- *   bounce (shell off a wall), fizzle (shell spent / cancelled), pickup (s=tank, v=1 mines / 2 fruit / 3 bomb)
+ * world.data (see Data): lv, f, tk (per tank), shells, mines, flames, bombs, pickups, dropper, spawner, over.
+ * Bodies (world units): 'tank' (face = turret yaw, y = hop), 'bullet', 'mine', 'flame', 'bomb', 'pickup' (cd = type),
+ * 'dropper'. Events: sfx (v = game sound id, mapped per level by the view), shoot, mine, boom, hit, ko, pickup, spawn,
+ * bounce, taunt, shield.
  */
-import { addBody, clamp, collideCircles, emit, rand } from '../physics';
+import { DISC_CHARACTER } from '../look';
+import { addBody, emit, rand } from '../physics';
 import { IDLE, MAX_SEATS, type Body, type InputState, type MiniGame, type World } from '../types';
-import { angDiff, pickVariant } from './common';
+import { pickVariant } from './common';
 
-/** world units per stage model unit (stage models are decoded at 1 unit = 1/1024 of PS1 space) */
 export const TA_K = 2.6;
-export const TA_HP = 16;
-const SHELL_DMG = 1, MINE_DMG = 5, BOMB_DMG = 5, FRUIT = 4, MINE_R = 1.25, BOMB_R = 1.4, START_MINES = 3, MAX_MINES = 6;
-const TANK_R = 0.55, BULLET_R = 0.16, BULLET_SPEED = 11, TANK_SPEED = 4.6, TURN = 7, LOB_RANGE = 4.6;
+export const TA_HP = 99;
+const G = TA_K / 1024;
 
-type Block = [number, number, number, number];
-export interface TankMap { name: string; hx: number; hz: number; blocks: Block[]; spawns: [number, number][] }
-const m = (v: number) => +(v * TA_K).toFixed(3);
-/** crates on a regular grid, centres in model units (pen-relative), half = half footprint */
-const grid = (xs: number[], zs: number[], half: number): Block[] => zs.flatMap((z) => xs.map((x) => [m(x), m(z), m(half), m(half)] as Block));
-/**
- * The four pens (centred on the origin, world units). Pen floors measured from the stage models:
- *   metal 689: 4.68x3.66 (crates 0.5 raised tiles on a 1.0 pitch, 4 columns x 3 rows)
- *   desert 693: 4.17x4.17 (3x3 crates at 1.23 pitch)
- *   jungle 691: 4.0x3.7 clearing, stone pedestal 1.0 wide just off centre
- *   swamp: no extracted stage; open pit 5.7x4.8 measured from the original frames (fence line + tank spots)
- */
-export const TA_MAPS: Record<string, TankMap> = {
-  swamp: { name: 'SWAMP FOX', hx: m(2.85), hz: m(2.4), blocks: [], spawns: [[-2.1, -1.8], [2.1, -1.8], [-2.1, 1.8], [2.1, 1.8]] },
-  desert: { name: 'DESERT FOX', hx: m(2.09), hz: m(2.12), blocks: grid([-1.23, 0, 1.23], [-1.23, 0, 1.23], 0.4), spawns: [[-1.7, -1.7], [1.7, -1.7], [-1.7, 1.7], [1.7, 1.7]] },
-  jungle: { name: 'JUNGLE FOX', hx: m(2.0), hz: m(1.85), blocks: [[m(-0.19), m(0.04), m(0.5), m(0.5)]], spawns: [[-1.5, -1.35], [1.5, -1.35], [-1.5, 1.35], [1.5, 1.35]] },
-  metal: { name: 'METAL FOX', hx: m(2.34), hz: m(1.83), blocks: grid([-1.51, -0.51, 0.49, 1.49], [-1, 0, 1], 0.3), spawns: [[-1.95, -1.4], [1.95, -1.4], [-1.95, 1.4], [1.95, 1.4]] },
+type Spawn = [number, number, number];
+export interface Lv {
+  id: string; name: string; level: number; W: number; H: number; bx: number; bz: number; cx: number; cz: number;
+  spawns: Spawn[]; skill: number[]; tiles: number[];
+}
+const grid = (W: number, H: number, rows: number[], cols: number[]) => {
+  const t = Array<number>(W * H).fill(0);
+  for (const r of rows) for (const c of cols) t[r * W + c] = 1;
+  return t;
 };
-/** Default map (SWAMP FOX); kept for older renderers. Prefer world.data.blocks. */
-export const TA_BLOCKS: Block[] = TA_MAPS.swamp.blocks;
-export const TA_VARIANTS = [
-  { id: 'swamp', name: 'SWAMP FOX' },
-  { id: 'desert', name: 'DESERT FOX' },
-  { id: 'jungle', name: 'JUNGLE FOX' },
-  { id: 'metal', name: 'METAL FOX' },
+const SP: Spawn[] = [[256, 768, 0x800], [768, 3840, 0xc00], [3840, 3328, 0], [3328, 256, 0x400]];
+export const TA_LV: Lv[] = [
+  { id: 'swamp', name: 'SWAMP FOX', level: 5, W: 9, H: 8, bx: 0x1100, bz: 0xf00, cx: 0x900, cz: 0x800, spawns: SP, skill: [1, 16, 26], tiles: grid(9, 8, [], []) },
+  { id: 'desert', name: 'DESERT FOX', level: 6, W: 8, H: 8, bx: 0xf00, bz: 0xf00, cx: 0x800, cz: 0x800, spawns: SP, skill: [16, 24, 32], tiles: grid(8, 8, [1, 3, 4, 6], [1, 3, 4, 6]) },
+  { id: 'jungle', name: 'JUNGLE FOX', level: 7, W: 8, H: 8, bx: 0xf00, bz: 0xf00, cx: 0x800, cz: 0x800, spawns: SP, skill: [16, 24, 32], tiles: grid(8, 8, [3, 4], [3, 4]) },
+  { id: 'metal', name: 'METAL FOX', level: 8, W: 9, H: 7, bx: 0x1100, bz: 0xd00, cx: 0x900, cz: 0x700, spawns: [[256, 768, 0x800], [768, 3328, 0xc00], [4352, 2816, 0], [3840, 256, 0x400]], skill: [16, 24, 32], tiles: grid(9, 7, [1, 3, 5], [1, 3, 5, 7]) },
 ];
+export const TA_VARIANTS = TA_LV.map((l) => ({ id: l.id, name: l.name }));
+export type Block = [number, number, number, number];
+export interface TankMap { name: string; hx: number; hz: number; blocks: Block[] }
+/** pen half extents and blocked tiles in world units (centred on the pen; z already flipped) */
+export const TA_MAPS: Record<string, TankMap> = Object.fromEntries(TA_LV.map((L) => {
+  const blocks: Block[] = [];
+  L.tiles.forEach((v, i) => { if (v) blocks.push([((i % L.W) * 512 + 256 - L.cx) * G, -(Math.floor(i / L.W) * 512 + 256 - L.cz) * G, 256 * G, 256 * G]); });
+  return [L.id, { name: L.name, hx: L.cx * G, hz: L.cz * G, blocks }];
+}));
+export const taWorld = (variant: string, gx: number, gz: number): [number, number] => {
+  const L = TA_LV.find((l) => l.id === variant) ?? TA_LV[0];
+  return [(gx - L.cx) * G, -(gz - L.cz) * G];
+};
 
+// ---- tables ----
+const TAU = Math.PI * 2;
+const SIN: number[] = [], COS: number[] = [];
+for (let a = 0; a < 4096; a++) { SIN.push(Math.round(4096 * Math.sin((a * TAU) / 4096))); COS.push(Math.round(4096 * Math.cos((a * TAU) / 4096))); }
+const sn = (a: number) => SIN[a & 0xfff];
+const cs = (a: number) => COS[a & 0xfff];
+const sext = (v: number) => (v << 20) >> 20;
+const ang = (dx: number, dz: number) => Math.round((Math.atan2(dx, dz) * 4096) / TAU) & 0xfff;
+const LIVE_CHAR = DISC_CHARACTER; // look.ts index -> engine character
+const SPEED = [28, 28, 24, 24, 26, 26, 24, 24];
+const WPN = [9, 9, 11, 11, 10, 10, 8, 8];
+const SHOT_SFX = [0x4ca, 0x4cb, 0x4cc, 0x4cd, 0x4ce, 0x4cf, 0x4cf, 0x4d0];
+const PAD_OF_OCT = [0x10, 0x30, 0x20, 0x60, 0x40, 0xc0, 0x80, 0x90];
+const HULL = [0x800, 0xc00, 0, 0x400]; // grid dir (0 -z, 1 -x, 2 +z, 3 +x) -> hull heading
+const DIRBIT = [0x40, 0x80, 0x10, 0x20];
+const DVX = [0, -1, 0, 1], DVZ = [-1, 0, 1, 0];
+const FREEMOVE: Record<number, number> = { 0x10: 0, 0x30: 0x200, 0x20: 0x400, 0x60: 0x600, 0x40: 0x800, 0xc0: 0xa00, 0x80: 0xc00, 0x90: 0xe00 };
+/** shell: [object, damage, effect, life, speed] by weapon id */
+const SHELL: Record<number, [number, number, number, number]> = { 11: [20, 10, 90, 74], 8: [20, 12, 63, 54], 10: [30, 11, 75, 44], 9: [20, 13, 135, 44], 2: [60, 4, 30, 200] };
+const S_HIT = 0x69, S_DIE = 0x6a, S_DEAD = 0x6b, S_RUN = 0x6e, S_TURN = 0x6f;
+
+interface Ai { mode: number; timer: number; target: number; pad: number; tx: number; tz: number; shoot: number; mref: number; idle: number }
+interface Tk {
+  x: number; z: number; yaw: number; hull: number; st: number; stT: number; dir: number; tn: number; td: number;
+  vx: number; vz: number; bank: number; wpn: number; ammo: number; cd: number; busy: number; busyT: number; pend: number;
+  mines: number; mcd: number; hp: number; cpu: boolean; skill: number; char: number; speed: number; pad: number; prev: number;
+  aim: number; inv: number; shieldCd: number; dodge: boolean; taunt: number; hy: number; hvy: number; kills: number;
+  elim: number; hpAt: number; ai: Ai; body: number; bot: number;
+}
+interface Sh { id: number; o: number; x: number; z: number; y: number; vx: number; vz: number; vy: number; life: number; flag: number; w: number; spin: number }
+interface Mn { id: number; o: number; x: number; z: number; n: number }
+interface Fl { id: number; o: number; x: number; z: number; dx: number; dz: number }
+interface Bm { id: number; o: number; x: number; z: number; y: number; vx: number; vz: number; vy: number }
+/** m 5 = descending (FUN_800be7dc: every pickup comes down at 0x14 / tick under the 0786 part42 crate), 0 = landed (bounces) */
+interface Pk { id: number; t: number; x: number; z: number; y: number; vy: number; m: number }
+interface Dr { id: number; x: number; z: number; vx: number; flag: number }
+/** dropper lanes (z) per level 5..9, one picked by rand(4) at spawn (FUN_800be234, table 0x800ca600) */
+const DROP_Z = [[0x100, 0x500, 0xb00, 0xf00], [0x100, 0x500, 0xb00, 0xf00], [0x100, 0x500, 0xb00, 0xf00], [0x100, 0x500, 0x900, 0xd00], [0x300, 0x500, 0x900, 0xd00]];
 interface Data {
-  variant: string;
-  blocks: Block[];
-  hx: number;
-  hz: number;
-  hp: number[];
-  kills: number[];
-  deaths: number[];
-  elim: number[];
-  mines: number[];
-  bomb: number[];
-  stun: number[];
-  inv: number[];
-  mcd: number[];
-  prevB: boolean[];
-  nextPick: number;
+  variant: string; lv: number; f: number; over: boolean; overF: number; hum: number;
+  tk: Tk[]; shells: Sh[]; mines: Mn[]; flames: Fl[]; bombs: Bm[]; pickups: Pk[]; dropper: Dr | null; spawnT: number; par: number; bump: number;
 }
 
-const tanks = (w: World) => w.bodies.filter((b) => b.kind === 'tank');
-const bullets = (w: World) => w.bodies.filter((b) => b.kind === 'bullet');
-const aliveTanks = (w: World) => tanks(w).filter((t) => t.alive);
+const R = (w: World, n: number) => Math.floor(rand(w) * n);
+const sfx = (w: World, id: number, x: number, z: number, s = -1) => emit(w, 'sfx', x, z, s, id);
+const L_ = (d: Data) => TA_LV[d.lv];
+const wallAt = (L: Lv, x: number, z: number) => {
+  const c = x >> 9, r = z >> 9;
+  return x < 0 || z < 0 || c >= L.W || r >= L.H || L.tiles[r * L.W + c] !== 0;
+};
+const px = (L: Lv, gx: number) => (gx - L.cx) * G;
+const pz = (L: Lv, gz: number) => -(gz - L.cz) * G;
 
-/** Push a circle out of all blocks; returns the contact normal of the last block touched, if any. */
-function resolveBlocks(b: Body, r: number, blocks: Block[]): [number, number] | null {
-  let hit: [number, number] | null = null;
-  for (const [cx, cz, hw, hd] of blocks) {
-    const px = clamp(b.x, cx - hw, cx + hw), pz = clamp(b.z, cz - hd, cz + hd);
-    let dx = b.x - px, dz = b.z - pz;
-    const d2 = dx * dx + dz * dz;
-    if (d2 >= r * r) continue;
-    if (d2 < 1e-9) { // centre inside block: push along the shallowest axis
-      const ox = hw + r - Math.abs(b.x - cx), oz = hd + r - Math.abs(b.z - cz);
-      if (ox < oz) { dx = Math.sign(b.x - cx) || 1; dz = 0; b.x = cx + dx * (hw + r); } else { dz = Math.sign(b.z - cz) || 1; dx = 0; b.z = cz + dz * (hd + r); }
-      hit = [dx, dz];
-      continue;
-    }
-    const d = Math.sqrt(d2);
-    b.x = px + (dx / d) * r;
-    b.z = pz + (dz / d) * r;
-    hit = [dx / d, dz / d];
+function byId(w: World, id: number): Body | undefined { return w.bodies.find((b) => b.id === id); }
+function drop(w: World, id: number) { const i = w.bodies.findIndex((b) => b.id === id); if (i >= 0) w.bodies.splice(i, 1); }
+function mk(w: World, d: Data, kind: string, slot: number, gx: number, gz: number, r: number): number {
+  const L = L_(d);
+  const b = addBody(w, kind, slot, px(L, gx), pz(L, gz), r * G, 1);
+  return b.id;
+}
+const gone = (t: Tk) => t.st === S_DIE || t.st === S_DEAD;
+const alive = (t: Tk) => t.hp > 0;
+
+// ---------------------------------------------------------------- damage
+function hurt(w: World, d: Data, p: number, dmg: number, by: number) {
+  const t = d.tk[p];
+  if (d.over || t.inv > 0 || t.hp <= 0 || gone(t) || t.st === S_HIT) return;
+  if (dmg < 400) {
+    if (d.hum === 0) dmg *= 3;
+    else if (t.cpu) dmg = Math.trunc((dmg * ((((0x20 - t.skill) * 0x96) >> 5) + 0x32)) / 100);
   }
-  return hit;
+  t.st = S_HIT; t.stT = 0; t.hvy = -60; t.hy = 0;
+  t.hp -= dmg;
+  const L = L_(d);
+  emit(w, 'hit', px(L, t.x), pz(L, t.z), p, dmg / TA_HP, by === p ? -1 : by);
+  if (t.hp <= 0) {
+    t.hpAt = t.hp + dmg; t.hp = 0; t.elim = d.f;
+    if (by >= 0 && by !== p) d.tk[by].kills++;
+    emit(w, 'ko', px(L, t.x), pz(L, t.z), p, 1, by === p ? -1 : by);
+  }
 }
 
-/** Is the straight segment a->b blocked by an obstacle block? (slab test; used by bots) */
-export function blocked(ax: number, az: number, bx: number, bz: number, blocks: Block[] = TA_BLOCKS): boolean {
-  const dx = bx - ax, dz = bz - az;
-  for (const [cx, cz, hw, hd] of blocks) {
-    let t0 = 0, t1 = 1, miss = false;
-    for (const [p, q] of [[-dx, ax - (cx - hw)], [dx, cx + hw - ax], [-dz, az - (cz - hd)], [dz, cz + hd - az]] as [number, number][]) {
-      if (Math.abs(p) < 1e-9) { if (q < 0) { miss = true; break; } continue; }
-      const t = q / p;
-      if (p < 0) t0 = Math.max(t0, t); else t1 = Math.min(t1, t);
-    }
-    if (!miss && t0 <= t1) return true;
+// ---------------------------------------------------------------- tanks
+/** grid step in direction dir: tank boxes, wall tile, move and snap (0x800b9e20) */
+function gridStep(d: Data, p: number, t: Tk) {
+  const L = L_(d), sp = t.speed, half = sp >> 1, dir = t.dir, x = t.x, z = t.z;
+  for (let o = 0; o < 4; o++) {
+    const q = d.tk[o];
+    if (o === p || gone(q)) continue;
+    let hit: boolean;
+    if (dir === 0) hit = Math.abs(x - q.x) <= 0x1c0 && Math.abs(z - sp - q.z) < 0x1c0;
+    else if (dir === 1) hit = Math.abs(x - sp - q.x) < 0x1c1 && Math.abs(z - q.z) < 0x1c0;
+    else { const m = 0x1c0 - sp; hit = dir === 2 ? Math.abs(x - q.x) <= m && Math.abs(z + sp - q.z) < m : Math.abs(x + sp - q.x) <= m && Math.abs(z - q.z) < m; }
+    if (hit) return;
   }
+  let wx = x, wz = z;
+  if (dir === 0) wz = z - (half + 0x100); else if (dir === 1) wx = x - (half + 0x100); else if (dir === 2) wz = z + 0x100; else wx = x + 0x100;
+  if (wallAt(L, wx, wz)) return;
+  const snap = (v: number) => { let off = v & 0xff; if (off > 0x80) off -= 0x100; return Math.abs(off) <= half ? v - off : v; };
+  if (dir === 1 || dir === 3) t.x = snap(x + DVX[dir] * sp); else t.z = snap(z + DVZ[dir] * sp);
+}
+
+function gridMove(d: Data, p: number, t: Tk) {
+  const L = L_(d), pad = t.pad;
+  if (t.st === S_TURN) {
+    t.hull = (t.hull + t.td) & 0xfff;
+    if (--t.tn <= 0) { t.st = S_RUN; if (pad & 0xf0) gridStep(d, p, t); }
+    return;
+  }
+  if (!(pad & 0xf0)) return;
+  const atC = (t.x & 0x1ff) === 0x100 && (t.z & 0x1ff) === 0x100;
+  if (atC) {
+    const c = t.x >> 9, r = t.z >> 9;
+    const free = (dc: number, dr: number) => { const cc = c + dc, rr = r + dr; return cc >= 0 && rr >= 0 && cc < L.W && rr < L.H && L.tiles[rr * L.W + cc] === 0; };
+    const tests: [number, number, boolean][] = [[0x20, 3, free(1, 0)], [0x80, 1, free(-1, 0)], [0x10, 2, free(0, 1)], [0x40, 0, free(0, -1)]];
+    for (const [bit, want, ok] of tests) {
+      if (!(pad & bit) || !ok) continue;
+      if (t.dir === want) break;
+      const from = t.dir;
+      t.dir = want;
+      if (((from + 2) & 3) === want) { t.hull = HULL[want]; break; }
+      const pos = (want === 3 && from === 2) || (want === 1 && from === 0) || (want === 2 && from === 1) || (want === 0 && from === 3);
+      t.td = pos ? 0x80 : -0x80; t.tn = 8; t.st = S_TURN;
+      return;
+    }
+  }
+  const opp = (t.dir + 2) & 3;
+  if (pad & DIRBIT[opp] && !(pad & DIRBIT[t.dir])) { t.dir = opp; t.hull = HULL[opp]; }
+  gridStep(d, p, t);
+}
+
+function freeMove(d: Data, p: number, t: Tk) {
+  const L = L_(d);
+  let pad = t.pad;
+  if (L.level === 7) { // centre blockers keep the d-pad from driving into the pedestal
+    if (Math.abs(t.x - 2048) < 0x15e && Math.abs(t.z - 2048) < 0x15e) {
+      pad &= 2048 < t.x ? ~0x80 : ~0x20;
+      pad &= 2048 > t.z ? ~0x10 : ~0x40;
+    }
+  }
+  const target = FREEMOVE[pad & 0xf0];
+  if (target === undefined) return;
+  let diff = sext(target - ((t.yaw + t.hull) & 0xfff));
+  while (Math.abs(diff) > 0x400) { t.hull = (t.hull + 0x800) & 0xfff; diff = sext(target - ((t.yaw + t.hull) & 0xfff)); }
+  t.hull = (t.hull + Math.trunc(diff / 4)) & 0xfff;
+  const a = (t.yaw + t.hull) & 0xfff;
+  let nx = t.x + ((t.speed * sn(a)) >> 12), nz = t.z + ((t.speed * cs(a)) >> 12);
+  const prx = nx + (sn(a) >> 4), prz = nz + (cs(a) >> 4);
+  if (L.level === 7 && nx >= 0x581 && nx <= 0xa7f && nz > 0x580 && nz < 0xa80) {
+    if (nx < 0x5c0) nx = 0x580;
+    if (nz < 0x5c0) nz = 0x580;
+  }
+  for (let o = 0; o < 4; o++) {
+    const q = d.tk[o];
+    if (o === p || gone(q)) continue;
+    if (Math.abs(nx - q.x) < 0x1c1 && Math.abs(nz - q.z) < 0x1c0) return;
+  }
+  if (!wallAt(L, prx, prz)) { t.x = nx; t.z = nz; }
+}
+
+function boatMove(d: Data, p: number, t: Tk) {
+  const L = L_(d), pad = t.pad, sp = t.speed;
+  const turn = Math.trunc((sp * 3) / 2);
+  if (pad & 0x20) { t.yaw = (t.yaw + turn) & 0xfff; t.bank = Math.max(-200, t.bank - 0x14); }
+  else if (pad & 0x80) { t.yaw = (t.yaw - turn) & 0xfff; t.bank = Math.min(200, t.bank + 0x14); }
+  else if (Math.abs(t.bank) < 3) t.bank = 0; else t.bank += t.bank > 0 ? -10 : 10;
+  if (pad & 0xa00) {
+    t.vx += (-((sp * sn(t.yaw)) >> 12)) >> 2;
+    t.vz += (-((sp * cs(t.yaw)) >> 12)) >> 2;
+  }
+  t.vx = Math.max(-sp, Math.min(sp, t.vx)); t.vz = Math.max(-sp, Math.min(sp, t.vz));
+  let nx = t.x + t.vx, nz = t.z + t.vz;
+  if (t.vx <= 0) { if (t.vx !== 0) t.vx++; if (nx < 0x100) { t.vx = -t.vx; nx = 0x100; } }
+  else { t.vx--; if (nx > L.bx) { t.vx = -t.vx; nx = L.bx; } }
+  if (t.vz <= 0) { if (t.vz !== 0) t.vz++; if (nz < 0x100) { t.vz = -t.vz; nz = 0x100; } }
+  else { t.vz--; if (nz > L.bz) { t.vz = -t.vz; nz = L.bz; } }
+  for (let o = 0; o < 4; o++) {
+    const q = d.tk[o];
+    if (o === p || gone(q)) continue;
+    if (Math.abs(nx - q.x) < 0x1c1 && Math.abs(nz - q.z) < 0x1c0) {
+      q.vx += Math.trunc(t.vx / 2); q.vz += Math.trunc(t.vz / 2);
+      t.vx = Math.trunc(t.vx / 4); t.vz = Math.trunc(t.vz / 4);
+      return;
+    }
+  }
+  t.x = nx; t.z = nz;
+}
+
+// ---------------------------------------------------------------- weapons
+function spawnShell(w: World, d: Data, p: number, t: Tk, wpn: number, yaw: number, ox: number, oz: number) {
+  const [, , , sp] = SHELL[wpn];
+  const L = L_(d);
+  const sx = t.x + ((-400 * sn(yaw)) >> 12) + ox + (L.level === 5 ? t.vx : 0);
+  const sz = t.z + ((-400 * cs(yaw)) >> 12) + oz + (L.level === 5 ? t.vz : 0);
+  const id = mk(w, d, 'bullet', p, sx, sz, 0.1 * 1024);
+  const b = byId(w, id)!;
+  b.dash = wpn;
+  d.shells.push({
+    id, o: p, x: sx, z: sz, y: -0x14a, vx: -((sp * sn(yaw)) >> 12), vz: -((sp * cs(yaw)) >> 12), vy: wpn === 10 ? -30 : 0,
+    life: SHELL[wpn][2], flag: 1, w: wpn, spin: 0,
+  });
+}
+
+function fire(w: World, d: Data, p: number, t: Tk) {
+  const L = L_(d), wp = t.wpn;
+  const rate = Math.max(1, w.params.fireRate);
+  if (wp === 3) {
+    t.cd = Math.round(60 / rate); t.pend = 4;
+  } else if (wp === 2) {
+    t.cd = Math.round(10 / rate);
+    const px_ = (0x104 * cs(t.yaw)) >> 12, pz_ = -((0x104 * sn(t.yaw)) >> 12);
+    spawnShell(w, d, p, t, 2, t.yaw, px_, pz_);
+    spawnShell(w, d, p, t, 2, t.yaw, -px_, -pz_);
+    sfx(w, 0x522, px(L, t.x), pz(L, t.z), p);
+  } else {
+    t.cd = Math.round(10 / rate);
+    spawnShell(w, d, p, t, wp, t.yaw, 0, 0);
+    sfx(w, wp === 11 ? (t.char === 3 ? 0x4cc : 0x4cd) : SHOT_SFX[t.char - 1], px(L, t.x), pz(L, t.z), p);
+  }
+  t.busy = wp; t.busyT = wp === 2 ? 39 : 13;
+  emit(w, 'shoot', px(L, t.x), pz(L, t.z), p, 1);
+  if (--t.ammo < 1) { t.wpn = WPN[t.char - 1]; t.ammo = 999; t.cd = 30; }
+}
+
+function layMine(w: World, d: Data, p: number, t: Tk) {
+  const L = L_(d), X = px(L, t.x), Z = pz(L, t.z);
+  if (t.mines <= 0) { if (!t.cpu) sfx(w, 0x4f2, X, Z, p); return; }
+  if (t.mcd > 0) { if (!t.cpu) sfx(w, 0x4f1, X, Z, p); return; }
+  if (L.level === 5) {
+    t.shieldCd = 0;
+  } else {
+    for (const m of d.mines) if (Math.abs(m.x - t.x) <= 0x101 && Math.abs(m.z - t.z) <= 0x101) m.n = 1;
+  }
+  const id = mk(w, d, 'mine', p, t.x, t.z, 0x80);
+  d.mines.push({ id, o: p, x: t.x, z: t.z, n: 0x78 });
+  sfx(w, 0x4e9, X, Z, p); sfx(w, 0x4ec + p, X, Z, p);
+  t.mines--; t.mcd = L.level === 5 ? 30 : 120;
+  emit(w, 'mine', X, Z, p, 1);
+}
+
+// ---------------------------------------------------------------- projectiles
+const rndHit = (w: World, x: number, z: number) => sfx(w, 0x4ba + R(w, 4), x, z);
+function shellStep(w: World, d: Data, s: Sh): number {
+  const L = L_(d);
+  const bw = SHELL[s.w][0], fx = SHELL[s.w][1];
+  void fx;
+  if (L.level === 8 && s.flag !== 1 && wallAt(L, s.x, s.z)) return 1;
+  s.x += s.vx; s.z += s.vz;
+  if (s.w === 10) { // lob: arcs and hops on the ground
+    s.spin = (s.spin + 0x55) & 0xfff;
+    s.vy += 12; s.y += s.vy;
+    if (s.y > -0x65) { s.y = -0x64 - 0x3c; s.vy = -0x3c; sfx(w, L.level === 5 ? 0x4f7 + R(w, 4) : 0x4d2 + R(w, 6), px(L, s.x), pz(L, s.z)); }
+  }
+  let bounced = false;
+  if (s.x < 0 || s.x > L.bx + 0x100) { if (s.flag !== 1) { s.x -= s.vx; s.vx = -s.vx; bounced = true; } }
+  else if (s.z < 0 || s.z > L.bz + 0x100) { if (s.flag !== 1) { s.z -= s.vz; s.vz = -s.vz; bounced = true; } }
+  else if (s.y > -400 && wallAt(L, s.x, s.z) && s.flag !== 1) {
+    const tcx = (s.x >> 9) * 512 + 256, tcz = (s.z >> 9) * 512 + 256;
+    if (Math.abs(s.x - tcx) >= Math.abs(s.z - tcz)) { s.x -= s.vx; s.vx = -s.vx; } else { s.z -= s.vz; s.vz = -s.vz; }
+    if (wallAt(L, s.x, s.z)) { if (Math.abs(s.x - tcx) >= Math.abs(s.z - tcz)) { s.z -= s.vz; s.vz = -s.vz; } else { s.x -= s.vx; s.vx = -s.vx; } }
+    bounced = true;
+  }
+  const X = px(L, s.x), Z = pz(L, s.z);
+  if (bounced) {
+    sfx(w, s.w === 8 ? 0x4e1 + R(w, 3) : 0x4d8 + R(w, 3), X, Z);
+    emit(w, 'bounce', X, Z, -1, 0.5);
+  }
+  for (let i = d.pickups.length - 1; i >= 0; i--) {
+    const k = d.pickups[i];
+    // FUN_800bf548: (pickup - shot) + 0xff < 0x1ff unsigned on x, z and y = a 511-unit box centred on the shot
+    const inBox = (v: number) => v + 0xff >= 0 && v + 0xff < 0x1ff;
+    if (inBox(k.x - s.x) && inBox(k.z - s.z) && inBox(k.y - s.y)) {
+      sfx(w, 0x4b8, px(L, k.x), pz(L, k.z)); emit(w, 'pkhit', px(L, k.x), pz(L, k.z), -1, 0.5);
+      drop(w, k.id); d.pickups.splice(i, 1);
+    }
+  }
+  for (let p = 0; p < 4; p++) {
+    const t = d.tk[p];
+    if (gone(t) || t.hp <= 0 && t.st !== S_HIT) continue;
+    if (Math.abs(s.x - t.x) < 0x10f && Math.abs(s.z - t.z) < 0x10e) {
+      if (L.level === 5 && t.cpu && t.shieldCd === 0 && d.hum > 0 && R(w, 32) < t.skill) { t.dodge = true; return 2; }
+      rndHit(w, X, Z);
+      hurt(w, d, p, p === s.o ? bw >> 1 : bw, s.o);
+      emit(w, 'boom', X, Z, p, 0.6);
+      return 2;
+    }
+  }
+  for (let p = 0; p < 4; p++) {
+    const t = d.tk[p];
+    if (t.inv > 0 && Math.abs(s.x - t.x) < 0xe1 && Math.abs(s.z - t.z) < 0xe1) return 2;
+  }
+  s.flag = 0;
+  return --s.life <= 0 ? 1 : 0;
+}
+
+function explodeMine(w: World, d: Data, m: Mn) {
+  const L = L_(d), X = px(L, m.x), Z = pz(L, m.z);
+  sfx(w, 0x4ea, X, Z);
+  emit(w, 'explode', X, Z, -1, 1.2, m.o);
+  if (L.level === 5 || L.level === 7) {
+    for (let p = 0; p < 4; p++) { const t = d.tk[p]; if (!gone(t) && Math.abs(t.x - m.x) <= 0x300 && Math.abs(t.z - m.z) < 0x2ff) hurt(w, d, p, 0x3c, m.o); }
+  } else {
+    for (const [dx, dz] of [[250, 0], [-250, 0], [0, 250], [0, -250]]) {
+      const id = mk(w, d, 'flame', m.o, m.x + dx, m.z + dz, 0x60);
+      d.flames.push({ id, o: m.o, x: m.x + dx, z: m.z + dz, dx: Math.sign(dx), dz: Math.sign(dz) });
+    }
+  }
+  for (let p = 0; p < 4; p++) {
+    const t = d.tk[p];
+    if (Math.abs(t.x - m.x) < 0xfb && Math.abs(t.z - m.z) < 0xfa) { hurt(w, d, p, 0x3c, m.o); break; }
+  }
+}
+
+function explodeBomb(w: World, d: Data, b: Bm, all: boolean) {
+  const L = L_(d), X = px(L, b.x), Z = pz(L, b.z);
+  sfx(w, 0x4ba + R(w, 4), X, Z); sfx(w, 0x490 + R(w, 2), X, Z);
+  emit(w, 'explode', X, Z, -1, 1.4, b.o);
+  for (let p = 0; p < 4; p++) {
+    const t = d.tk[p];
+    if (gone(t)) continue;
+    if (Math.abs(b.x - t.x) < 0x181 && Math.abs(b.z - t.z) < (all ? 0x181 : 0x180)) { hurt(w, d, p, 0x3c, b.o); if (!all) break; }
+  }
+}
+
+// ---------------------------------------------------------------- pickups
+function spawnPickup(w: World, d: Data, type: number, x: number, y: number, z: number) {
+  if (d.pickups.length >= 3) return;
+  const L = L_(d);
+  const id = mk(w, d, 'pickup', -1, x, z, 0x90);
+  byId(w, id)!.cd = type;
+  d.pickups.push({ id, t: type, x, z, y, vy: 0, m: 5 });
+  sfx(w, 0x4b0 + R(w, 4), px(L, x), pz(L, z));
+  emit(w, 'spawn', px(L, x), pz(L, z), -1, 1);
+}
+
+function collect(w: World, d: Data, p: number, k: Pk): boolean {
+  const t = d.tk[p], L = L_(d), X = px(L, k.x), Z = pz(L, k.z);
+  const ty = k.t;
+  if (d.over) { sfx(w, 0x4ea, X, Z); return true; }
+  if (ty <= 3) {
+    t.ammo = t.wpn === ty ? t.ammo + 2 : 2; t.wpn = ty; t.busy = -1;
+    sfx(w, ty === 3 ? 0x48e : ty === 2 ? 0x51f : 0x1c2, X, Z, p);
+  } else if (ty === 4) { t.hp = Math.min(99, t.hp + 20); sfx(w, 0x1c2, X, Z, p); }
+  else if (ty === 5) { t.mines++; sfx(w, 0x4e8, X, Z, p); }
+  else if (ty === 6) { hurt(w, d, p, 30, -1); emit(w, 'boom', X, Z, p, 0.6); sfx(w, 0x4ea, X, Z, p); }
+  else if (ty === 7) { t.wpn = 3; t.ammo += 1; if (p < 2) t.mines++; sfx(w, 0x1c2, X, Z, p); }
+  emit(w, 'pickup', X, Z, p, ty);
+  return true;
+}
+
+// ---------------------------------------------------------------- AI
+const hasHuman = (d: Data) => d.tk.some((t) => !t.cpu && t.hp > 0);
+const skillOf = (d: Data, t: Tk) => (d.hum === 0 ? 30 : t.skill);
+function pickTarget(w: World, d: Data, p: number): number {
+  const c = d.tk.map((t, i) => (i !== p && t.hp > 0 ? i : -1)).filter((i) => i >= 0);
+  return c.length ? c[R(w, c.length)] : -1;
+}
+function freeDir(d: Data, t: Tk, bit: number): boolean {
+  const L = L_(d), c = t.x >> 9, r = t.z >> 9;
+  const dc = bit === 0x20 ? 1 : bit === 0x80 ? -1 : 0, dr = bit === 0x10 ? 1 : bit === 0x40 ? -1 : 0;
+  const cc = c + dc, rr = r + dr;
+  return cc >= 0 && rr >= 0 && cc < L.W && rr < L.H && L.tiles[rr * L.W + cc] === 0;
+}
+const stepTime = (t: Tk, extra: number) => Math.trunc((t.speed / 2 + extra) / t.speed);
+
+function wander(w: World, d: Data, t: Tk) {
+  const bits = [0x20, 0x80, 0x10, 0x40], s0 = R(w, 4);
+  for (let i = 0; i < 4; i++) {
+    const b = bits[(s0 + i) & 3];
+    if (freeDir(d, t, b)) { t.ai.pad = b; t.ai.mode = 5; t.ai.timer = stepTime(t, 0x200); return; }
+  }
+  t.ai.pad = 0; t.ai.mode = 0; t.ai.timer = 15;
+}
+function seek(w: World, d: Data, t: Tk) {
+  let best: Pk | null = null, bd = 0x600;
+  for (const k of d.pickups) {
+    if (k.t === 6) continue;
+    const dd = Math.abs(k.x - t.x) + Math.abs(k.z - t.z);
+    if (dd < bd) { bd = dd; best = k; }
+  }
+  if (best) {
+    const dx = best.x - t.x, dz = best.z - t.z;
+    const opts: number[] = [];
+    const h = Math.abs(dx) > 0x70 ? (dx > 0 ? 0x20 : 0x80) : 0, v = Math.abs(dz) > 0x70 ? (dz > 0 ? 0x10 : 0x40) : 0;
+    if (Math.abs(dx) >= Math.abs(dz)) opts.push(h, v); else opts.push(v, h);
+    for (const b of opts) if (b && freeDir(d, t, b)) { t.ai.pad = b; t.ai.mode = 5; t.ai.timer = stepTime(t, 0x200); return; }
+  }
+  wander(w, d, t);
+}
+/** FUN_800b4240: move away from (ox, oz) (or towards it when `toward`) */
+function away(w: World, d: Data, t: Tk, ox: number, oz: number, toward = false): boolean {
+  const sg = toward ? -1 : 1;
+  const hb = (t.x - ox) * sg >= 0 ? 0x20 : 0x80, vb = (t.z - oz) * sg >= 0 ? 0x10 : 0x40;
+  const order = R(w, 2) ? [hb, vb] : [vb, hb];
+  for (const b of order) if (freeDir(d, t, b)) { t.ai.pad = b; t.ai.mode = 2; t.ai.timer = stepTime(t, 0x400); return true; }
   return false;
 }
-
-
-/** position along the rectangular lane ring of half extents rx, rz (u = 0 at the top-left corner, clockwise seen from above) */
-function ringU(x: number, z: number, rx: number, rz: number): number {
-  if (Math.abs(z) / rz >= Math.abs(x) / rx) return z < 0 ? clamp(x, -rx, rx) + rx : 2 * rx + 2 * rz + (rx - clamp(x, -rx, rx));
-  return x > 0 ? 2 * rx + clamp(z, -rz, rz) + rz : 4 * rx + 2 * rz + (rz - clamp(z, -rz, rz));
+function avoidMine(w: World, d: Data, p: number, t: Tk): boolean {
+  if (R(w, skillOf(d, t) + 1) < 8 || t.ai.mode === 2 || !d.mines.length) return false;
+  const m = d.mines[t.ai.mref++ % d.mines.length];
+  if (Math.abs(m.x - t.x) < 0x7ce && Math.abs(m.z - t.z) < 0x7ce) return away(w, d, t, m.x, m.z);
+  return false;
 }
-function ringPt(u: number, rx: number, rz: number): [number, number] {
-  const P = 4 * (rx + rz);
-  u = ((u % P) + P) % P;
-  if (u < 2 * rx) return [u - rx, -rz];
-  u -= 2 * rx;
-  if (u < 2 * rz) return [rx, u - rz];
-  u -= 2 * rz;
-  if (u < 2 * rx) return [rx - u, rz];
-  u -= 2 * rx;
-  return [-rx, rz - u];
+function decide(w: World, d: Data, p: number, t: Tk) {
+  const a = t.ai;
+  a.timer = 30; a.target = pickTarget(w, d, p);
+  if (avoidMine(w, d, p, t)) return;
+  const r = R(w, 8);
+  if (r === 0 && R(w, skillOf(d, t) + 1) < 13) { a.timer = R(w, 30) + 15; a.pad = 0; a.mode = 0; return; }
+  if (r === 1) { seek(w, d, t); return; }
+  if (r === 2 && t.mines > 0) { a.pad |= 0x2000; a.timer = stepTime(t, 0x200); return; }
+  if (a.target < 0) { seek(w, d, t); return; }
+  const o = d.tk[a.target];
+  if (t.cd < 5) {
+    a.pad = PAD_OF_OCT[((ang(o.x - t.x, o.z - t.z) + 0x100) >> 9) & 7]; a.mode = 4; a.timer = stepTime(t, 0x200);
+  } else if (!(d.hum === 0 && R(w, 256) > 0x40 && away(w, d, t, o.x, o.z, true)) && !away(w, d, t, o.x, o.z)) wander(w, d, t);
+}
+/** FUN_800b3f44: shoot decision */
+function shootGate(w: World, d: Data, t: Tk): boolean {
+  const a = t.ai;
+  if (d.hum > 0 && R(w, 101) > a.shoot) return false;
+  if (a.target < 0 || d.tk[a.target].hp <= 0) return false;
+  const L = L_(d);
+  if (L.level === 5) {
+    const o = d.tk[a.target];
+    return Math.abs(sext(ang(t.x - o.x, t.z - o.z) - t.yaw)) < 0x46;
+  }
+  const h = t.aim >= 0 ? t.aim : t.yaw;
+  return !wallAt(L, t.x + ((-0x200 * sn(h)) >> 12), t.z + ((-0x200 * cs(h)) >> 12));
+}
+function decide5(w: World, d: Data, p: number, t: Tk) {
+  const a = t.ai, L = L_(d);
+  a.target = pickTarget(w, d, p);
+  const seekPt = () => {
+    let k: Pk | null = null;
+    for (const q of d.pickups) if (Math.abs(t.x - q.x) + Math.abs(t.z - q.z) < 0x600) { k = q; break; }
+    if (k) { a.tx = k.x; a.tz = k.z; } else { const i = R(w, 9); a.tx = 512 + (i % 3) * 1536; a.tz = 512 + Math.floor(i / 3) * 1536; }
+    a.mode = 4; a.timer = 0x5a;
+  };
+  const flee = (): boolean => {
+    let n = 0, sx = 0, sz = 0;
+    d.tk.forEach((q, i) => { if (i !== p && q.hp > 0) { n++; sx += q.x; sz += q.z; } });
+    if (n <= 1) return false;
+    a.tx = Math.trunc(sx / n) >= 0x800 ? 0x200 : 0xe00; a.tz = Math.trunc(sz / n) >= 0x800 ? 0x200 : 0xe00;
+    a.mode = 7; a.timer = 0xb4; return true;
+  };
+  if (a.target < 0) { if (!flee()) { if (R(w, 100) < 30) seekPt(); else { a.mode = 0; a.timer = 15; a.pad = 0; } } return; }
+  if (t.busy >= 0) { seekPt(); return; }
+  const r = R(w, 8);
+  if (r === 0 && d.hum > 0 && R(w, skillOf(d, t) + 1) < 13) { a.timer = R(w, 30) + 15; a.pad = 0; a.mode = 0; return; }
+  if (r <= 4) { a.mode = 6; a.timer = 0x5a; return; }
+  if (r <= 6) { if (flee()) return; if (R(w, 100) < 30) { seekPt(); return; } a.mode = 6; a.timer = 0x5a; return; }
+  void L; seekPt();
+}
+function aiFrame(w: World, d: Data, p: number, t: Tk) {
+  const a = t.ai, L = L_(d);
+  if (L.level === 5) {
+    if (--a.timer < 1) decide5(w, d, p, t);
+    let pad = 0;
+    const o = a.target >= 0 ? d.tk[a.target] : null;
+    if (a.mode === 6 && o) {
+      const df = sext(ang(t.x - o.x, t.z - o.z) - t.yaw);
+      if (df > 0x46) pad = 0x20; if (df < -0x46) pad = 0x80;
+    } else if (a.mode === 4 || a.mode === 7) {
+      if (Math.abs(t.x - a.tx) < 99 && Math.abs(t.z - a.tz) < 99) a.timer = 0;
+      const df = sext(ang(t.x - a.tx, t.z - a.tz) - t.yaw);
+      if (df > 0x28) pad = 0x820; if (df < -0x28) pad = 0x880;
+    }
+    if (shootGate(w, d, t)) pad |= 0x8000;
+    if (t.dodge) { pad |= 0x4000; t.dodge = false; }
+    t.pad = pad;
+    return;
+  }
+  const tg = a.target >= 0 && d.tk[a.target].hp > 0 ? d.tk[a.target] : null;
+  if (tg) t.aim = (ang(tg.x - t.x, tg.z - t.z) + 0x800) & 0xfff;
+  if (a.mode === 5 && (t.x & 0x1ff) === 0 && (t.z & 0x1ff) === 0) decide(w, d, p, t);
+  if (--a.timer < 1) decide(w, d, p, t);
+  else { avoidMine(w, d, p, t); if (shootGate(w, d, t)) a.pad |= 0x8000; }
+  if (d.hum > 0 && R(w, skillOf(d, t) + 1) > 8) {
+    for (const m of d.mines) {
+      const dx = m.x - t.x, dz = m.z - t.z;
+      if (Math.abs(dx) >= 250 && Math.abs(dx) <= 500) a.pad &= dx > 0 ? ~0x20 : ~0x80;
+      if (Math.abs(dz) >= 250 && Math.abs(dz) <= 500) a.pad &= dz > 0 ? ~0x10 : ~0x40;
+    }
+  }
+  t.pad = a.pad;
 }
 
-function hurt(w: World, d: Data, t: Body, dmg: number, by: number) {
-  if (!t.alive || d.inv[t.slot] > 0) return;
-  d.hp[t.slot] -= dmg;
-  d.stun[t.slot] = 0.5;
-  emit(w, 'hit', t.x, t.z, t.slot, dmg / TA_HP, by === t.slot ? -1 : by);
-  if (d.hp[t.slot] <= 0) {
-    d.hp[t.slot] = 0;
-    t.alive = false;
-    t.vx = t.vz = 0;
-    d.elim[t.slot] = w.tick;
-    d.deaths[t.slot]++;
-    if (by >= 0 && by !== t.slot) d.kills[by]++;
-    emit(w, 'ko', t.x, t.z, t.slot, 1, by === t.slot ? -1 : by);
+// ---------------------------------------------------------------- per tank
+function humanPad(inp: InputState, lv: number): number {
+  let pad = 0;
+  if (inp.x > 0.3) pad |= 0x20; else if (inp.x < -0.3) pad |= 0x80;
+  if (inp.y < -0.3) pad |= lv === 5 ? 0x800 : 0x10; else if (inp.y > 0.3 && lv !== 5) pad |= 0x40;
+  if (inp.a) pad |= 0x8000;
+  if (inp.b) pad |= 0x2000;
+  if (inp.c) pad |= 0x1000;
+  return pad;
+}
+
+function tankStep(w: World, d: Data, p: number, t: Tk, inp: InputState) {
+  const L = L_(d), lv = L.level;
+  const drv = t.cpu || t.bot === d.f; // CPU slot, or a vacated human seat driven by bot()
+  if (t.cpu && alive(t)) aiFrame(w, d, p, t);
+  else if (!t.cpu) t.pad = alive(t) ? humanPad(inp, lv) : 0;
+  const pad = t.pad, prevPad = t.prev, press = pad & ~t.prev;
+  t.prev = pad;
+  if (t.cd > 0) t.cd -= 1 + (d.hum === 0 && t.cd !== 1 ? 1 : 0);
+  if (t.cd < 0) t.cd = 0;
+  if (t.mcd > 0) t.mcd--;
+  if (t.inv > 0) t.inv--;
+  if (t.shieldCd > 0) t.shieldCd--;
+  if (t.taunt > 0) t.taunt--;
+  if (t.busyT > 0 && --t.busyT === 0) t.busy = -1;
+  if (t.pend > 0 && --t.pend === 0) {
+    const id = mk(w, d, 'bomb', p, t.x + ((-250 * sn(t.yaw)) >> 12), t.z + ((-250 * cs(t.yaw)) >> 12), 0.28 * 1024);
+    d.bombs.push({ id, o: p, x: t.x + ((-250 * sn(t.yaw)) >> 12), z: t.z + ((-250 * cs(t.yaw)) >> 12), y: -300, vx: (-250 * sn(t.yaw)) >> 13, vz: (-250 * cs(t.yaw)) >> 13, vy: -91 });
+    sfx(w, 0x4f3, px(L, t.x), pz(L, t.z), p);
+    if (t.wpn === 3 && t.ammo < 1) { t.wpn = WPN[t.char - 1]; t.ammo = 999; }
+  }
+  if (t.st === S_HIT) {
+    t.hvy += 12; t.hy += t.hvy;
+    if (t.hy > 0) { t.hvy = -Math.trunc(t.hvy / 2); t.hy = 0; }
+    if (++t.stT >= 30) {
+      t.hy = 0;
+      if (t.hp <= 0) { t.st = S_DIE; t.stT = 0; } else t.st = S_RUN;
+    }
+    return;
+  }
+  if (t.st === S_DIE) {
+    if (++t.stT >= 41) { t.st = S_DEAD; sfx(w, 0x4f0, px(L, t.x), pz(L, t.z), p); emit(w, 'boom', px(L, t.x), pz(L, t.z), p, 1.2); }
+    return;
+  }
+  if (t.st === S_DEAD) return;
+  // turret
+  if (lv !== 5) {
+    if (!drv) {
+      if (pad & 0xf0) {
+        const dx = ((pad & 0x20) ? 1 : 0) - ((pad & 0x80) ? 1 : 0), dz = ((pad & 0x10) ? 1 : 0) - ((pad & 0x40) ? 1 : 0);
+        const tgt = ang(-dx, -dz), df = sext(tgt - t.yaw);
+        t.yaw = (t.yaw + Math.max(-0x40, Math.min(0x40, df))) & 0xfff;
+      }
+    } else if (t.aim >= 0) {
+      const df = sext(t.aim - t.yaw);
+      t.yaw = (t.yaw + (df >> 2)) & 0xfff;
+      if (Math.abs(df >> 2) < 3) t.aim = -1;
+    }
+  }
+  // fire / mine / shield
+  if ((press & 0x8000) && t.cd === 0 && t.busy < 0 && d.shells.filter((s) => s.o === p).length < 3) fire(w, d, p, t);
+  if (press & 0x2000) layMine(w, d, p, t);
+  if ((press & 0x4000) && lv === 5 && t.shieldCd === 0) {
+    t.inv = 10; t.shieldCd = d.hum > 0 && t.cpu ? (((0x20 - t.skill) * 0x3c) >> 5) + 0xf : 60;
+    sfx(w, 0x510 + p, px(L, t.x), pz(L, t.z), p); emit(w, 'shield', px(L, t.x), pz(L, t.z), p);
+  }
+  // Triangle held (0x80051388), taunt cooldown run out, in the idle / drive / turn states 0x6c 0x6e 0x6f: clip 0x5a + voice
+  if ((pad & 0x1000) && t.taunt <= 0 && (t.st === S_RUN || t.st === S_TURN)) { t.taunt = 0x5a; emit(w, 'taunt', 0, 0, p); }
+  // FUN_800b8ec4 -> FUN_800b6ed8: every time a CPU tank stops (enters the idle state 0x6c) a counter (starts rand(30)) goes up;
+  // past 0x4f it taunts (clip 0x5a + its taunt voice) and the counter restarts at 0
+  if (t.cpu && t.st === S_RUN && (prevPad & 0xf0) && !(pad & 0xf0) && ++t.ai.idle > 0x4f) { t.ai.idle = 0; t.taunt = 0x5a; emit(w, 'taunt', 0, 0, p); }
+  // movement
+  const sp0 = t.speed;
+  t.speed = Math.max(1, Math.round(sp0 * w.params.speed));
+  if (lv === 5) boatMove(d, p, t); else if (lv === 7) freeMove(d, p, t); else gridMove(d, p, t);
+  t.speed = sp0;
+  if (lv === 6 || lv === 8) { if (t.st !== S_TURN && t.hull !== HULL[t.dir] && Math.abs(sext(t.hull - HULL[t.dir])) < 0x80) t.hull = HULL[t.dir]; }
+}
+
+// ---------------------------------------------------------------- objects
+function objects(w: World, d: Data) {
+  const L = L_(d);
+  for (let i = d.shells.length - 1; i >= 0; i--) {
+    const s = d.shells[i];
+    const r = shellStep(w, d, s);
+    if (r) {
+      if (r === 1) { sfx(w, s.w === 8 ? 0x4e4 : 0x4e7, px(L, s.x), pz(L, s.z)); emit(w, 'fizzle', px(L, s.x), pz(L, s.z), -1, 0.4); }
+      drop(w, s.id); d.shells.splice(i, 1);
+    }
+  }
+  for (let i = d.mines.length - 1; i >= 0; i--) {
+    const m = d.mines[i];
+    let boom = false;
+    if (L.level === 8 && wallAt(L, m.x, m.z)) boom = true;
+    else { m.n--; if (m.n <= 0) boom = true; else if (m.n % 30 === 0) sfx(w, 0x4eb, px(L, m.x), pz(L, m.z)); }
+    if (boom) { d.mines.splice(i, 1); drop(w, m.id); explodeMine(w, d, m); }
+  }
+  for (let i = d.flames.length - 1; i >= 0; i--) {
+    const f = d.flames[i];
+    let end = wallAt(L, f.x, f.z);
+    for (let k = 0; k < 2 && !end; k++) {
+      f.x += f.dx * 250; f.z += f.dz * 250;
+      if (f.x < 0x100 || f.x > L.bx + 0x100 || f.z < 0x100 || f.z > L.bz + 0x100 || wallAt(L, f.x, f.z)) { end = true; break; }
+      for (let p = 0; p < 4; p++) {
+        const t = d.tk[p];
+        if (Math.abs(f.x - t.x) < 0xfb && Math.abs(f.z - t.z) < 0xfa && !gone(t)) { hurt(w, d, p, 0x3c, f.o); rndHit(w, px(L, f.x), pz(L, f.z)); end = true; break; }
+      }
+    }
+    if (end) { drop(w, f.id); d.flames.splice(i, 1); }
+  }
+  for (let i = d.bombs.length - 1; i >= 0; i--) {
+    const b = d.bombs[i];
+    b.x += b.vx; b.z += b.vz; b.vy += 12; b.y += b.vy;
+    let done = false;
+    for (let p = 0; p < 4 && !done; p++) {
+      const t = d.tk[p];
+      if (p !== b.o && !gone(t) && Math.abs(b.x - t.x) < 0x181 && Math.abs(b.z - t.z) < 0x181) { explodeBomb(w, d, b, true); done = true; }
+    }
+    if (!done && b.vy >= 1 && b.y >= -0x103) { explodeBomb(w, d, b, false); done = true; }
+    if (!done && (b.x < -0x400 || b.x > L.bx + 0x500 || b.z < -0x400 || b.z > L.bz + 0x500)) done = true;
+    if (done) { drop(w, b.id); d.bombs.splice(i, 1); }
+  }
+  for (let i = d.pickups.length - 1; i >= 0; i--) {
+    const k = d.pickups[i];
+    if (wallAt(L, k.x, k.z)) { drop(w, k.id); d.pickups.splice(i, 1); continue; }
+    if (k.m === 5) { // FUN_800be988 mode 5: descend, land at -300 (mines under it go off; levels 5-7: script 3 + sfx 0x4b4 + rand(4))
+      k.y += 0x14;
+      if (k.y > -300) {
+        for (const m of d.mines) if (Math.abs(m.x - k.x) <= 0x100 && Math.abs(m.z - k.z) <= 0x100) m.n = 1;
+        if (L.level < 8) { emit(w, 'land', px(L, k.x), pz(L, k.z), -1, k.t); sfx(w, 0x4b4 + R(w, 4), px(L, k.x), pz(L, k.z)); }
+        k.y = 0; k.vy = -0x28; k.m = 0;
+      }
+    } else {
+      k.vy += 8; k.y += k.vy;
+      if (k.y >= 0) { k.y = -1; k.vy = -0x28; k.y -= 0x28; }
+    }
+    let got = false;
+    for (let p = 0; p < 4 && !got; p++) {
+      const t = d.tk[p];
+      if (gone(t) || t.hp <= 0) continue;
+      if (Math.abs(t.x - k.x) < 0x12d && Math.abs(t.z - k.z) < 0x12c && k.y >= -0x2ed) got = collect(w, d, p, k);
+    }
+    if (!got && d.over) { sfx(w, 0x4ea, px(L, k.x), pz(L, k.z)); got = true; }
+    if (got) { drop(w, k.id); d.pickups.splice(i, 1); }
+  }
+  // dropper (levels 5-7)
+  if (d.dropper) {
+    const q = d.dropper;
+    q.x += q.vx;
+    if (q.x + 0x800 >= 0x2001) { drop(w, q.id); d.dropper = null; }
+    else if (q.flag === 3 && !d.over && (q.x & 0x1ff) === 0x100 && q.x >= 2 && q.x <= 0xffe) {
+      const z = q.z;
+      if (!d.pickups.some((k) => k.x === q.x && k.z === z + 0x3c) && R(w, 0x8000) < 0x2800 && d.pickups.length < 3) {
+        const dead = d.tk.filter((t) => t.hp < 1).length;
+        let ty: number;
+        if (R(w, 7000) < 2000 * dead) ty = 6;
+        else if (L.level === 7) ty = [5, 4, 2][R(w, 3)];
+        else ty = R(w, 1000) < 0x1f5 ? 4 : 5;
+        spawnPickup(w, d, ty, q.x, -0x400 - 200, z + 0x3c);
+        q.flag = 0;
+      }
+    }
+  }
+  // spawner
+  if (!d.over && --d.spawnT <= 0) {
+    d.spawnT = R(w, 0x78) + 0xb4;
+    if (L.level === 8) {
+      const SPOTS = L8_SPOTS;
+      if (d.pickups.length < 3) {
+        const [x, z] = SPOTS[R(w, SPOTS.length)];
+        const busy = d.tk.some((t) => t.hp > 0 && Math.abs(t.x - x) < 0x201 && Math.abs(t.z - z) < 0x200) || d.pickups.some((k) => k.x === x && k.z === z);
+        if (!busy) { const ty = [5, 4, 3][R(w, 3)]; spawnPickup(w, d, ty, x, -0x400 - 200, z); }
+      }
+    } else if (!d.dropper) {
+      const even = d.par++ % 2 === 0;
+      const z = (DROP_Z[L.level - 5] ?? DROP_Z[0])[R(w, 4)];
+      const id = mk(w, d, 'dropper', -1, 0x600, z, 0x100);
+      d.dropper = { id, x: even ? -0x800 : 0x1800, z, vx: even ? 0x40 : -0x40, flag: 3 };
+      sfx(w, 0x4f6, 0, 0);
+    }
   }
 }
+const L8_SPOTS: [number, number][] = [
+  [256, 256], [256, 768], [256, 1280], [256, 1792], [256, 2304], [256, 2816], [256, 3328], [1280, 256], [1280, 768], [1280, 1280], [1280, 1792], [1280, 2304], [1280, 2816], [1280, 3328],
+  [2304, 256], [2304, 768], [2304, 1280], [2304, 1792], [2304, 2304], [2304, 2816], [2304, 3328], [3328, 256], [3328, 768], [3328, 1280], [3328, 1792], [3328, 2304], [3328, 2816], [3328, 3328],
+  [4352, 256], [4352, 768], [4352, 1280], [256, 1792], [256, 2304], [256, 2816], [256, 3328], [256, 768], [256, 1792], [256, 2816], [4352, 768], [4352, 1792], [4352, 2816],
+];
 
-function explode(w: World, d: Data, x: number, z: number, radius: number, dmg: number, by: number) {
-  emit(w, 'explode', x, z, -1, radius, by);
-  for (const t of aliveTanks(w)) {
-    const dx = t.x - x, dz = t.z - z, dd = Math.hypot(dx, dz);
-    if (dd > radius + t.r * 0.5) continue;
-    const l = dd || 1;
-    t.vx += (dx / l) * 4; t.vz += (dz / l) * 4;
-    hurt(w, d, t, dmg, by);
+function sync(w: World, d: Data) {
+  const L = L_(d);
+  for (const t of d.tk) {
+    const b = byId(w, t.body);
+    if (!b) continue;
+    b.x = px(L, t.x); b.z = pz(L, t.z); b.y = -t.hy * G;
+    b.vx = t.vx * G * 30; b.vz = -t.vz * G * 30;
+    b.face = (-t.yaw * TAU) / 4096;
+    b.alive = t.hp > 0;
+    b.dash = t.inv > 0 ? 1 : 0;
+    b.cd = t.cd;
   }
-}
-
-function freeSpot(w: World, d: Data): [number, number] {
-  let x = 0, z = 0;
-  for (let k = 0; k < 20; k++) {
-    x = (rand(w) * 2 - 1) * (d.hx - 0.7);
-    z = (rand(w) * 2 - 1) * (d.hz - 0.7);
-    if (!d.blocks.some(([cx, cz, hw, hd]) => Math.abs(x - cx) < hw + 0.6 && Math.abs(z - cz) < hd + 0.6)) break;
-  }
-  return [x, z];
+  const put = (id: number, x: number, y: number, z: number, face = 0) => {
+    const b = byId(w, id);
+    if (!b) return;
+    b.x = px(L, x); b.z = pz(L, z); b.y = -y * G; b.face = face;
+  };
+  for (const s of d.shells) { put(s.id, s.x, s.y, s.z, Math.atan2(s.vx, -s.vz)); const b = byId(w, s.id); if (b) { b.vx = s.vx * G * 30; b.vz = -s.vz * G * 30; } }
+  for (const m of d.mines) { put(m.id, m.x, 0, m.z); const b = byId(w, m.id); if (b) b.cd = m.n; }
+  for (const f of d.flames) put(f.id, f.x, 0, f.z, Math.atan2(f.dx, -f.dz));
+  for (const k of d.bombs) put(k.id, k.x, k.y, k.z);
+  for (const k of d.pickups) { put(k.id, k.x, k.y, k.z); const b = byId(w, k.id); if (b) b.dash = k.m; }
+  if (d.dropper) put(d.dropper.id, d.dropper.x, -0x400, d.dropper.z); // rides 0x400 up (FUN_800be234)
 }
 
 export const tankArena: MiniGame = {
   id: 'tankArena',
   name: 'Tank Wars',
-  description: 'Destroy all of your opponents\' tanks. Fire shells, lay mines, collect fruit. Last tank standing - or most health when time runs out - wins.',
-  controls: 'Steer to move and aim. Space: fire. Shift: drop a mine.',
+  description: "Destroy all of your opponents' tanks. Fire shells, lay mines, collect pickups. Last tank standing, or most health when time runs out, wins.",
+  controls: 'Stick: drive (swamp: left/right turn, up thrust). A: fire (tap). B: lay a mine. E / gamepad Y: taunt.',
   variants: TA_VARIANTS,
   maxTime: 90,
 
   setup(w, slots) {
     const variant = pickVariant(w, TA_VARIANTS);
-    const map = TA_MAPS[variant];
-    const d: Data = {
-      variant, blocks: map.blocks.map((b) => [...b] as Block), hx: map.hx, hz: map.hz, hp: [], kills: [], deaths: [], elim: [], mines: [], bomb: [], stun: [], inv: [], mcd: [], prevB: [false, false, false, false], nextPick: 6,
-    };
-    for (let i = 0; i < MAX_SEATS; i++) { d.hp.push(TA_HP); d.kills.push(0); d.deaths.push(0); d.elim.push(-1); d.mines.push(START_MINES); d.bomb.push(0); d.stun.push(0); d.inv.push(0.8); d.mcd.push(0); }
+    const lv = TA_LV.findIndex((l) => l.id === variant);
+    const L = TA_LV[lv];
+    const d: Data = { variant, lv, f: 0, over: false, overF: -1, hum: 1, tk: [], shells: [], mines: [], flames: [], bombs: [], pickups: [], dropper: null, spawnT: R(w, 0x78) + 0xb4, par: 0, bump: 0 };
     w.data = d;
-    for (const s of slots) {
-      const [x, z] = map.spawns[s.slot].map((v) => v * TA_K);
-      const b = addBody(w, 'tank', s.slot, x, z, TANK_R, 4);
-      b.face = Math.atan2(-x, -z);
-      b.cd = 0.6; // reload timer
+    for (let i = 0; i < MAX_SEATS; i++) {
+      const s = slots.find((q) => q.slot === i);
+      const char = LIVE_CHAR[(s?.char ?? i) % LIVE_CHAR.length];
+      const [x, z, yaw] = L.spawns[i];
+      const dir = yaw === 0x800 ? 2 : yaw === 0xc00 ? 3 : yaw === 0 ? 0 : 1; // grid heading = shell direction
+      const lvl = Math.max(0, Math.min(2, s?.level ?? 1));
+      const base = SPEED[char - 1];
+      const id = mk(w, d, 'tank', i, x, z, 0xe0);
+      d.tk.push({
+        x, z, yaw, hull: HULL[dir], st: S_RUN, stT: 0, dir, tn: 0, td: 0, vx: 0, vz: 0, bank: 0,
+        wpn: WPN[char - 1], ammo: 999, cd: 0, busy: -1, busyT: 0, pend: 0, mines: 3, mcd: 0, hp: TA_HP, cpu: s ? s.bot : true,
+        skill: L.skill[lvl], char, speed: L.level === 5 ? Math.trunc((base * 3) / 2) : base, pad: 0, prev: 0, aim: -1, inv: 0, shieldCd: 0,
+        dodge: false, taunt: 0, hy: 0, hvy: 0, kills: 0, elim: -1, hpAt: 0,
+        ai: { mode: 0, timer: 1, target: -1, pad: 0, tx: 0, tz: 0, shoot: ((L.skill[lvl] * 0x55) >> 5) + 5, mref: 0, idle: R(w, 0x1e) }, body: id, bot: -1,
+      });
+      byId(w, id)!.face = (-yaw * TAU) / 4096;
     }
   },
 
-  step(w, inputs, dt) {
+  step(w, inputs) {
     const d = w.data as Data;
-    const ts = aliveTanks(w);
-
-    // pickups
-    if (w.time >= d.nextPick && ts.length > 1) {
-      d.nextPick = w.time + 6 + rand(w) * 3;
-      if (w.bodies.filter((b) => b.kind === 'pickup').length < 3) {
-        const [x, z] = freeSpot(w, d);
-        const p = addBody(w, 'pickup', -1, x, z, 0.45, 1);
-        const r = rand(w);
-        p.cd = r < 0.35 ? 1 : r < 0.75 ? 2 : 3;
-      }
+    d.f++;
+    d.hum = hasHuman(d) ? 1 : 0;
+    for (let p = 0; p < 4; p++) { const t = d.tk[p]; t.ai.shoot = (((d.hum ? t.skill : 30) * 0x55) >> 5) + 5; tankStep(w, d, p, t, inputs[p] ?? IDLE); }
+    objects(w, d);
+    // timeout (1:30): the healthiest tank wins, the rest are blown up
+    if (!d.over && d.f >= 2700) {
+      let best = -1;
+      d.tk.forEach((t, i) => { if (t.hp > 0 && (best < 0 || t.hp > d.tk[best].hp)) best = i; });
+      d.tk.forEach((t, i) => { if (i !== best && t.hp > 0) { t.hpAt = t.hp; t.hp = 0; t.elim = d.f; t.st = S_DIE; t.stT = 0; emit(w, 'ko', px(L_(d), t.x), pz(L_(d), t.z), i, 1, -1); } });
     }
-
-    for (const t of ts) {
-      const inp = inputs[t.slot] ?? IDLE;
-      const s = t.slot;
-      d.inv[s] = Math.max(0, d.inv[s] - dt);
-      d.stun[s] = Math.max(0, d.stun[s] - dt);
-      d.mcd[s] = Math.max(0, d.mcd[s] - dt);
-      const mag = Math.min(1, Math.hypot(inp.x, inp.y));
-      const sp = TANK_SPEED * w.params.speed * (d.stun[s] > 0 ? 0.5 : 1);
-      if (mag > 0.15) {
-        const want = Math.atan2(inp.x, inp.y);
-        const step = TURN * dt;
-        t.face += clamp(angDiff(t.face, want), -step, step);
-        const align = Math.abs(angDiff(t.face, want));
-        const go = align < 0.8 ? mag * (1 - align / 1.2) : 0;
-        t.vx = Math.sin(t.face) * sp * go;
-        t.vz = Math.cos(t.face) * sp * go;
-      } else { t.vx *= 0.7; t.vz *= 0.7; }
-      t.x += t.vx * dt;
-      t.z += t.vz * dt;
-      t.cd -= dt;
-      if (inp.a && t.cd <= 0) {
-        if (d.bomb[s] > 0) { // lobbing bomb: flies over obstacles and lands 7 units ahead
-          d.bomb[s]--;
-          t.cd = 1.2 / w.params.fireRate;
-          const tx = clamp(t.x + Math.sin(t.face) * LOB_RANGE, -(d.hx - 0.3), d.hx - 0.3), tz = clamp(t.z + Math.cos(t.face) * LOB_RANGE, -(d.hz - 0.3), d.hz - 0.3);
-          const b = addBody(w, 'bomb', s, t.x, t.z, 0.25, 0.3);
-          b.vx = (tx - t.x) / 0.9; b.vz = (tz - t.z) / 0.9; b.dash = 0.9; b.face = t.face;
-          emit(w, 'lob', t.x, t.z, s, 1);
-        } else {
-          t.cd = 1.4 / w.params.fireRate;
-          const bl = addBody(w, 'bullet', s, t.x + Math.sin(t.face) * (TANK_R + 0.2), t.z + Math.cos(t.face) * (TANK_R + 0.2), BULLET_R, 0.3);
-          bl.y = 0.5;
-          bl.vx = Math.sin(t.face) * BULLET_SPEED;
-          bl.vz = Math.cos(t.face) * BULLET_SPEED;
-          bl.face = t.face;
-          bl.dash = Math.max(0, w.params.bounces - 2); // wall bounces left (0 = explodes on the first wall)
-          bl.cd = 0; // age
-          emit(w, 'shoot', t.x, t.z, s, 1);
-        }
-      }
-      if (inp.b && !d.prevB[s] && d.mcd[s] <= 0 && d.mines[s] > 0) {
-        d.mines[s]--;
-        d.mcd[s] = 0.7;
-        const m = addBody(w, 'mine', s, t.x - Math.sin(t.face) * 0.95, t.z - Math.cos(t.face) * 0.95, 0.3, 1);
-        m.cd = 1.0; // arming time
-        m.dash = 40;
-        emit(w, 'mine', m.x, m.z, s, 1);
-      }
-      d.prevB[s] = inp.b;
-      t.x = clamp(t.x, -(d.hx - t.r), d.hx - t.r);
-      t.z = clamp(t.z, -(d.hz - t.r), d.hz - t.r);
-      resolveBlocks(t, t.r, d.blocks);
-    }
-    for (let i = 0; i < ts.length; i++)
-      for (let j = i + 1; j < ts.length; j++) collideCircles(ts[i], ts[j], 0.1);
-    for (const t of ts) { // keep out of walls again after tank-tank pushing
-      t.x = clamp(t.x, -(d.hx - t.r), d.hx - t.r);
-      t.z = clamp(t.z, -(d.hz - t.r), d.hz - t.r);
-      resolveBlocks(t, t.r, d.blocks);
-    }
-
-    // pickups
-    for (const p of w.bodies.filter((b) => b.kind === 'pickup')) {
-      for (const t of ts) {
-        if (!t.alive || Math.hypot(t.x - p.x, t.z - p.z) > t.r + p.r) continue;
-        if (p.cd === 1) d.mines[t.slot] = Math.min(MAX_MINES, d.mines[t.slot] + 3);
-        else if (p.cd === 2) d.hp[t.slot] = Math.min(TA_HP, d.hp[t.slot] + FRUIT);
-        else d.bomb[t.slot] += 2;
-        emit(w, 'pickup', p.x, p.z, t.slot, p.cd);
-        w.bodies = w.bodies.filter((b) => b !== p);
-        break;
-      }
-    }
-
-    const dead = new Set<number>();
-    // mines
-    const mines = w.bodies.filter((b) => b.kind === 'mine');
-    const boom = (m: Body) => {
-      if (dead.has(m.id)) return;
-      dead.add(m.id);
-      explode(w, d, m.x, m.z, MINE_R, MINE_DMG, m.slot);
-      for (const o of mines) if (!dead.has(o.id) && Math.hypot(o.x - m.x, o.z - m.z) < MINE_R) boom(o); // chain reaction
-    };
-    for (const m of mines) {
-      m.cd = Math.max(0, m.cd - dt);
-      m.dash -= dt;
-      if (m.dash <= 0) { dead.add(m.id); continue; }
-      if (m.cd > 0) continue;
-      for (const t of aliveTanks(w)) if (Math.hypot(t.x - m.x, t.z - m.z) < t.r + m.r) { boom(m); break; }
-    }
-
-    // lobbed bombs
-    for (const b of w.bodies.filter((q) => q.kind === 'bomb')) {
-      b.dash -= dt;
-      b.x += b.vx * dt; b.z += b.vz * dt;
-      const u = clamp(1 - b.dash / 0.9, 0, 1);
-      b.y = 2.2 * 4 * u * (1 - u);
-      if (b.dash <= 0) { dead.add(b.id); explode(w, d, b.x, b.z, BOMB_R, BOMB_DMG, b.slot); }
-    }
-
-    // bullets
-    const bs = bullets(w);
-    for (const b of bs) {
-      b.cd += dt;
-      b.x += b.vx * dt;
-      b.z += b.vz * dt;
-      let bounced = false;
-      const lx = d.hx - b.r, lz = d.hz - b.r;
-      if (Math.abs(b.x) > lx) { b.x = clamp(b.x, -lx, lx); b.vx = -b.vx; bounced = true; }
-      if (Math.abs(b.z) > lz) { b.z = clamp(b.z, -lz, lz); b.vz = -b.vz; bounced = true; }
-      const n = resolveBlocks(b, b.r, d.blocks);
-      if (n) {
-        const vn = b.vx * n[0] + b.vz * n[1];
-        if (vn < 0) { b.vx -= 2 * vn * n[0]; b.vz -= 2 * vn * n[1]; }
-        bounced = true;
-      }
-      if (bounced) {
-        b.face = Math.atan2(b.vx, b.vz);
-        emit(w, 'bounce', b.x, b.z, -1, 0.5);
-        if (--b.dash < 0) { dead.add(b.id); emit(w, 'fizzle', b.x, b.z, -1, 0.4); continue; }
-      }
-      if (b.cd > 8) { dead.add(b.id); continue; }
-      for (const m of mines) { // shells detonate mines
-        if (dead.has(m.id) || dead.has(b.id)) continue;
-        if (Math.hypot(m.x - b.x, m.z - b.z) < m.r + b.r) { dead.add(b.id); boom(m); }
-      }
-      for (const t of ts) {
-        if (!t.alive || dead.has(b.id)) continue;
-        if (t.slot === b.slot && b.cd < 0.25) continue;
-        const dx = t.x - b.x, dz = t.z - b.z, rr = t.r + b.r;
-        if (dx * dx + dz * dz > rr * rr) continue;
-        dead.add(b.id);
-        if (d.inv[t.slot] > 0) { emit(w, 'bounce', b.x, b.z, -1, 0.3); continue; }
-        t.vx += b.vx * 0.2; t.vz += b.vz * 0.2;
-        hurt(w, d, t, SHELL_DMG, b.slot);
-      }
-    }
-    for (let i = 0; i < bs.length; i++) // opposing shots cancel out
-      for (let j = i + 1; j < bs.length; j++) {
-        if (dead.has(bs[i].id) || dead.has(bs[j].id) || bs[i].slot === bs[j].slot) continue;
-        if (Math.hypot(bs[i].x - bs[j].x, bs[i].z - bs[j].z) < BULLET_R * 2) {
-          dead.add(bs[i].id); dead.add(bs[j].id);
-          emit(w, 'fizzle', bs[i].x, bs[i].z, -1, 1);
-        }
-      }
-    if (dead.size) w.bodies = w.bodies.filter((b) => !dead.has(b.id));
+    if (!d.over && d.tk.filter((t) => t.hp > 0).length <= 1) { d.over = true; d.overF = d.f; }
+    sync(w, d);
   },
 
   isOver(w) {
-    return aliveTanks(w).length <= 1 || w.time >= tankArena.maxTime;
+    const d = w.data as Data;
+    return d.over && d.f - d.overF >= 60;
   },
 
   placements(w) {
     const d = w.data as Data;
     return [0, 1, 2, 3].sort((a, b) => {
-      const aa = d.hp[a] > 0, bb = d.hp[b] > 0;
+      const A = d.tk[a], B = d.tk[b], aa = A.hp > 0, bb = B.hp > 0;
       if (aa !== bb) return aa ? -1 : 1;
-      if (aa) return d.hp[b] - d.hp[a] || d.kills[b] - d.kills[a] || a - b;
-      return d.elim[b] - d.elim[a] || a - b;
+      if (aa) return B.hp - A.hp || a - b;
+      return B.elim - A.elim || B.hpAt - A.hpAt || a - b;
     });
   },
 
-  bot(w, slot): InputState {
-    const me = w.bodies.find((b) => b.kind === 'tank' && b.slot === slot && b.alive);
-    if (!me) return IDLE;
+  /** A human seat whose player left (not a CPU slot) is driven through here with the same AI; real CPU slots run it inside step(). */
+  bot(w: World, slot: number): InputState {
     const d = w.data as Data;
-    let foe: Body | null = null, fd = Infinity;
-    for (const t of aliveTanks(w)) {
-      if (t.slot === slot) continue;
-      const dd = Math.hypot(t.x - me.x, t.z - me.z);
-      if (dd < fd) { fd = dd; foe = t; }
-    }
-    if (!foe) return IDLE;
-    // sidestep the nearest incoming bullet
-    for (const b of bullets(w)) {
-      if (b.slot === slot && b.cd < 0.6) continue;
-      const rx = me.x - b.x, rz = me.z - b.z;
-      if (Math.hypot(rx, rz) > 3.6) continue;
-      const sp = Math.hypot(b.vx, b.vz) || 1;
-      const along = (rx * b.vx + rz * b.vz) / sp;
-      const side = (rx * -b.vz + rz * b.vx) / sp;
-      if (along > 0 && Math.abs(side) < 0.9) {
-        const s = side >= 0 ? 1 : -1;
-        return { x: (-b.vz / sp) * s, y: (b.vx / sp) * s, a: false, b: false };
-      }
-    }
-    // keep clear of mines
-    let rx = 0, rz = 0;
-    for (const m of w.bodies) {
-      if (m.kind !== 'mine') continue;
-      const dx = me.x - m.x, dz = me.z - m.z, dd = Math.hypot(dx, dz);
-      if (dd < 1.9) { rx += (dx / (dd || 1)) * (1.9 - dd); rz += (dz / (dd || 1)) * (1.9 - dd); }
-    }
-    const dx = foe.x - me.x, dz = foe.z - me.z;
-    const ux = dx / (fd || 1), uz = dz / (fd || 1);
-    const err = Math.abs(angDiff(me.face, Math.atan2(dx, dz)));
-    const clear = !blocked(me.x, me.z, foe.x, foe.z, d.blocks);
-    let mx = ux, mz = uz;
-    if (clear && fd < 3) { mx = ux * 0.16; mz = uz * 0.16; } // hold ground, keep aiming
-    else if (!clear && d.blocks.length >= 6) { // crate field: only the lane ring round it is passable, follow it towards the foe
-      const rx = d.hx - 0.65, rz = d.hz - 0.65, P = 4 * (rx + rz);
-      let du = (ringU(foe.x, foe.z, rx, rz) - ringU(me.x, me.z, rx, rz)) % P;
-      if (du > P / 2) du -= P; else if (du < -P / 2) du += P;
-      const [px, pz] = ringPt(ringU(me.x, me.z, rx, rz) + Math.sign(du || 1) * 1.8, rx, rz);
-      const l = Math.hypot(px - me.x, pz - me.z) || 1;
-      mx = (px - me.x) / l; mz = (pz - me.z) / l;
-    } else if (!clear) { const k = slot % 2 ? 1 : -1; mx = ux - uz * k * 0.9; mz = uz + ux * k * 0.9; }
-    // grab pickups we need when nobody is close
-    if (fd > 4) {
-      let pk: Body | null = null, pd = Infinity;
-      for (const p of w.bodies) {
-        if (p.kind !== 'pickup') continue;
-        const want = p.cd === 2 ? d.hp[slot] <= TA_HP - 4 : p.cd === 1 ? d.mines[slot] < 3 : d.bomb[slot] < 2;
-        const dd = Math.hypot(p.x - me.x, p.z - me.z);
-        if (want && dd < pd && dd < 7) { pd = dd; pk = p; }
-      }
-      if (pk) { mx = (pk.x - me.x) / pd; mz = (pk.z - me.z) / pd; }
-    }
-    mx += rx * 0.8; mz += rz * 0.8;
-    // lay a mine when a foe is chasing from behind
-    const behind = Math.abs(angDiff(me.face, Math.atan2(dx, dz))) > 2.3;
-    const out: InputState = { x: clamp(mx, -1, 1), y: clamp(mz, -1, 1), a: false, b: false };
-    out.b = behind && fd < 3.6 && d.mines[slot] > 0 && d.mcd[slot] <= 0 && w.tick % 4 === 0;
-    const lob = d.bomb[slot] > 0;
-    out.a = lob ? err < 0.25 && fd < LOB_RANGE + 1.5 : clear && err < 0.13 && fd < 12;
-    return out;
+    const t = d?.tk?.[slot];
+    if (!t || t.cpu || t.hp <= 0 || gone(t) || d.over) return IDLE;
+    aiFrame(w, d, slot, t);
+    const pad = t.pad;
+    t.bot = d.f + 1; // step() runs next with d.f + 1: aim like a CPU tank this frame
+    const lv5 = L_(d).level === 5;
+    return {
+      x: pad & 0x20 ? 1 : pad & 0x80 ? -1 : 0,
+      y: lv5 ? (pad & 0x800 ? -1 : 0) : pad & 0x10 ? -1 : pad & 0x40 ? 1 : 0,
+      a: (pad & 0x8000) !== 0,
+      b: (pad & 0x2000) !== 0,
+    };
   },
 };

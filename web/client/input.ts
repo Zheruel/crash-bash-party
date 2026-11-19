@@ -1,6 +1,6 @@
 import type { InputState } from '../shared/types';
 
-const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight']);
+const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyE']);
 
 /**
  * Keyboard (WASD/arrows, Space = A, Shift = B), Gamepad (stick/dpad, A/B) and an optional touch source.
@@ -53,6 +53,7 @@ export class InputManager {
     let y = (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) - (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0);
     let a = k.has('Space');
     let b = k.has('ShiftLeft') || k.has('ShiftRight');
+    let c = k.has('KeyE');
     const l = Math.hypot(x, y);
     if (l > 1) { x /= l; y /= l; }
 
@@ -68,15 +69,17 @@ export class InputManager {
       if (Math.hypot(px, py) > Math.hypot(x, y)) { x = px; y = py; }
       a = a || bt(0);
       b = b || bt(1) || bt(2) || bt(5) || bt(7);
+      c = c || bt(3);
     }
     const t = this.touch?.();
     if (t) {
       if (Math.hypot(t.x, t.y) > Math.hypot(x, y)) { x = t.x; y = t.y; }
       a = a || t.a;
       b = b || t.b;
+      c = c || !!t.c;
     }
     const m = Math.hypot(x, y);
     if (m > 1) { x /= m; y /= m; }
-    return { x, y, a, b };
+    return c ? { x, y, a, b, c } : { x, y, a, b };
   }
 }

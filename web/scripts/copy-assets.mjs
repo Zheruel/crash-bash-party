@@ -13,7 +13,7 @@ const cp = (rel) => {
   fs.mkdirSync(path.dirname(path.join(out, rel)), { recursive: true });
   fs.cpSync(a, path.join(out, rel), { recursive: true });
 };
-for (const f of ['catalog.json', 'arenas.json', 'stages', 'models', 'textures', 'audio']) cp(f);
+for (const f of ['catalog.json', 'arenas.json', 'stages', 'models', 'textures', 'audio', 'ui']) cp(f);
 let hd = 0;
 const hdDir = path.join(src, 'hd');
 if (fs.existsSync(hdDir)) {

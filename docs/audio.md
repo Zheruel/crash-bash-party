@@ -58,3 +58,20 @@ unverified and listen once to fix the mapping (edit `CHAR_ORDER` / `offs` in cmd
 * seq0 of every t10/t14 (identical 786-event single-channel sequence, program 0 of each bank, 12384 ticks): purpose unknown.
 * Bank 0301 (SCRIPT STUFF music) is empty (1 stub sample).
 * Real PS1 SPU reverb, Gaussian interpolation and exact volume curve are approximated, so timbre/level balance differ slightly from hardware.
+
+## Per-id pitch (tools/sfx_pitch.py -> assets/audio/pitch.json)
+Every effect and voice id is keyed at note 60 (FUN_80022660 pitch 0x1e00 >> 7) against its VAB tone's centre note and fine
+tune, which raises the pitch: SPU rate = 44100 * 2^((60 - centre + fine/128) / 12). The game often reuses one sample for
+several ids at different pitches (504 ids in 70 banks are not at x1, e.g. the last two of every hit voice at ~0.956, mushroom
+explosions 1 / 0.919 / 0.844 / 0.782). `sfxRate(bank, id)` in web/client/shell/sound.ts returns the rate; voices apply it in
+`playVoiceId`, the games pass it where they know the id (Tank, Dash, Ballistix, Pogo, Ring Ding, Dragon Drop, Mallet, Polar Push, Crate Crush, podium).
+Checked on an emulator recording of the podium: matched filtering finds the firework bangs at x1.00 and x0.93 only, and with
+this formula the crackle tones land exactly on their VAGs' own rates (13011 / 12493 Hz).
+Level banks verified on the RAM dumps (loaded tone table == disc bank): Crate Crush 0167, Tank 0159/0162/0160/0161, Pogo 0171,
+Ballistix 0157, Polar (TILT) 0450, Crash Dash 0175, Dragon Drop 0180, Ring Ding 0179, Mallet 0178, Keg 0177, podium 0181; plus 0278
+shared in every level. index.json levelBanks has Ring Ding / Dragon Drop (and the Polar levels) under the wrong names; both games
+now use their verified bank.
+Crate Crush passes the ids of its rand-4 wood / TNT / nitro lists (0x3e8.., 0x3ec-0x3ef, 0x3f1..).
+A/B check (2026-11-19): 25 s of the real podium (emulator OpenAL gain -> MediaRecorder) and 25 s of ours (app AudioContext ->
+MediaRecorder), same matched-filter search over playback rates 0.82-1.02: both find each bang sample (0181/3-5) at x1.00 and x0.93
+and nowhere else.

@@ -1,5 +1,6 @@
 import { CHARACTERS } from '../../shared/look';
 import { faceShot, propIcon } from '../shell/avatar';
+import { HUD, hudTex } from './ps1hud';
 
 export const $ = <T extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = document) => root.querySelector(sel) as T;
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -38,7 +39,7 @@ const FACE_BG = ['#f5a30f', '#f06cae', '#1fa85c', '#2f6be0', '#86c53a', '#d634b6
 export function face(char: number, bare = false, cls = ''): string {
   const i = ((char % CHARACTERS.length) + CHARACTERS.length) % CHARACTERS.length;
   const c = CHARACTERS[i];
-  const url = faceShot(i);
+  const url = c.id in HUD.face ? hudTex(HUD.face[c.id]) : faceShot(i);
   const inner = url ? `<img src="${url}" alt="${esc(c.name)}" draggable="false">` : `<b>${esc(c.name[0])}</b>`;
   return `<span class="face ${bare ? 'bare' : ''} ${cls}" style="--bg:${FACE_BG[i] ?? '#667'}">${inner}</span>`;
 }

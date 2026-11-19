@@ -1,6 +1,6 @@
 // Web Worker entry: runs the authoritative Party for a host tab (PeerJS mode).
 import { Party } from '../../shared/party';
-import type { WorkerIn, WorkerOut } from '../net/hostCore';
+import { pickGames, pickVariants, type WorkerIn, type WorkerOut } from '../net/hostCore';
 
 const ctx = self as unknown as { postMessage(m: WorkerOut): void; onmessage: ((e: MessageEvent<WorkerIn>) => void) | null };
 let party: Party | null = null;
@@ -10,7 +10,7 @@ ctx.onmessage = (e) => {
   const m = e.data;
   switch (m.k) {
     case 'init':
-      party = new Party(m.code, { rounds: m.rounds, timing: m.timing });
+      party = new Party(m.code, { rounds: m.rounds, timing: m.timing, games: pickGames(m.games), variants: pickVariants(m.games) });
       timer = setInterval(() => party!.update(performance.now()), 8);
       break;
     case 'open':

@@ -1,114 +1,121 @@
 import { COLORS } from '../../shared/look';
 import type { ResultsMsg, RoundMsg, WheelMsg } from '../../shared/protocol';
 import { sfx } from '../shell/sound';
+import { ASSET_BASE } from '../crash';
 import { div, esc, face, icon, pop } from './dom';
 import type { SeatView } from './hud';
 
-const WHEEL_COLORS = ['#0c3b46', '#143e72', '#0e4a36', '#1a5266', '#2b2a72', '#114a4a'];
-const DISPLAY = '"Almendra SC", Georgia, serif';
+const UKA = `${ASSET_BASE}ui/uka.png`;
+/** the level each mini-game's reel card shows before the pick (its first real level) */
+const FIRST: Record<string, string> = { ballDefence: 'crashball', pushOff: 'tilt', tilePainter: 'pogo', tankArena: 'swamp', crateToss: 'jungle', dashRace: 'dot' };
+/** stage still of a mini-game level (assets/ui/thumbs, captured from the game itself) */
+export const thumb = (game: string, variant?: string | null) => {
+  const v = variant ?? FIRST[game];
+  return `${ASSET_BASE}ui/thumbs/${game}${v ? '_' + v : ''}.jpg`;
+};
+const MENU_MOVE = 'sfx/0272/7.mp3', MENU_SELECT = 'sfx/0272/9.mp3';
 
-/** The mini-game roulette. */
+/**
+ * The mini-game pick: a reel of stage cards (stills of every game) that races past a gold frame, slows down and lands;
+ * the picked card flips to its real level with the level name stamped on. A twist is announced by Uka Uka.
+ */
 export class WheelOverlay {
   readonly el = div('overlay wheelov hidden');
   private raf = 0;
   private token = 0;
+  private timers: number[] = [];
 
-  hide() { this.token++; cancelAnimationFrame(this.raf); this.el.classList.add('hidden'); this.el.innerHTML = ''; }
+  hide() { this.token++; cancelAnimationFrame(this.raf); this.timers.forEach(clearTimeout); this.timers = []; this.el.classList.add('hidden'); this.el.classList.remove('twisted', 'landed', 'showdown'); this.el.innerHTML = ''; }
 
   run(m: WheelMsg, turnLabel: string) {
-    const token = ++this.token;
-    cancelAnimationFrame(this.raf);
+    this.hide();
+    const token = this.token;
     const n = m.options.length;
+    // a long strip: several laps, the pick lands on card LAND
+    const LAPS = 5, LAND = LAPS * n + m.pick, total = LAND + 4;
+    const cards = Array.from({ length: total }, (_, i) => m.options[i % n]);
     this.el.classList.remove('hidden');
+    this.el.classList.toggle('showdown', !!m.showdown);
+    if (m.showdown) sfx.play('drum');
     this.el.innerHTML = `
-      <div class="wheel-head pnl"><div class="band"><small class="sm">${esc(turnLabel)}</small><h2 class="gt or">${m.showdown ? 'LAST ROUND!' : 'NEXT MINI-GAME'}</h2></div>${m.showdown ? '<em class="gt red">DOUBLE POINTS</em>' : ''}</div>
-      <div class="wheel-box"><canvas class="wheel-cv" role="img" aria-label="Mini-game wheel"></canvas><div class="wheel-ptr"></div><div class="wheel-hub"></div></div>
-      <div class="wheel-pick hidden"></div><div class="wheel-mod pnl hidden"></div>`;
-    const cv = this.el.querySelector('canvas') as HTMLCanvasElement;
-    const size = Math.min(440, Math.min(innerWidth * 0.86, innerHeight * 0.58));
-    const d = Math.min(devicePixelRatio, 2);
-    cv.style.width = cv.style.height = `${size}px`;
-    cv.width = cv.height = Math.round(size * d);
-    const g = cv.getContext('2d')!;
-    g.scale(d, d);
-    const R = size / 2, seg = (Math.PI * 2) / n;
-    g.translate(R, R);
-    for (let i = 0; i < n; i++) {
-      g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, R - 6, i * seg, (i + 1) * seg); g.closePath();
-      g.fillStyle = WHEEL_COLORS[i % WHEEL_COLORS.length]; g.fill();
-      g.lineWidth = 3; g.strokeStyle = '#cfd024'; g.stroke();
-      g.save();
-      g.rotate((i + 0.5) * seg);
-      g.textAlign = 'right'; g.textBaseline = 'middle';
-      const fs = Math.max(13, Math.min(26, size / 16));
-      g.font = `700 ${fs}px ${DISPLAY}`;
-      const gr = g.createLinearGradient(0, -fs / 2, 0, fs / 2);
-      gr.addColorStop(0, '#ffe08a'); gr.addColorStop(0.55, '#ff9a1c'); gr.addColorStop(1, '#f0480a');
-      g.lineJoin = 'round'; g.lineWidth = 5; g.strokeStyle = '#100300';
-      const label = m.options[i].name.toUpperCase();
-      g.strokeText(label, R - 26, 2, R * 0.62);
-      g.fillStyle = gr;
-      g.fillText(label, R - 26, 2, R * 0.62);
-      g.restore();
-    }
-    g.beginPath(); g.arc(0, 0, R - 5, 0, Math.PI * 2); g.lineWidth = 10; g.strokeStyle = '#000'; g.stroke();
-    g.beginPath(); g.arc(0, 0, R - 5, 0, Math.PI * 2); g.lineWidth = 5; g.strokeStyle = '#cfd024'; g.stroke();
-    for (let i = 0; i < n * 2; i++) { // studs
-      g.beginPath(); g.arc(Math.cos((i / (n * 2)) * Math.PI * 2) * (R - 5), Math.sin((i / (n * 2)) * Math.PI * 2) * (R - 5), 3.6, 0, Math.PI * 2);
-      g.fillStyle = i % 2 ? '#ffe36a' : '#ff7a12'; g.fill();
-      g.lineWidth = 1.5; g.strokeStyle = '#000'; g.stroke();
-    }
-    // spin so that segment `pick` ends under the pointer (top)
-    const centre = (m.pick + 0.5) * seg;
-    const norm = (a: number) => ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-    const total = Math.PI * 2 * 6 + norm(-Math.PI / 2 - centre);
-    const spinMs = Math.max(500, m.ms * 0.72);
+      <div class="wheel-head"><small class="sm">${esc(turnLabel)}</small><h2 class="gt or">${m.showdown ? 'LAST ROUND!' : 'NEXT MINI-GAME'}</h2>${m.showdown ? '<em class="gt red">DOUBLE POINTS</em>' : ''}</div>
+      <div class="reel"><div class="reel-strip">${cards.map((o, i) => `<div class="rcard" data-i="${i}"><div class="rimg" style="background-image:url('${thumb(o.id)}')"></div><b class="gt or">${esc(o.name.toUpperCase())}</b></div>`).join('')}</div>
+        <div class="reel-frame"><i class="ar t"></i><i class="ar b"></i></div></div>
+      <div class="wheel-mod hidden"></div>`;
+    const strip = this.el.querySelector('.reel-strip') as HTMLElement;
+    const reel = this.el.querySelector('.reel') as HTMLElement;
+    const first = strip.firstElementChild as HTMLElement;
+    const step = first.offsetWidth + parseFloat(getComputedStyle(first).marginRight || '0') + parseFloat(getComputedStyle(first).marginLeft || '0');
+    const centre = (i: number) => reel.clientWidth / 2 - (i + 0.5) * step;
+    const x0 = centre(1.5), x1 = centre(LAND);
+    const spinMs = Math.max(600, m.ms * 0.62);
     const start = performance.now();
-    let lastIdx = -1;
+    let last = -1;
     const frame = (now: number) => {
       if (token !== this.token) return;
       const k = Math.min(1, (now - start) / spinMs);
       const e = 1 - Math.pow(1 - k, 4);
-      const r = total * e;
-      cv.style.transform = `rotate(${r}rad)`;
-      const idx = Math.floor(norm(-Math.PI / 2 - r) / seg);
-      if (idx !== lastIdx) { lastIdx = idx; sfx.play('tick', 0.8 + 0.4 * (1 - k)); }
+      const x = x0 + (x1 - x0) * e;
+      strip.style.transform = `translateX(${x}px)`;
+      const under = Math.floor((reel.clientWidth / 2 - x) / step);
+      if (under !== last) { last = under; if (!sfx.playFile(MENU_MOVE, 0.35 + 0.4 * (1 - k))) sfx.play('tick', 0.8 + 0.4 * (1 - k)); }
       if (k < 1) { this.raf = requestAnimationFrame(frame); return; }
-      // landed
-      sfx.play('reveal');
-      const pick = this.el.querySelector('.wheel-pick') as HTMLElement;
-      pick.innerHTML = `<span class="gt or">${esc(m.options[m.pick].name.toUpperCase())}</span>${m.variant ? `<small class="wheel-level"><span class="gt wh">${esc(m.variant.name.toUpperCase())}</span></small>` : ''}`;
-      pick.classList.remove('hidden');
-      pop(pick, 'pop');
-      this.el.querySelector('.wheel-box')!.classList.add('landed');
-      if (m.modifier) {
-        const mod = this.el.querySelector('.wheel-mod') as HTMLElement;
-        mod.innerHTML = `<small class="sm">TWIST!</small><b class="gt wh">${esc(m.modifier.name)}</b><span class="sm">${esc(m.modifier.desc)}</span>`;
-        setTimeout(() => { if (token === this.token) { mod.classList.remove('hidden'); pop(mod, 'pop'); sfx.play('lucky'); } }, Math.min(500, m.ms * 0.12));
-      }
+      this.land(m, strip.querySelector(`.rcard[data-i="${LAND}"]`) as HTMLElement, token);
     };
     this.raf = requestAnimationFrame(frame);
   }
+
+  private land(m: WheelMsg, card: HTMLElement, token: number) {
+    if (!sfx.playFile(MENU_SELECT, 0.8)) sfx.play('reveal');
+    this.el.classList.add('landed');
+    card.classList.add('win');
+    const img = card.querySelector('.rimg') as HTMLElement;
+    const opt = m.options[m.pick];
+    if (m.variant) {
+      img.insertAdjacentHTML('afterend', `<div class="rimg flip" style="background-image:url('${thumb(opt.id, m.variant.id)}')"></div>`);
+      card.insertAdjacentHTML('beforeend', `<span class="stamp"><span class="gt wh">${esc(m.variant.name.toUpperCase())}</span></span>`);
+    }
+    if (m.modifier) {
+      const mod = this.el.querySelector('.wheel-mod') as HTMLElement;
+      mod.innerHTML = `<img class="uka" src="${UKA}" alt="" draggable="false"><div class="bubble pnl"><small class="sm">UKA UKA'S TWIST!</small><b class="gt red">${esc(m.modifier.name.toUpperCase())}</b><span class="sm">${esc(m.modifier.desc)}</span></div>`;
+      this.timers.push(window.setTimeout(() => {
+        if (token !== this.token) return;
+        mod.classList.remove('hidden');
+        // Uka Uka barges in: red flash, the reel shakes, the picked card is shoved crooked
+        this.el.classList.remove('twisted'); void this.el.offsetWidth; this.el.classList.add('twisted');
+        sfx.play('chaos');
+      }, Math.min(700, m.ms * 0.14)));
+    }
+  }
 }
 
-/** Mini-game intro card. */
+/**
+ * Get-ready screen while the level loads: the stage still behind, the game name with its level stamp, the four
+ * challengers with their real HUD faces, the rules, and a fuse that burns down until the countdown.
+ */
 export class IntroOverlay {
   readonly el = div('overlay introov hidden');
-  show(m: RoundMsg, variant: string | null, mySlot: number | null, seats: SeatView[], touch: boolean) {
+  show(m: RoundMsg, variant: { id: string; name: string } | null, mySlot: number | null, seats: SeatView[], touch: boolean, ms = 4000, gameId = '') {
     this.el.classList.remove('hidden');
-    const me = mySlot != null ? seats[mySlot] : null;
+    const players = [0, 1, 2, 3].map((slot) => {
+      const s = seats[slot];
+      if (!s) return '<div class="vsp empty"></div>';
+      const col = COLORS[s.look.color % COLORS.length].hex;
+      return `<div class="vsp ${slot === mySlot ? 'me' : ''}" style="--c:${col};--d:${slot * 90}ms">${face(s.look.char, true)}<b class="nm">${esc(s.name.toUpperCase())}</b>${slot === mySlot ? '<i class="badge">YOU</i>' : s.bot ? '<i class="badge bot">CPU</i>' : ''}</div>`;
+    });
     this.el.innerHTML = `
-      <div class="intro pnl" role="dialog" aria-label="Rules">
-        <small class="sm">${m.showdown ? 'LAST ROUND' : `ROUND ${m.round}/${m.total}`}</small>
+      <div class="intro-bg" style="background-image:url('${thumb(gameId, variant?.id)}')"></div>
+      <div class="intro" role="dialog" aria-label="Rules">
+        <small class="sm">${m.showdown ? 'LAST ROUND - DOUBLE POINTS' : `ROUND ${m.round} OF ${m.total}`}</small>
         <h1 class="gt red">${esc(m.gameName.toUpperCase())}</h1>
-        ${variant ? `<div class="variant"><span class="gt wh">${esc(variant.toUpperCase())}</span></div>` : ''}
-        <h3 class="gt wh">OBJECTIVE</h3>
-        <p class="sm">${esc(m.desc)}</p>
-        <h3 class="gt wh">CONTROLS</h3>
-        <div class="controls sm"><span>${esc(m.controls)}</span>${touch ? '<span class="tc">TOUCH: STICK + A / B BUTTONS</span>' : ''}</div>
-        ${m.modifier ? `<div class="modchip"><b class="gt wh">${esc(m.modifier.name)}</b> <span class="sm">${esc(m.modifier.desc)}</span></div>` : ''}
-        ${m.showdown ? '<div class="modchip dbl gt or">DOUBLE POINTS FOR EVERYONE!</div>' : ''}
-        <div class="youare">${me ? `${face(me.look.char)}<span class="sm">YOU ARE</span><b class="gt wh" style="--c:${COLORS[me.look.color % COLORS.length].hex}">${esc(me.name.toUpperCase())}</b>` : '<span class="sm">YOU ARE WATCHING</span>'}</div>
+        ${variant ? `<div class="variant"><span class="gt wh">${esc(variant.name.toUpperCase())}</span></div>` : ''}
+        <div class="vs">${players.slice(0, 2).join('')}<span class="vsx gt or">VS</span>${players.slice(2).join('')}</div>
+        <div class="rules pnl">
+          <p><b class="gt wh">GOAL</b> <span class="sm">${esc(m.desc)}</span></p>
+          <p><b class="gt wh">CONTROLS</b> <span class="sm">${esc(m.controls)}${touch ? ' &middot; TOUCH: STICK + A / B' : ''}</span></p>
+          ${m.modifier ? `<p class="twist"><img src="${UKA}" alt=""><b class="gt red">${esc(m.modifier.name.toUpperCase())}</b> <span class="sm">${esc(m.modifier.desc)}</span></p>` : ''}
+        </div>
+        <div class="fuse"><i style="animation-duration:${Math.max(500, ms)}ms"></i><span class="sm">GET READY!</span></div>
       </div>`;
   }
   hide() { this.el.classList.add('hidden'); this.el.innerHTML = ''; }
@@ -138,9 +145,11 @@ export class ResultsOverlay {
 
   private later(ms: number, fn: () => void) { this.timers.push(window.setTimeout(fn, ms)); }
 
-  show(m: ResultsMsg, seats: SeatView[], mySlot: number | null, streaks: number[]) {
+  show(m: ResultsMsg, seats: SeatView[], mySlot: number | null, streaks: number[], bg?: string, champ = false) {
     this.hide();
     this.el.classList.remove('hidden');
+    this.el.classList.toggle('champ', champ);
+    if (champ) bg = undefined;
     const order = (pts: number[], tr: number[]) => [0, 1, 2, 3].sort((a, b) => pts[b] - pts[a] || tr[b] - tr[a] || a - b);
     const prevTrophies = m.stars.map((s, i) => s - (m.placements[0] === i ? 1 : 0));
     const before = order(m.prev, prevTrophies);
@@ -160,8 +169,11 @@ export class ResultsOverlay {
         <div class="ls gt wh">${icon('cup')}<b>${prevTrophies[slot]}</b></div>
       </div>`;
     }).join('');
-    this.el.innerHTML = `<div class="results pnl">
-      <div class="band"><h2 class="gt or">${m.final ? 'FINAL ROUND' : `ROUND ${m.round}`}</h2><div class="sm">${esc(seats[winner]?.name ?? '')} WINS${m.showdown ? ' - DOUBLE POINTS' : ''}!</div></div>
+    const ws = seats[winner];
+    this.el.innerHTML = `${bg ? `<div class="intro-bg res-bg" style="background-image:url('${bg}')"></div>` : ''}
+    ${ws ? `<div class="res-hero" style="--c:${COLORS[ws.look.color % COLORS.length].hex}">${champ ? '' : face(ws.look.char, true)}<div class="rh-txt"><b class="gt wh">${esc(ws.name.toUpperCase())}</b><span class="stamp2"><span class="gt or">WINS!</span></span></div></div>` : ''}
+    <div class="results pnl">
+      <div class="band"><h2 class="gt or">${m.final ? 'FINAL ROUND' : `ROUND ${m.round} OF ${m.total}`}</h2>${m.showdown ? '<div class="sm">DOUBLE POINTS</div>' : ''}</div>
       <div class="pbody"><div class="lboard">${rows}</div>
       ${lastNext ? '<div class="lastround gt wh">LAST ROUND - DOUBLE POINTS!</div>' : m.final ? '' : `<div class="hint sm">NEXT: ROUND ${m.round + 1} OF ${m.total}</div>`}</div>
     </div>`;
@@ -205,7 +217,16 @@ export class ResultsOverlay {
       t.textContent = String(m.stars[winner]);
       pop(t.parentElement!, 'bump');
       const leadSlot = after[0];
-      if (after[0] !== before[0]) { sfx.play('crystal'); pop(q(leadSlot).querySelector('.crown') as HTMLElement, 'crownpop'); }
+      if (after[0] !== before[0] && m.scores[leadSlot] > 0) {
+        // a new leader takes the crown: stinger + tag on the row
+        sfx.play('crystal');
+        pop(q(leadSlot).querySelector('.crown') as HTMLElement, 'crownpop');
+        const tag = document.createElement('span');
+        tag.className = 'newlead gt or';
+        tag.textContent = 'NEW LEADER!';
+        q(leadSlot).querySelector('.ln')!.appendChild(tag);
+        pop(tag, 'stamped');
+      }
       for (let i = 0; i < 4; i++) {
         const st = q(i).querySelector('.streak') as HTMLElement;
         if ((streaks[i] ?? 0) >= 2) { st.textContent = `${streaks[i]} IN A ROW!`; st.classList.remove('hidden'); pop(st, 'pop'); }

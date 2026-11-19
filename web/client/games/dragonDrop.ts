@@ -2,29 +2,72 @@
 // gears and a huge clock face behind, balloons floating above. Per-character models 0928-0942.
 import * as THREE from 'three';
 import { CHARACTERS } from '../../shared/look';
-import { DD_IN, DD_MAX_AGE, DD_OUT, type DragonDropData } from '../../shared/games/dragonDrop';
+import { DD_IN, DD_OUT, type DragonDropData } from '../../shared/games/dragonDrop';
 import type { Body } from '../../shared/types';
 import type { BlobShadow } from '../fx';
 import { getCatalog } from '../crash';
 import { sfx } from '../shell/sound';
+import { charVoice, spinVoice } from '../shell/voice';
 import { Actor, Kit, catalogInstance, preloadCatalogFor } from './kit';
+import { preloadFx } from './realFx';
 import { glowTexture, specialCrate, SPECIAL_CRATE_REF } from './partyBits';
+import { applyPose, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type Placements } from './ps1cam';
+let placements: Placements | null = null;
+import { scoreHud } from '../ui/ps1hud';
+import { getGame } from '../../shared/registry';
 import type { ClientMiniGame } from './types';
 
 const BLACK = 0x23202c;
-const BANK = (n: number) => `sfx/0179/${n}.mp3`;
+/** Dragon Drop sound id -> [file, rate] from the level's VAB 0180 (identical to the bank in the L27 RAM dump, where every id
+ *  resolves through table 0x80064508 to these tones). */
+const DD_SFX: Record<number, [string, number]> = {
+  0x5dc: ['sfx/0180/9.mp3', 1],
+  0x5dd: ['sfx/0180/9.mp3', 1],
+  0x5de: ['sfx/0180/10.mp3', 1],
+  0x5df: ['sfx/0180/10.mp3', 1],
+  0x5e0: ['sfx/0180/11.mp3', 1],
+  0x5e1: ['sfx/0180/11.mp3', 1],
+  0x5e2: ['sfx/0180/12.mp3', 1],
+  0x5e3: ['sfx/0180/12.mp3', 1],
+  0x5e4: ['sfx/0180/13.mp3', 1],
+  0x5e5: ['sfx/0180/13.mp3', 1],
+  0x5e6: ['sfx/0180/14.mp3', 1],
+  0x5e7: ['sfx/0180/14.mp3', 1],
+  0x5e8: ['sfx/0180/15.mp3', 1],
+  0x5e9: ['sfx/0180/15.mp3', 1],
+  0x5ea: ['sfx/0180/16.mp3', 1],
+  0x5eb: ['sfx/0180/16.mp3', 1],
+  0x5ec: ['sfx/0180/17.mp3', 1],
+  0x5ed: ['sfx/0180/18.mp3', 1],
+  0x5ee: ['sfx/0179/31.mp3', 1],
+  0x5ef: ['sfx/0180/20.mp3', 1],
+  0x5f0: ['sfx/0180/21.mp3', 1],
+  0x5f1: ['sfx/0180/22.mp3', 1],
+  0x5f2: ['sfx/0180/23.mp3', 1],
+  0x5f3: ['sfx/0180/24.mp3', 1],
+  0x3fa: ['sfx/0158/9.mp3', 1],
+};
+/** pops per balloon type 8..11: rand 4 of these ids (DAT_800bb8e8) */
+const POP_SFX: Record<number, number[]> = { 8: [0x5dc, 0x5dd, 0x5de, 0x5df], 9: [0x5e0, 0x5e1, 0x5e2, 0x5e3], 10: [0x5e4, 0x5e5, 0x5e6, 0x5e7], 11: [0x5e8, 0x5e9, 0x5ea, 0x5eb] };
+const SLOT_TYPE = [11, 8, 9, 10]; // player index -> balloon type
+/** Balloon pack 0794: pop scripts by displayed colour (table 0x800bb89c = [3,2,0,1], black 4); crate pack 0796 script 2 = '?' crate break. */
+const PACK = 794, CRATES = 796, POP_FX = [3, 2, 0, 1], S = 3.4;
+const SFX = { black: 0x5ed, recolour: 0x5ee, flash: 0x5ef, reverse: 0x5f0, popOthers: 0x5f1, magnet: 0x5f2, hover: 0x5f3, crate: 0x3fa };
+const play = (id: number, vol: number) => { const t = DD_SFX[id]; if (t) sfx.playFile(t[0], vol, false, t[1]); };
 const DECOR = ['ddWall', 'ddClock', 'ddHands', 'ddGearA', 'ddGearB', 'ddGearC', 'ddShaft', 'ddArm', 'ddAxle'];
 const CHAR_IDS = CHARACTERS.map((c) => 'ddChar_' + c.id);
 /** Camera: low front view over the ring toward the clock face (fitted against docs/reference/dragonDrop). */
 export const DD_CAM = { pos: [0, 7.4, 16.2] as [number, number, number], look: [0, 2.9, 0] as [number, number, number], fov: 48 };
 
-interface BalloonV { obj: THREE.Group; body: THREE.Mesh; string: THREE.Line; shadow: BlobShadow; slot: number; y: number; x: number; z: number }
+interface BalloonV { obj: THREE.Group; body: THREE.Object3D; shadow: BlobShadow; slot: number; y: number; x: number; z: number }
+interface ItemV { obj: THREE.Object3D; kind: number }
 
 export function createDragonDropView(): ClientMiniGame {
   let kit: Kit;
   let loaded = false;
   const balloons = new Map<number, BalloonV>();
   const crates = new Map<number, THREE.Object3D>();
+  const items = new Map<number, ItemV>();
   let ringGroup: THREE.Group;
   const hoverFx: THREE.Mesh[] = [];
   const magnetFx: THREE.Mesh[] = [];
@@ -32,52 +75,31 @@ export function createDragonDropView(): ClientMiniGame {
   let ringAngle = 0;
   let arrow: THREE.Mesh;
 
-  function balloonMat(slot: number) {
+  /** the real balloon of pack 0794: parts 0-3 = blue / green / red / yellow, part 4 black; colour per owner from table 0x800bb89c */
+  const balloonPart = (slot: number) => `part${slot < 0 ? 4 : POP_FX[slot % 4]}`;
+  function balloonModel(slot: number): THREE.Object3D {
+    const inst = catalogInstance({ model: PACK, scale: S, parts: [balloonPart(slot)] });
+    if (inst) return inst.root;
     const c = new THREE.Color(slot < 0 ? BLACK : kit.hex(slot));
-    // flat PS1-style shading like the original balloons (no glossy PBR)
-    return new THREE.MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: slot < 0 ? 0.05 : 0.35, flatShading: true });
+    return new THREE.Mesh(sphereGeo, new THREE.MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: 0.3, flatShading: true }));
   }
   function makeBalloon(slot: number): BalloonV {
     const obj = new THREE.Group();
-    const body = new THREE.Mesh(sphereGeo, balloonMat(slot));
-    body.scale.set(0.62, 0.78, 0.62);
-    const knot = new THREE.Mesh(knotGeo, body.material);
-    knot.position.y = -0.8; knot.rotation.x = Math.PI;
-    const shine = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 }));
-    shine.position.set(-0.2, 0.28, 0.38);
-    const sg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -0.88, 0), new THREE.Vector3(0.05, -1.6, 0.02), new THREE.Vector3(-0.03, -2.3, 0)]);
-    const string = new THREE.Line(sg, new THREE.LineBasicMaterial({ color: 0xf4efe0, transparent: true, opacity: 0.8 }));
-    obj.add(body, knot, shine, string);
-    obj.scale.setScalar(0.55); // original balloons are about head-sized next to the riders
+    const body = balloonModel(slot);
+    obj.add(body);
     kit.root.add(obj);
-    return { obj, body, string, shadow: kit.fx.shadow(0.4, 0.3), slot, y: 0, x: 0, z: 0 };
+    return { obj, body, shadow: kit.fx.shadow(0.4, 0.3), slot, y: 0, x: 0, z: 0 };
   }
 
   function build() {
     const R = kit.root;
     sphereGeo = new THREE.SphereGeometry(1, 20, 14);
     knotGeo = new THREE.ConeGeometry(0.12, 0.2, 8);
-    const arena = catalogInstance(getCatalog().arenas.dragonDrop);
-    if (arena) R.add(arena.root);
-    // clock-tower decor: the game places these object-space pieces around the ring (positions fitted to the real frames)
-    const place = (name: string, x: number, y: number, z: number, o: { s?: number; rx?: number; ry?: number; rz?: number } = {}) => {
-      const inst = catalogInstance(getCatalog().props[name]);
-      if (!inst) return;
-      const g = new THREE.Group();
-      g.add(inst.root);
-      g.position.set(x, y, z); g.scale.setScalar(o.s ?? 1);
-      g.rotation.set(o.rx ?? 0, o.ry ?? 0, o.rz ?? 0);
-      R.add(g);
-    };
-    place('ddWall', 0, 12.9, -27, { s: 1.4 });
-    place("ddClock", 0, 6.3, -22, { s: 1.12 });
-    place("ddHands", 0, 6.3, -21.9, { s: 1.12 });
-    place('ddGearA', -15, 6, -24);
-    place('ddGearB', 15, 8, -24);
-    place('ddGearA', 20, -2, -26);
-    place('ddGearC', -8, 17, -23, { rx: Math.PI / 2 });
-    place('ddAxle', -19, 3.5, -14, { rz: -Math.PI / 2 });
-    place('ddArm', 16, 0, -10, { rx: Math.PI / 2 });
+    // the clock tower exactly as the real level places it (RAM object list of level 0x1b); the rotating ring is ours
+    const ref = getCatalog().arenas.dragonDrop;
+    const lvl = ref ? levelStage(ref, placements, (r) => catalogInstance(r)?.root ?? null, { skip: ['extra_149c'] }) : null;
+    if (lvl) R.add(lvl);
+    else { const arena = catalogInstance(ref); if (arena) R.add(arena.root); }
     ringGroup = new THREE.Group();
     const ring = catalogInstance(getCatalog().props.ddRing);
     if (ring) ringGroup.add(ring.root);
@@ -101,22 +123,17 @@ export function createDragonDropView(): ClientMiniGame {
     return inst ? kit.actor(b, () => ({ inst, scale: 1, shadow: 0.9 })) : kit.actor(b);
   }
 
-  const nearestBalloon = (x: number, z: number) => {
-    let best: BalloonV | null = null, bd = 0.9;
-    for (const v of balloons.values()) { const dd = Math.hypot(v.x - x, v.z - z); if (dd < bd) { bd = dd; best = v; } }
-    return best;
-  };
-
   return {
     id: 'dragonDrop',
-    async preload() { await preloadCatalogFor('dragonDrop', ['ddRing', 'ddHoverBoots', 'ddMagnet', ...DECOR, ...CHAR_IDS], [SPECIAL_CRATE_REF]); loaded = true; },
+    async preload() { placements = await loadPlacements('L27'); await preloadCatalogFor('dragonDrop', ['ddRing', 'ddHoverBoots', 'ddMagnet', ...DECOR, ...CHAR_IDS], [SPECIAL_CRATE_REF]); await preloadFx([PACK, CRATES]); loaded = true; },
 
     init(ctx, world) {
       kit = new Kit(ctx, 'dragonDrop', { bg: 0x1a1c28, hemi: [0xffffff, 0xc0b0b0, 1.6], sun: [-5, 18, 10] });
       build();
-      ctx.camera.fov = DD_CAM.fov; ctx.camera.updateProjectionMatrix();
+      applyPose(ctx.camera, ps1Pose(LEVEL_CAMS[27], getCatalog().arenas.dragonDrop));
       void world; void glowTexture;
-      if (!loaded) this.preload!().then(() => { if (kit) { kit.reset(); kit.root.clear(); build(); } });
+      kit.realFx(S);
+      if (!loaded) this.preload!().then(() => { if (kit) { kit.reset(); kit.root.clear(); kit.realFx(S); build(); } });
     },
 
     render(ctx, w, dt) {
@@ -124,14 +141,17 @@ export function createDragonDropView(): ClientMiniGame {
       const d = w.data as DragonDropData;
       const t = ctx.time;
       ctx.scene.background = new THREE.Color(0x1a1c28);
-      if (d.ring !== undefined) { ringAngle -= d.ring * dt; ringGroup.rotation.y = ringAngle; }
-      const seen = new Set<number>(), seenB = new Set<number>(), seenC = new Set<number>();
+      if (d.ang !== undefined) { ringAngle = d.ang; ringGroup.rotation.y = ringAngle; }
+      const seen = new Set<number>(), seenB = new Set<number>(), seenC = new Set<number>(), seenI = new Set<number>();
       for (const b of w.bodies) {
         if (b.kind === 'player') {
           seen.add(b.id);
           const s = b.slot;
           const hov = (d.hover?.[s] ?? 0) > 0;
-          actor(b).update(b, dt, { role: d.stun?.[s] > 0 ? 'hit' : undefined, hop: hov ? 0.35 + Math.sin(t * 6 + s) * 0.06 : 0 });
+          const a = actor(b);
+          const spin = d.st?.[s] === 1;
+          a.update(b, dt, { role: d.st?.[s] === 2 ? 'hit' : spin ? 'action' : undefined, hop: hov ? 0.35 + Math.sin(t * 6 + s) * 0.06 : 0, keepYaw: spin });
+          if (spin) { a.face = b.face; a.yaw.rotation.y = b.face; }
           const hf = hoverFx[s];
           hf.visible = hov;
           if (hov) { hf.position.set(b.x, b.y + 0.3 + Math.sin(t * 6 + s) * 0.06, b.z); hf.rotation.y = t * 4; hf.scale.setScalar(1 + Math.sin(t * 9) * 0.06); }
@@ -143,93 +163,97 @@ export function createDragonDropView(): ClientMiniGame {
           seenB.add(b.id);
           let v = balloons.get(b.id);
           if (!v) { v = makeBalloon(b.slot); balloons.set(b.id, v); }
-          if (v.slot !== b.slot) {
+          if (v.slot !== b.slot) { // recoloured (black item): swap to that colour's model
             v.slot = b.slot;
-            (v.body.material as THREE.MeshStandardMaterial).dispose();
-            const m = balloonMat(b.slot);
-            v.body.material = m;
-            kit.fx.burst(b.x, b.y, b.z, { shape: 'soft', color: m.color, count: 6, speed: 2, size: 0.5, life: 0.5, gravity: 0 });
+            v.obj.remove(v.body);
+            v.body = balloonModel(b.slot);
+            v.obj.add(v.body);
           }
           v.x = b.x; v.z = b.z; v.y = b.y;
           const sway = Math.sin(t * 2 + b.id) * 0.08;
-          v.obj.position.set(b.x, b.y, b.z);
+          v.obj.position.set(b.x, b.y + Math.sin(t * 1.7 + b.id) * 0.1, b.z); // the original only bobs the model (+-128 units)
           v.obj.rotation.set(sway, 0, -sway);
-          const ageLeft = DD_MAX_AGE - b.cd;
           v.obj.visible = true;
-          if (ageLeft < 3) v.obj.visible = Math.floor(t * 8) % 2 === 0 || ageLeft > 1.2;
           v.shadow.set(b.x, b.z, Math.max(0, b.y));
-          v.shadow.mesh.visible = b.cd > 0.6;
+          v.shadow.mesh.visible = true;
         } else if (b.kind === 'crate') {
           seenC.add(b.id);
           let o = crates.get(b.id);
           if (!o) { o = specialCrate(1.25); kit.root.add(o); crates.set(b.id, o); }
-          o.position.set(b.x, b.y + 0.05 + Math.sin(t * 3 + b.id) * 0.04, b.z);
-          o.rotation.y = t * 1.5;
+          o.position.set(b.x, b.y + 0.05, b.z);
+          o.scale.setScalar(Math.max(0.05, b.m));
+        } else if (b.kind === 'item') {
+          seenI.add(b.id);
+          let it = items.get(b.id);
+          if (it && it.kind !== b.cd) { kit.root.remove(it.obj); items.delete(b.id); it = undefined; }
+          if (!it) {
+            const inst = catalogInstance(getCatalog().props[b.cd === 1 ? 'ddHoverBoots' : 'ddMagnet']);
+            const obj = inst ? inst.root : new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), new THREE.MeshBasicMaterial({ color: 0x66e8ff }));
+            kit.root.add(obj);
+            it = { obj, kind: b.cd };
+            items.set(b.id, it);
+          }
+          it.obj.position.set(b.x, b.y, b.z);
+          it.obj.rotation.y = t * 4;
         }
       }
       kit.prune(seen);
       for (const [id, v] of balloons) if (!seenB.has(id)) { kit.root.remove(v.obj); kit.fx.removeShadow(v.shadow); balloons.delete(id); }
       for (const [id, o] of crates) if (!seenC.has(id)) { kit.root.remove(o); crates.delete(id); }
+      for (const [id, it] of items) if (!seenI.has(id)) { kit.root.remove(it.obj); items.delete(id); }
       (arrow.material as THREE.MeshBasicMaterial).opacity = Math.max(0, (arrow.material as THREE.MeshBasicMaterial).opacity - dt * 0.8);
       arrow.rotation.y = (d.dir ?? 1) > 0 ? 0 : Math.PI;
 
-      const dv = DD_CAM;
-      ctx.camera.position.set(...dv.pos);
-      ctx.camera.lookAt(...dv.look);
-      if (ctx.camera.fov !== dv.fov) { ctx.camera.fov = dv.fov; ctx.camera.updateProjectionMatrix(); }
+      applyPose(ctx.camera, ps1Pose(LEVEL_CAMS[27], getCatalog().arenas.dragonDrop)); // the real camera (level 0x1b)
+      kit.real.update(dt, ctx.camera);
       kit.fx.update(dt);
     },
 
     onEvent(ctx, e) {
       if (!kit) return;
-      const fx = kit.fx;
+      if (e.k === 'jump') charVoice('c', ctx.seats[e.s]?.look.char, 0xc, 1); // jump anim 0x2c: `0x8008 block*0x32+0xc`
       if (kit.baseEvent(e)) return;
       switch (e.k) {
         case 'pop': {
-          const v = nearestBalloon(e.x, e.z);
-          const y = v?.y ?? 2.2;
-          const col = v ? (v.slot < 0 ? BLACK : new THREE.Color(kit.hex(v.slot)).getHex()) : 0xffffff;
-          fx.burst(e.x, y, e.z, { shape: 'chip', color: [col, 0xffffff], count: 16, speed: 4.5, size: 0.3, life: 0.8, gravity: 7 });
-          fx.ring(e.x, e.z, { color: col, radius: 1.6, life: 0.3, y });
-          sfx.play('pop', e.v ? 1.0 : 0.7);
-          sfx.playFile(BANK(11 + (e.s % 4)), 0.4);
-          if (v) { kit.root.remove(v.obj); kit.fx.removeShadow(v.shadow); for (const [id, bv] of balloons) if (bv === v) balloons.delete(id); }
-          kit.actorForSlot(e.s)?.squash.kick(0.15);
+          // s = popper (-1: popped by a black balloon), o = displayed colour (-1 black), v = height
+          // FUN_8007a524(table[colour], balloon): flash, three smoke puffs and six stars of that colour (black: purple burst)
+          kit.real.play(PACK, e.o < 0 ? 4 : POP_FX[e.o % 4], e.x, e.v, e.z);
+          if (e.o < 0) play(SFX.black, 0.7);
+          else { const ids = POP_SFX[SLOT_TYPE[e.o % 4]]; play(ids[Math.floor(Math.random() * ids.length)], 0.7); }
+          if (e.s >= 0) kit.actorForSlot(e.s)?.squash.kick(0.15);
           break;
         }
-        case 'score':
-          fx.text(e.x, 3.2, e.z, `+${e.v}`, { color: kit.hex(e.s), size: e.v > 1 ? 1.7 : 1.2 });
-          if (e.v > 1) { fx.stars(e.x, 2.4, e.z, 6); sfx.play('coin', 1.3); }
+        case 'hurt': // hit state 0x33 enters anim 0x2b: `0x8008 block*0x32+3`
+          charVoice('c', ctx.seats[e.s]?.look.char, 3, 1);
           break;
         case 'black': {
-          const names = ['POP THEM!', 'REVERSE!', 'MY COLOUR!'];
-          fx.text(e.x, 3.6, e.z, names[e.v] ?? '?', { color: '#ffe14a', size: 1.7, life: 1.5 });
-          fx.ring(e.x, e.z, { color: 0xffe14a, radius: 6, life: 0.6, y: 2 });
           kit.shake(0.4);
-          sfx.play('chaos');
+          play(e.v === 0 ? SFX.popOthers : e.v === 1 ? SFX.reverse : SFX.recolour, 0.8);
           break;
         }
         case 'reverse':
           (arrow.material as THREE.MeshBasicMaterial).opacity = 1;
           break;
+        case 'cratehit':
+          kit.real.play(CRATES, 2, e.x, 0, e.z); // shared crate break FUN_8008e27c, kind 2: shards, smoke, stars
+          play(SFX.crate, 0.8);
+          break;
         case 'crate':
-          fx.confetti(e.x, 1, e.z, 20);
-          fx.text(e.x, 2.5, e.z, e.v === 1 ? 'HOVER BOOTS' : 'MAGNET', { color: '#9ff0ff', size: 1.3, life: 1.3 });
-          sfx.play('lucky');
+          play(e.v === 1 ? SFX.hover : SFX.magnet, 0.8);
           break;
         case 'punch':
           if (e.v === 2) {
-            fx.stars(e.x, 1.3, e.z, 8);
             kit.actorForSlot(e.s)?.hit();
             kit.shake(0.25);
-            sfx.play('thud');
-          } else { fx.ring(e.x, e.z, { color: 0xffffff, radius: 1.4, life: 0.25 }); sfx.play('whoosh', 1.4); }
-          break;
-        case 'fade':
-          fx.sparks(e.x, 6, e.z, 0xffffff, 4, 2);
+          } else spinVoice('c', ctx.seats[e.s]?.look.char); // spin states 8 / 10 (the level bank has no swing / hit sound)
           break;
       }
       void ctx;
+    },
+
+    /** Real HUD: faces, three-digit scores, clock. */
+    ps1Hud(w, ctx) {
+      return scoreHud(ctx.seats, (s) => (w.data as DragonDropData).score?.[s] ?? 0, (getGame('dragonDrop')?.maxTime ?? 90) - w.time, w.time);
     },
 
     hud(w, slot) {
@@ -239,7 +263,7 @@ export function createDragonDropView(): ClientMiniGame {
 
     dispose(ctx) {
       for (const v of balloons.values()) kit.fx.removeShadow(v.shadow);
-      balloons.clear(); crates.clear();
+      balloons.clear(); crates.clear(); items.clear();
       hoverFx.length = 0; magnetFx.length = 0;
       ringAngle = 0;
       kit.dispose();

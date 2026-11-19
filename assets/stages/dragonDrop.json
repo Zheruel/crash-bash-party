@@ -1,5 +1,5 @@
 {
- "_notes": "Dragon Drop = level 28/29 clock-tower arena (model 0627, k=3.4 same unit as characters). Pieces are in world units at their real positions. Per-character models 928-942 are the Dragon Drop poses (idle, run, jump, hit, win/lose). Power-ups from model 0625 (part0 hover boots, part1 magnet).",
+ "_notes": "Dragon Drop = level 28/29 clock-tower arena (model 0627, k=3.4 same unit as characters). Pieces are in world units at their real positions. Per-character models 928-942 are the Dragon Drop poses (idle, run, jump, hit, win/lose). Power-ups from model 0625 (part0 hover boots, part1 magnet). Effects (re/notes/dragonDrop.md): balloon pack 0794 effect scripts 0-3 = pop by colour (flash part5, smoke 6/7, star emitter 9 blue / 8 green / 10 red / 11 yellow), 4 = black balloon (glow 12, rays 13, sparks 14); '?' crate break = crate pack 0796 script 2 (shards 37-39, smoke 40/41, stars 42).",
  "arenas": {
   "dragonDrop": {
    "model": 627,
@@ -310,6 +310,214 @@
    "model": 627,
    "parts": [
     "extra_291c"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddPopFlash": {
+   "model": 794,
+   "parts": [
+    "part5"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddPopSmoke": {
+   "model": 794,
+   "parts": [
+    "part6"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddPopSmoke2": {
+   "model": 794,
+   "parts": [
+    "part7"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddStarGreen": {
+   "model": 794,
+   "parts": [
+    "part8"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddStarBlue": {
+   "model": 794,
+   "parts": [
+    "part9"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddStarRed": {
+   "model": 794,
+   "parts": [
+    "part10"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddStarYellow": {
+   "model": 794,
+   "parts": [
+    "part11"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddBlackGlow": {
+   "model": 794,
+   "parts": [
+    "part12"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddBlackRays": {
+   "model": 794,
+   "parts": [
+    "part13"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddBlackSpark": {
+   "model": 794,
+   "parts": [
+    "part14"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddCrateShard0": {
+   "model": 796,
+   "parts": [
+    "part37"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddCrateShard1": {
+   "model": 796,
+   "parts": [
+    "part38"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddCrateShard2": {
+   "model": 796,
+   "parts": [
+    "part39"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddCrateSmoke": {
+   "model": 796,
+   "parts": [
+    "part40"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddCrateSmoke2": {
+   "model": 796,
+   "parts": [
+    "part41"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "ddCrateStar": {
+   "model": 796,
+   "parts": [
+    "part42"
    ],
    "scale": 3.4,
    "offset": [

@@ -3,6 +3,7 @@ import type { GameEvent } from '../shared/types';
 import { HttpAssetSource } from './assets';
 import type { ClientMiniGame, RenderContext, RenderWorld } from './games/types';
 import { sfx } from './shell/sound';
+import { rumbleFor } from './shell/rumble';
 
 /** One "place" the canvas can show outside of a mini-game (title, lobby, board, podium). */
 export interface Mode {
@@ -175,6 +176,7 @@ export class Stage {
     } else if (e.k === 'hit') { sfx.play('thud'); this.shake(0.2 * (e.v || 0.5)); }
     else if (e.k === 'ko') { sfx.play('boom'); this.shake(0.7); this.hitStop(70); }
     if (e.k === 'ko' && this.game.onEvent) this.hitStop(60);
+    rumbleFor(this.game.id, e, this.ctx.mySlot);
   }
 
   // ---- frame ----

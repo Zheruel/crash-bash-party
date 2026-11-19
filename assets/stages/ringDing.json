@@ -1,5 +1,5 @@
 {
- "_notes": "Ring Ding = level 28 (cheat id 0x1C). Stage model 0621 (meadow arena). Parts are object-space except the 'native' set; scale 3.4 = same unit as character models. Riders 832-846 = per-character dino riders (5 clips). Dungeon twin 0623 is the challenge variant.",
+ "_notes": "Ring Ding = level 28 (cheat id 0x1C). Stage model 0621 (meadow arena). Parts are object-space except the 'native' set; scale 3.4 = same unit as character models. Riders 832-846 = per-character dino riders (5 clips). Dungeon twin 0623 is the challenge variant. Effects (re/notes/ringDing.md): level model 0621 effect script 0 (burst parts 0/1 + emitters 5 and 4) when a jewel appears and when losers vanish; barge smoke = shared pack 0619 parts 3-18 (16 frames, one per tick).",
  "arenas": {
   "ringDing": {
    "model": 621,
@@ -137,9 +137,10 @@
     "idle": 0,
     "run": 1,
     "action": 2,
-    "jump": 3,
-    "hit": 4,
-    "win": 0,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
     "lose": 4
    }
   },
@@ -156,9 +157,10 @@
     "idle": 0,
     "run": 1,
     "action": 2,
+    "throw": 3,
     "jump": 3,
-    "hit": 4,
-    "win": 0,
+    "hit": 0,
+    "win": 4,
     "lose": 4
    }
   },
@@ -175,9 +177,10 @@
     "idle": 0,
     "run": 1,
     "action": 2,
-    "jump": 3,
-    "hit": 4,
-    "win": 0,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
     "lose": 4
    }
   },
@@ -194,9 +197,10 @@
     "idle": 0,
     "run": 1,
     "action": 2,
-    "jump": 3,
-    "hit": 4,
-    "win": 0,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
     "lose": 4
    }
   },
@@ -210,12 +214,13 @@
    ],
    "yaw": 0,
    "anims": {
-    "idle": 0,
-    "run": 1,
+    "idle": 1,
+    "run": 0,
     "action": 2,
-    "jump": 3,
-    "hit": 4,
-    "win": 0,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
     "lose": 4
    }
   },
@@ -232,9 +237,10 @@
     "idle": 0,
     "run": 1,
     "action": 2,
-    "jump": 3,
-    "hit": 4,
-    "win": 0,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
     "lose": 4
    }
   },
@@ -251,9 +257,10 @@
     "idle": 0,
     "run": 1,
     "action": 2,
-    "jump": 3,
-    "hit": 4,
-    "win": 0,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
     "lose": 4
    }
   },
@@ -270,11 +277,272 @@
     "idle": 0,
     "run": 1,
     "action": 2,
-    "jump": 3,
-    "hit": 4,
-    "win": 0,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
     "lose": 4
    }
+  },
+  "rdBurst": {
+   "model": 621,
+   "parts": [
+    "part0"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdBurstRing": {
+   "model": 621,
+   "parts": [
+    "part1"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdBurstStar": {
+   "model": 621,
+   "parts": [
+    "part4"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdBurstSpark": {
+   "model": 621,
+   "parts": [
+    "part5"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke0": {
+   "model": 619,
+   "parts": [
+    "part3"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke1": {
+   "model": 619,
+   "parts": [
+    "part4"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke2": {
+   "model": 619,
+   "parts": [
+    "part5"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke3": {
+   "model": 619,
+   "parts": [
+    "part6"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke4": {
+   "model": 619,
+   "parts": [
+    "part7"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke5": {
+   "model": 619,
+   "parts": [
+    "part8"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke6": {
+   "model": 619,
+   "parts": [
+    "part9"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke7": {
+   "model": 619,
+   "parts": [
+    "part10"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke8": {
+   "model": 619,
+   "parts": [
+    "part11"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke9": {
+   "model": 619,
+   "parts": [
+    "part12"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke10": {
+   "model": 619,
+   "parts": [
+    "part13"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke11": {
+   "model": 619,
+   "parts": [
+    "part14"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke12": {
+   "model": 619,
+   "parts": [
+    "part15"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke13": {
+   "model": 619,
+   "parts": [
+    "part16"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke14": {
+   "model": 619,
+   "parts": [
+    "part17"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke15": {
+   "model": 619,
+   "parts": [
+    "part18"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
   }
  }
 }

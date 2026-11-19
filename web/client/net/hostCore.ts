@@ -1,3 +1,4 @@
+import { GAMES } from '../../shared/registry';
 import { Party, type PartyOptions, type Timing } from '../../shared/party';
 import type { HostCore } from './transport';
 
@@ -32,17 +33,30 @@ export class InlineHostCore implements HostCore {
  * Same API, but the Party lives in a Web Worker so the simulation is not throttled
  * when the host's tab is in the background. Falls back to InlineHostCore if Workers fail.
  */
-export type WorkerIn = { k: 'init'; code: string; rounds?: number; timing?: Timing } | { k: 'open'; id: number } | { k: 'msg'; id: number; d: string } | { k: 'close'; id: number } | { k: 'stop' };
+export type WorkerIn = { k: 'init'; code: string; rounds?: number; timing?: Timing; games?: string[] } | { k: 'open'; id: number } | { k: 'msg'; id: number; d: string } | { k: 'close'; id: number } | { k: 'stop' };
 export type WorkerOut = { k: 'out'; id: number; d: string; u: boolean };
+
+/** Resolve a game id filter to the registry entries (null/empty -> all). */
+export function pickGames(ids?: string[]) {
+  const want = ids?.map((x) => x.split(':')[0]);
+  const g = want?.length ? GAMES.filter((x) => want.includes(x.id)) : [];
+  return g.length ? g : undefined;
+}
+/** `id:variant` entries of the filter -> forced variants */
+export function pickVariants(ids?: string[]) {
+  const out: Record<string, string> = {};
+  for (const x of ids ?? []) { const [g, v] = x.split(':'); if (v) out[g] = v; }
+  return out;
+}
 
 export class WorkerHostCore implements HostCore {
   private sends = new Map<number, (d: string, u?: boolean) => void>();
-  constructor(private worker: Worker, code: string, rounds?: number, timing?: Timing) {
+  constructor(private worker: Worker, code: string, rounds?: number, timing?: Timing, games?: string[]) {
     worker.onmessage = (e: MessageEvent<WorkerOut>) => {
       const m = e.data;
       if (m.k === 'out') this.sends.get(m.id)?.(m.d, m.u);
     };
-    worker.postMessage({ k: 'init', code, rounds, timing } satisfies WorkerIn);
+    worker.postMessage({ k: 'init', code, rounds, timing, games } satisfies WorkerIn);
   }
   open(id: number, send: (d: string, u?: boolean) => void) {
     this.sends.set(id, send);
@@ -61,14 +75,15 @@ export class WorkerHostCore implements HostCore {
   }
 }
 
-export function createHostCore(code: string, rounds?: number, timing?: Timing): HostCore {
+/** `games`: optional mini-game id filter for the rotation (dev: ?game=ringDing,tankArena) */
+export function createHostCore(code: string, rounds?: number, timing?: Timing, games?: string[]): HostCore {
   if (typeof Worker !== 'undefined') {
     try {
       const w = new Worker(new URL('../host/hostWorker.ts', import.meta.url), { type: 'module' });
-      return new WorkerHostCore(w, code, rounds, timing);
+      return new WorkerHostCore(w, code, rounds, timing, games);
     } catch (e) {
       console.warn('Worker unavailable, simulating on the main thread', e);
     }
   }
-  return new InlineHostCore(code, { rounds, timing });
+  return new InlineHostCore(code, { rounds, timing, games: pickGames(games), variants: pickVariants(games) });
 }

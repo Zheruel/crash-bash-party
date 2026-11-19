@@ -1,32 +1,65 @@
 // POGO PANDEMONIUM view (shared/games/tilePainter.ts): the real stages 675 / 671 / 667 / 663 with an 8x8 painted floor.
 import * as THREE from 'three';
-import { TP_N, TP_TILE, tileCenter } from '../../shared/games/tilePainter';
+import { borderColor, TP_N, TP_TILE, tileCenter, tileWorld } from '../../shared/games/tilePainter';
 import { createCharacter, usedVariant } from '../characters';
-import { ASSET_BASE, getCatalog } from '../crash';
-import { sfx } from '../shell/sound';
+import { ASSET_BASE, getCatalog, ModelInstance } from '../crash';
+import { sfx, sfxRate } from '../shell/sound';
 import type { ActorParts } from './kit';
-import { canvasTexture, catalogInstance, disposeTree, Kit, preloadCatalogFor, TextSprite } from './kit';
+import { canvasTexture, catalogInstance, disposeTree, Kit, preloadCatalogFor } from './kit';
+import { applyPose, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type Placements } from './ps1cam';
+import { scoreHud } from '../ui/ps1hud';
+import { getGame } from '../../shared/registry';
+import { CHARACTERS } from '../../shared/look';
 import type { ClientMiniGame } from './types';
+import { PartBatch, preloadFx } from './realFx';
+
+/**
+ * Real effects (re/notes/pogoPainter.md "Effects"): object pack 0770's effect scripts (0 explosion, 1 pickup puff, 2 stun
+ * puff, 3 crate break, 4 touchdown dust, 8 beam end), its beam segment frames (parts 2-9), the HUD digits (0732) for the
+ * cash-in score and El Pogo Loco's own mine blast (level model 0667 script 1).
+ */
+/** El Pogo Loco's monster (object 0x1406): pack db 0x80053bd4 = disc 0768 (render id 0x2001, three clips: 0 wait 21 f,
+ *  1 spin 26 f, 2 hop 14 f = the hop cycle of FUN_800c0cf4) */
+const MONSTER = 768;
+const PACK = 770, DIGITS = 732, LOCO = 667, K = TP_TILE * 2, U = K / 1024;
 
 /** Player colours are the pad colours of the corners (yellow BL, red TL, blue TR, green BR), not the character colours. */
 const PAD = ['#d8c81c', '#d02020', '#2438d0', '#1ea81e'];
-const ITEM_ICON = ['', '🚀', '➡', '👢', '✚', '⚡', '🔒'];
-const ITEM_NAME = ['', 'MISSILE!', 'ARROW!', 'BOOTS!', '4-WAY MISSILE!', 'ELECTRO STUN!', 'PADLOCK!'];
+/** item ids from the sim (c5360): 1 missile, 2 four-way, 3 electro, 4 steal gun, 5 speed, 6 shield */
+/** pack 0770 part per item id, as the item lies on its tile (FUN_800ba25c) and rides the player's held-item node
+ *  (FUN_800b935c): 1 missile 0x200d, 2 four-way 0x201b, 3 beam 0x2002, 4 steal gun 0x2040, 5 speed shoes 0x200c, 6 shield 0x2042 */
+const ITEM_PART = [-1, 12, 26, 1, 63, 11, 65];
 
 /** Per level: stage key, texture folder, fixed camera fitted to the real gameplay frames (model units -> x3.6 world). */
-interface Level { arena: string; tex: string; neutral: number; colors: number[]; mode: 'tex' | 'hole' | 'sand'; bg: number; pos: [number, number, number]; pitch: number; fov: number; sfx: string }
+interface Level { level: number; arena: string; tex: string; neutral: number; colors: number[]; mode: 'tex' | 'hole' | 'sand'; bg: number; pos: [number, number, number]; pitch: number; fov: number; sfx: string }
 const S = 3.6;
 const LEVELS: Record<string, Level> = {
-  pogo: { arena: 'tilePainter:pogoPainter', tex: '0674', neutral: 0, colors: [56, 53, 54, 55], mode: 'tex', bg: 0x1c2a16, pos: [0, 2.98 * S, 6.244 * S], pitch: 24.41, fov: 36.3, sfx: '0171' },
-  agogo: { arena: 'tilePainter:pogoAGogo', tex: '', neutral: 0, colors: [], mode: 'hole', bg: 0x9ac4e8, pos: [0, 3.15 * S, 5.85 * S], pitch: 27.06, fov: 37.2, sfx: '0170' },
-  elpogoloco: { arena: 'tilePainter:elPogoLoco', tex: '', neutral: 0, colors: [], mode: 'sand', bg: 0xb8806a, pos: [0, 3.217 * S, 5.928 * S], pitch: 27.06, fov: 37.2, sfx: '0169' },
-  padlock: { arena: 'tilePainter:pogoPadlock', tex: '0662', neutral: 0, colors: [41, 38, 39, 40], mode: 'tex', bg: 0x4a4a52, pos: [0, 3.217 * S, 5.928 * S], pitch: 27.06, fov: 37.2, sfx: '0168' },
+  pogo: { level: 10, arena: 'tilePainter:pogoPainter', tex: '0674', neutral: 0, colors: [56, 53, 54, 55], mode: 'tex', bg: 0x1c2a16, pos: [0, 2.98 * S, 6.244 * S], pitch: 24.41, fov: 36.3, sfx: '0171' },
+  agogo: { level: 11, arena: 'tilePainter:pogoAGogo', tex: '', neutral: 0, colors: [], mode: 'hole', bg: 0x9ac4e8, pos: [0, 3.15 * S, 5.85 * S], pitch: 27.06, fov: 37.2, sfx: '0170' },
+  elpogoloco: { level: 12, arena: 'tilePainter:elPogoLoco', tex: '', neutral: 0, colors: [], mode: 'sand', bg: 0xb8806a, pos: [0, 3.217 * S, 5.928 * S], pitch: 27.06, fov: 37.2, sfx: '0169' },
+  padlock: { level: 13, arena: 'tilePainter:pogoPadlock', tex: '0662', neutral: 0, colors: [41, 38, 39, 40], mode: 'tex', bg: 0x4a4a52, pos: [0, 3.217 * S, 5.928 * S], pitch: 27.06, fov: 37.2, sfx: '0168' },
 };
 
+const placements = new Map<number, Placements | null>();
+/** The board's 64 tile objects: a run of 64 sub-meshes 0x7c apart (the view draws its own paintable tiles). */
+function boardTiles(pl: Placements | null): string[] {
+  if (!pl) return [];
+  const offs = [...new Set(pl.objects.map((o) => o.part).filter(Boolean))].map((p) => parseInt(p.slice(6), 16)).sort((a, b) => a - b);
+  for (let i = 0; i + 64 <= offs.length; i++) if (offs[i + 63] - offs[i] === 63 * 0x7c) return offs.slice(i, i + 64).map((o) => 'extra_' + o.toString(16));
+  return [];
+}
 const pad3 = (n: number) => String(Math.max(0, Math.min(999, Math.round(n)))).padStart(3, '0');
-const sfxFile = (bank: string, n: number) => `sfx/${bank}/${n}.mp3`;
-/** The common sound block starts at a different index in each level's bank. */
-const COMMON: Record<string, number> = { '0171': 2, '0170': 3, '0169': 10, '0168': 13 };
+/**
+ * Original sound id (FUN_80022660 arg) -> sample index n in the level's sfx bank (VAB tone -> vag - 1; see re/notes/pogoPainter.md).
+ * 0x55a..0x565 (foreign-tile steps 55a-55d, landing per character 55e-565) are a contiguous run starting at RUN[bank].
+ */
+const RUN: Record<string, number> = { '0171': 13, '0170': 14, '0169': 21, '0168': 24 };
+const SND: Record<string, Record<number, number>> = {
+  '0171': { 0x514: 2, 0x515: 3, 0x51d: 5, 0x51e: 7, 0x51f: 8, 0x520: 9, 0x522: 11, 0x438: 6, 0x43c: 12, 0x41c: 34, 0x41f: 36, 0x3fa: 35, 0x529: 1, 0x1c2: 33 },
+  '0170': { 0x514: 3, 0x515: 4, 0x51d: 6, 0x51e: 8, 0x51f: 9, 0x520: 10, 0x522: 12, 0x438: 7, 0x43c: 13, 0x41c: 35, 0x41f: 37, 0x3fa: 36, 0x532: 0, 0x533: 1, 0x534: 2, 0x1c2: 34 },
+  '0169': { 0x514: 10, 0x515: 11, 0x51d: 13, 0x51e: 15, 0x51f: 16, 0x520: 17, 0x522: 19, 0x438: 14, 0x43c: 20, 0x41c: 42, 0x41f: 44, 0x3fa: 43, 0x3ec: 5, 0x3ed: 6, 0x3ee: 5, 0x3ef: 6, 0x3f1: 8, 0x3f2: 9, 0x3f3: 8, 0x3f4: 9, 0x542: 3, 0x543: 4, 0x1c2: 41 },
+  '0168': { 0x514: 13, 0x515: 14, 0x51d: 16, 0x51e: 18, 0x51f: 19, 0x520: 20, 0x522: 22, 0x438: 17, 0x43c: 23, 0x41c: 45, 0x41f: 47, 0x3fa: 46, 0x54b: 5, 0x54c: 6, 0x54d: 7, 0x54e: 8, 0x54f: 9, 0x550: 10, 0x551: 11, 0x552: 12, 0x1c2: 44 },
+};
 
 function makePogo(hex: string): THREE.Group {
   const g = new THREE.Group();
@@ -44,17 +77,6 @@ function makePogo(hex: string): THREE.Group {
   const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.3, 0.09, 14), team);
   pad.position.y = 0.55;
   g.add(foot, post, pad);
-  return g;
-}
-
-function makeRocket(): THREE.Group {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.7, 10).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xe8e8f0, metalness: 0.3, roughness: 0.4 }));
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.3, 10).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xff4a3a }));
-  nose.position.z = 0.5;
-  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.4, 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffb030 }));
-  flame.position.z = -0.5;
-  g.add(body, nose, flame);
   return g;
 }
 
@@ -99,15 +121,6 @@ function sandGridTexture(): THREE.CanvasTexture {
   });
 }
 
-function crateTex(base: string, rim: string, mark: string, markCol: string): THREE.CanvasTexture {
-  return canvasTexture(64, (g, s) => {
-    g.fillStyle = base; g.fillRect(0, 0, s, s);
-    g.strokeStyle = rim; g.lineWidth = 6; g.strokeRect(3, 3, s - 6, s - 6);
-    g.fillStyle = markCol; g.font = '900 40px system-ui, Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(mark, s / 2, s / 2 + 2);
-  });
-}
-
 export function createTilePainterView(): ClientMiniGame {
   let kit: Kit;
   let loaded = false;
@@ -122,13 +135,36 @@ export function createTilePainterView(): ClientMiniGame {
   const mats: THREE.MeshBasicMaterial[] = []; // 0..3 owner, 4 neutral
   const paintMats: THREE.MeshBasicMaterial[] = [];
   const pogoSprings = new Map<number, THREE.Object3D>();
-  const objs = new Map<number, { obj: THREE.Object3D; icon?: TextSprite }>();
-  const icons = new Map<number, TextSprite>();
+  const objs = new Map<number, { obj: THREE.Object3D; boom?: boolean; yaw?: number; mon?: ModelInstance; t?: number }>();
+  /** held item per slot: the pack part on the player's held-item node */
+  const icons = new Map<number, { item: number; obj: THREE.Object3D | null }>();
+  /** one pack 0770 part at the stage scale (render id 0x2000 + part + 1) */
+  const packPart = (part: number): THREE.Object3D => catalogInstance({ model: PACK, scale: K, parts: [`part${part}`] })?.root ?? new THREE.Group();
   const stunT = new Map<number, number>();
+  /** last hop counter per slot (touchdown dust at 14), beam segment batches (parts 2-9), current level */
+  const lastCnt = [-1, -1, -1, -1];
+  let beams: PartBatch[] = [];
+  let gameLvl = 10;
+  const mkBeams = () => { for (const b of beams) b.dispose(); beams = Array.from({ length: 8 }, (_, i) => new PartBatch(kit.root, PACK, 2 + i, K, 16, true)); };
+  const ovMesh: THREE.Mesh[] = []; // per-tile overlay: mine / cross tile / locked
+  const ovMats: Record<string, THREE.MeshBasicMaterial> = {};
+  const stripMesh: THREE.Mesh[] = []; // lvl 11 rotating border (32 segments)
+  let stripKey = -1;
+  const stN = new Array<number>(TP_N * TP_N).fill(-1);
   let arena: THREE.Group | null = null;
-  let lastCrateMat: THREE.MeshBasicMaterial | null = null;
-  let itemCrateMat: THREE.MeshBasicMaterial | null = null;
-  const bankN = (n: number) => sfxFile(lv.sfx, (COMMON[lv.sfx] ?? 0) + n);
+  // samples are shared between banks on disc, so the file comes from audio/index.json
+  let bankIdx: Record<string, { file?: string | null }[]> | null = null;
+  void fetch(ASSET_BASE + 'audio/index.json').then((r) => (r.ok ? r.json() : null)).then((j) => {
+    bankIdx = {};
+    for (const [k, v] of Object.entries<{ samples: { file?: string | null }[] }>(j?.sfx?.banks ?? {})) bankIdx[k] = v.samples;
+  }).catch(() => { /* silent */ });
+  function playId(id: number, vol = 0.55) {
+    let n = SND[lv.sfx]?.[id];
+    if (n === undefined && id >= 0x55a && id <= 0x565) n = RUN[lv.sfx] + (id - 0x55a);
+    if (n === undefined) return;
+    const f = bankIdx?.[lv.sfx]?.[n]?.file;
+    if (f) sfx.playFile(f, vol, false, sfxRate(lv.sfx, id));
+  }
 
   function tex(dir: string, n: number): THREE.Texture {
     const t = loader.load(`${ASSET_BASE}textures/${dir}/tex${String(n).padStart(3, '0')}.png`);
@@ -139,13 +175,19 @@ export function createTilePainterView(): ClientMiniGame {
   function build() {
     const R = kit.root;
     const ref = getCatalog().arenas[lv.arena];
-    const inst = catalogInstance(ref);
-    if (inst) {
-      arena = new THREE.Group(); arena.add(inst.root);
-      for (const ex of (ref as { extra?: (typeof ref)[] } | undefined)?.extra ?? []) { const m = catalogInstance(ex); if (m) arena.add(m.root); } // instanced props (bulldozer, vans, signs...)
-      R.add(arena);
+    // the level as the real game builds it (RAM object list); the 64 board tiles are ours (paintable)
+    const pl = placements.get(lv.level) ?? null;
+    const lvl = ref ? levelStage(ref, pl, (r) => catalogInstance(r)?.root ?? null, { skip: boardTiles(pl) }) : null;
+    if (lvl) { arena = lvl; R.add(lvl); }
+    else {
+      const inst = catalogInstance(ref);
+      if (inst) {
+        arena = new THREE.Group(); arena.add(inst.root);
+        for (const ex of (ref as { extra?: (typeof ref)[] } | undefined)?.extra ?? []) { const m = catalogInstance(ex); if (m) arena.add(m.root); }
+        R.add(arena);
+      }
     }
-    if (lv.mode !== 'tex') { // the real level ground runs on to the far sky strip: a flat desert/dirt apron beyond the model's own patch
+    if (!lvl && lv.mode !== 'tex') { // fallback only: without the real level objects the ground ends early
       const apron = new THREE.Mesh(new THREE.PlaneGeometry(300, 300).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: lv.mode === 'hole' ? 0xb4803c : 0xa0644a }));
       apron.position.y = -0.03;
       R.add(apron);
@@ -186,10 +228,28 @@ export function createTilePainterView(): ClientMiniGame {
         paintMesh.push(p);
       }
     }
-    // the corner start pads, drawn on the tiles at game start by the sim (owner = slot); crate materials
-    lastCrateMat = new THREE.MeshBasicMaterial({ map: crateTex('#8a34c8', '#4c1480', '!', '#ffd820') });
-    itemCrateMat = new THREE.MeshBasicMaterial({ map: crateTex('#f0a0d8', '#a04888', '?', '#ffffff') });
-    void lastCrateMat; void itemCrateMat;
+    for (const [k, c] of [['mine', 0xff2a1a], ['cross', 0xffd020], ['lock', 0xb8c4ff]] as [string, number][]) ovMats[k] = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.55, depthWrite: false });
+    const ovGeo = new THREE.PlaneGeometry(TP_TILE * 0.8, TP_TILE * 0.8).rotateX(-Math.PI / 2);
+    for (let i = 0; i < TP_N * TP_N; i++) {
+      const m = new THREE.Mesh(ovGeo, ovMats.mine);
+      const [x, z] = tileCenter(i);
+      m.position.set(x, 0.09, z);
+      m.visible = false;
+      R.add(m);
+      ovMesh.push(m);
+    }
+    if (variant === 'agogo') { // the colour border around the arena (FUN_800bb840 reads the same ring)
+      const sg = new THREE.PlaneGeometry(TP_TILE * 0.96, 0.7).rotateX(-Math.PI / 2);
+      for (let k = 0; k < 32; k++) {
+        const m = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: 0x888888 }));
+        const side = Math.floor(k / 8), seg = k % 8;
+        const [x, z] = side === 0 ? tileWorld(-0.95, seg) : side === 1 ? tileWorld(seg, 7.95) : side === 2 ? tileWorld(7.95, 7 - seg) : tileWorld(7 - seg, -0.95);
+        m.position.set(x, 0.05, z);
+        if (side === 0 || side === 2) m.rotation.y = Math.PI / 2;
+        R.add(m);
+        stripMesh.push(m);
+      }
+    }
   }
 
   function makeParts(slot: number): ActorParts {
@@ -197,7 +257,12 @@ export function createTilePainterView(): ClientMiniGame {
     const inst = createCharacter(kit.look(slot), { variant: 'pogo', ring: false });
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.82, 0.95, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: new THREE.Color(hex), transparent: true, opacity: 0.95, depthWrite: false }));
     ring.position.y = 0.05;
-    if (usedVariant(inst)) return { inst, extra: ring, headY: 2.1, shadow: 0.7, scale: 1.8 };
+    if (usedVariant(inst)) {
+      // the game draws the pogo model in raw units like the stage (K per 1024 u): actor scale = K / the variant's catalog scale
+      const sc = K / ((getCatalog().characters as { id: string; variants?: Record<string, { scale?: number }> }[]).find((c) => c.id === CHARACTERS[kit.look(slot).char % CHARACTERS.length].id)?.variants?.pogo?.scale ?? K);
+      ring.scale.setScalar(1.8 / sc); // keep the slot ring's world size
+      return { inst, extra: ring, headY: 2.1, shadow: 0.7 * 1.8 / sc, scale: sc };
+    }
     const pogo = makePogo(hex);
     inst.root.position.y = 0.55;
     pogoSprings.set(slot, pogo);
@@ -206,14 +271,17 @@ export function createTilePainterView(): ClientMiniGame {
     return { inst, extra: grp, headY: 2.15, shadow: 0.8 };
   }
 
-  function icon(slot: number): TextSprite {
-    let t = icons.get(slot);
-    if (!t) { t = new TextSprite('#ffffff', 0.7); kit.root.add(t.sprite); icons.set(slot, t); }
-    return t;
+  function heldItem(slot: number, item: number): THREE.Object3D | null {
+    let h = icons.get(slot);
+    if (h && h.item !== item) { if (h.obj) { kit.root.remove(h.obj); disposeTree(h.obj); } h = undefined; }
+    if (!h) { const obj = item > 0 && ITEM_PART[item] >= 0 ? packPart(ITEM_PART[item]) : null; if (obj) kit.root.add(obj); h = { item, obj }; icons.set(slot, h); }
+    return h.obj;
   }
 
   function setCamera(ctx: Parameters<ClientMiniGame['render']>[0]) {
     const c = ctx.camera;
+    const real = LEVEL_CAMS[lv.level], ref = getCatalog().arenas[lv.arena];
+    if (real && ref) { applyPose(c, ps1Pose(real, ref)); return; } // the real camera
     c.position.set(...lv.pos);
     c.rotation.set(-(lv.pitch * Math.PI) / 180, 0, 0, 'YXZ');
     // the real game is 4:3; on narrower screens keep the same horizontal view
@@ -225,17 +293,18 @@ export function createTilePainterView(): ClientMiniGame {
 
   return {
     id: 'tilePainter',
-    async preload() { await preloadCatalogFor('tilePainter', []); loaded = true; },
+    async preload() { await Promise.all([preloadCatalogFor('tilePainter', []), preloadFx([PACK, DIGITS, LOCO, MONSTER]), ...Object.values(LEVELS).map((l) => loadPlacements('L' + l.level).then((p) => { placements.set(l.level, p); }))]); loaded = true; },
 
     init(ctx, world) {
       variant = world.data.variant ?? 'pogo';
       lv = LEVELS[variant] ?? LEVELS.pogo;
       kit = new Kit(ctx, 'tilePainter', { bg: lv.bg, hemi: [0xffffff, 0xaaaaaa, 1.5] });
+      kit.realFx(K); beams = []; mkBeams(); lastCnt.fill(-1);
       owner.fill(-2); capd.fill(0); pop.fill(0); pogoSprings.clear(); objs.clear(); icons.clear(); stunT.clear();
-      tileMesh.length = 0; paintMesh.length = 0; mats.length = 0; paintMats.length = 0; arena = null;
+      tileMesh.length = 0; paintMesh.length = 0; mats.length = 0; paintMats.length = 0; ovMesh.length = 0; stripMesh.length = 0; stripKey = -1; stN.fill(-1); arena = null;
       build();
       setCamera(ctx);
-      if (!loaded) this.preload!().then(() => { if (!arena) { kit.root.clear(); tileMesh.length = 0; paintMesh.length = 0; mats.length = 0; paintMats.length = 0; build(); } });
+      if (!loaded) this.preload!().then(() => { if (!arena) { kit.root.clear(); kit.realFx(K); tileMesh.length = 0; paintMesh.length = 0; mats.length = 0; paintMats.length = 0; ovMesh.length = 0; stripMesh.length = 0; stripKey = -1; stN.fill(-1); build(); } if (kit) mkBeams(); });
     },
 
     render(ctx, w, dt) {
@@ -250,157 +319,163 @@ export function createTilePainterView(): ClientMiniGame {
         if (o !== owner[i] || cp !== capd[i]) {
           if (owner[i] !== -2 && o >= 0) pop[i] = 1;
           owner[i] = o; capd[i] = cp;
-          if (lv.mode === 'tex') tileMesh[i].material = mats[o >= 0 ? o : 4];
+          const ob = o >= 0 && o < 4;
+          if (lv.mode === 'tex') tileMesh[i].material = mats[ob ? o : 4];
           else if (paintMesh[i]) {
-            paintMesh[i].visible = o >= 0;
-            if (o >= 0) paintMesh[i].material = paintMats[o];
+            paintMesh[i].visible = ob;
+            if (ob) paintMesh[i].material = paintMats[o];
           }
         }
+        const stv = d.st?.[i] ?? 1;
+        const key = stv === 5 || stv === 7 || stv === 10 ? stv : 0;
+        if (key !== stN[i]) {
+          stN[i] = key;
+          const ov = ovMesh[i];
+          if (ov) { ov.visible = key > 0; if (key) ov.material = ovMats[key === 5 ? 'mine' : key === 7 ? 'cross' : 'lock']; }
+        }
+        if (key === 5 && ovMesh[i]) ovMats.mine.opacity = 0.35 + 0.3 * Math.sin(ctx.time * 12);
         pop[i] = Math.max(0, pop[i] - dt * 3);
         const k = 1 + Math.sin(pop[i] * Math.PI) * 0.12;
         tileMesh[i].scale.set(k, 1, k);
         tileMesh[i].position.y = 0.03 + Math.sin(pop[i] * Math.PI) * 0.12;
       }
 
+      if (stripMesh.length && d.border !== stripKey) {
+        stripKey = d.border;
+        for (let k = 0; k < 32; k++) (stripMesh[k].material as THREE.MeshBasicMaterial).color.set(PAD[borderColor(d.border, Math.floor(k / 8), k % 8)]);
+      }
       const seen = new Set<number>();
       const seenO = new Set<number>();
+      gameLvl = d.lvl ?? gameLvl;
+      for (const b of beams) b.begin();
       for (const b of w.bodies) {
         if (b.kind === 'player') {
           seen.add(b.id);
           const a = kit.actor(b, () => makeParts(b.slot));
           const air = b.y > 0.02;
           const stun = (d.stun?.[b.slot] ?? 0) > 0;
-          a.update(b, dt, { role: kit.over.done ? undefined : stun ? 'hit' : air ? 'hop' : 'idle', freeze: true });
+          const taz = (d.taz?.[b.slot] ?? 0) > 0;
+          a.update(b, dt, { role: kit.over.done ? undefined : stun ? 'hit' : taz ? 'action' : air ? 'hop' : 'idle', freeze: true });
           const sp = pogoSprings.get(b.slot);
           if (sp) sp.scale.y = air ? 1 : 0.6;
           const item = d.item?.[b.slot] ?? 0;
-          const ic = icon(b.slot);
-          ic.sprite.visible = item > 0 && !kit.over.done;
-          if (item > 0) { ic.set(ITEM_ICON[item]); ic.sprite.position.set(b.x + 1.0, b.y + a.headY - 0.3, b.z); }
-          if ((d.boots?.[b.slot] ?? 0) > 0 && air) kit.fx.trail(b.x, 0.3, b.z, 0xffe14a, 0.5, 0.3);
-          if ((d.lock?.[b.slot] ?? 0) > 0) kit.fx.trail(b.x, b.y + 1, b.z, 0xc0c8ff, 0.25, 0.2);
-          if (stun) {
-            const t = (stunT.get(b.slot) ?? 0) + dt * 6;
-            stunT.set(b.slot, t);
-            for (let i = 0; i < 3; i++) {
-              const an = t + (i * Math.PI * 2) / 3;
-              kit.fx.burst(b.x + Math.cos(an) * 0.7, b.y + a.headY - 0.1, b.z + Math.sin(an) * 0.7, { shape: 'star', color: 0xffe14a, count: 1, speed: 0, size: 0.34, life: 0.12, gravity: 0, spread: 0, grow: 1 });
-            }
-          }
-        } else if (b.kind === 'crate' || b.kind === 'power' || b.kind === 'missile') {
+          const held = heldItem(b.slot, kit.over.done ? 0 : item);
+          if (held) { held.position.set(b.x, b.y + a.headY + 0.2, b.z); held.rotation.y += dt * 0x38 * 30 * Math.PI * 2 / 4096; }
+          // hop clip event 0x14 (three frames before the landing snap): touchdown dust, script 4 at a random yaw (FUN_800b741c)
+          const cnt = d.cnt?.[b.slot] ?? -1;
+          if (cnt >= 14 && lastCnt[b.slot] < 14 && lastCnt[b.slot] >= 0) kit.real.play(PACK, 4, b.x, 0, b.z, { yaw: Math.random() * Math.PI * 2, add: true });
+          lastCnt[b.slot] = cnt;
+          if (stun) { // stun state (FUN_800b6ae0): a smoke puff (script 2) every 4 frames on the spinning player
+            const t = (stunT.get(b.slot) ?? 0) - dt * 30;
+            stunT.set(b.slot, t <= 0 ? t + 4 : t);
+            if (t <= 0) kit.real.play(PACK, 2, b.x, b.y, b.z);
+          } else stunT.delete(b.slot);
+        } else if (b.kind === 'crate' || b.kind === 'power' || b.kind === 'arrow' || b.kind === 'missile' || b.kind === 'monster' || b.kind === 'padlock' || b.kind === 'beam') {
           seenO.add(b.id);
           let o = objs.get(b.id);
           if (!o) {
             let obj: THREE.Object3D;
-            let ic: TextSprite | undefined;
-            if (b.kind === 'crate' || b.kind === 'power') {
-              const m = new THREE.Mesh(new THREE.BoxGeometry(1.35, 1.35, 1.35), b.kind === 'crate' ? lastCrateMat! : itemCrateMat!);
-              m.position.y = 0.68;
-              obj = new THREE.Group(); obj.add(m);
-              if (b.kind === 'power') { ic = new TextSprite('#ffffff', 0.8); ic.set(ITEM_ICON[b.cd] ?? '?'); ic.sprite.position.y = 2.1; obj.add(ic.sprite); }
-            } else obj = makeRocket();
+            let mon: ModelInstance | undefined;
+            if (b.kind === 'monster') {
+              mon = new ModelInstance({ model: MONSTER, scale: K, parts: ['part0'] });
+              obj = mon.build() ? mon.root : new THREE.Group();
+              obj.userData.shared = true; // geometry belongs to the model cache
+            } else if (b.kind === 'beam') obj = new THREE.Group();
+            // real objects (pack 0770): padlock 0x2041, cash crate 0x200b, arrow 0x2001 / double arrow 0x200e, item on its tile,
+            // projectile 0x200d (steal gun 0x2040)
+            else if (b.kind === 'padlock') obj = packPart(64);
+            else if (b.kind === 'crate') obj = packPart(10);
+            else if (b.kind === 'arrow') obj = packPart(b.m === 8 ? 13 : 0);
+            else if (b.kind === 'power') obj = packPart(ITEM_PART[b.cd] ?? 12);
+            else obj = packPart(b.cd === 3 ? 63 : 12);
             kit.root.add(obj);
-            o = { obj, icon: ic };
+            o = { obj, mon, t: 0 };
             objs.set(b.id, o);
           }
-          if (b.kind === 'missile') { o.obj.position.set(b.x, b.y, b.z); o.obj.rotation.y = Math.atan2(b.vx, b.vz); kit.fx.trail(b.x, b.y, b.z, 0xffb030, 0.4, 0.3); }
-          else { o.obj.position.set(b.x, Math.sin(ctx.time * 3 + b.id) * 0.06, b.z); o.obj.rotation.y = Math.sin(ctx.time * 1.5 + b.id) * 0.25; }
+          if (b.kind === 'missile') { o.obj.position.set(b.x, b.y, b.z); o.obj.rotation.y = b.face; o.boom = true; }
+          else if (b.kind === 'beam') { // FUN_800ba51c: electro sparks along the whole line ahead of the shooter
+            const dx = b.cd === 0 ? 1 : b.cd === 1 ? -1 : 0, dz = b.cd === 2 ? -1 : b.cd === 3 ? 1 : 0; // world z is flipped
+            const n = Math.round(b.dash);
+            // object 0x1405 (FUN_800ba994): one segment per tile, frame = (game frame + segment) & 7 of parts 2-9
+            for (let k = 1; k <= n; k++) beams[(w.tick + k) & 7]?.add(b.x + dx * k * TP_TILE, 128 * U, b.z + dz * k * TP_TILE, dz ? Math.PI / 2 : 0, 0, 1);
+          } else if (b.kind === 'monster') { // state in vx (1 wait, 2 patrol, 3/4 walk, 5 spin): clip 0 wait, 2 hop cycle, 1 spin
+            o.t = (o.t ?? 0) + dt * 30;
+            const clip = b.vx === 1 ? 0 : b.vx === 5 ? 1 : 2;
+            o.mon?.pose(clip, o.t % [21, 26, 14][clip]);
+            o.obj.position.set(b.x, 0, b.z);
+            o.obj.rotation.y = b.vx === 5 ? b.dash : b.face;
+          } else if (b.kind === 'padlock') {
+            const g = Math.min(1, b.vx);
+            o.obj.scale.setScalar(Math.max(0.01, g));
+            o.obj.position.set(b.x, Math.abs(Math.sin(ctx.time * 6)) * 0.15, b.z);
+            o.obj.rotation.y = Math.sin(ctx.time * 2) * 0.3;
+          } else {
+            o.obj.scale.setScalar(Math.max(0.05, Math.min(1, b.dash / 16))); // crates grow in over 16 frames (+0x100 / frame)
+            o.obj.position.set(b.x, 0, b.z);
+            if (b.kind === 'arrow') { // FUN_800baba8: yaw eases 1/8 per frame toward dir * 0x400
+              // the 0770 arrow mesh's tip is on its gltf +z, so add a half turn: the arrow then points along its fill
+              // (checked on the emulator: dir 2 = yaw 0x800 points at the camera, game -z)
+              const tgt = Math.PI - (b.cd & 3) * Math.PI / 2;
+              o.yaw ??= tgt;
+              const dy = Math.atan2(Math.sin(tgt - o.yaw), Math.cos(tgt - o.yaw));
+              o.yaw += dy * (1 - Math.pow(7 / 8, dt * 30));
+              o.obj.rotation.y = o.yaw;
+            } else if (b.kind === 'power' && (b.cd === 1 || b.cd === 2 || b.cd === 4)) o.obj.rotation.y += dt * 0x38 * 30 * Math.PI * 2 / 4096; // FUN_800baef0: missiles spin
+          }
         }
       }
       kit.prune(seen);
-      for (const [id, o] of objs) if (!seenO.has(id)) { kit.root.remove(o.obj); disposeTree(o.obj); objs.delete(id); }
+      for (const [id, o] of objs) if (!seenO.has(id)) {
+        // a projectile ends in the pack's explosion (script 0, FUN_800bc5bc)
+        if (o.boom && !kit.over.done) kit.real.play(PACK, 0, o.obj.position.x, o.obj.position.y, o.obj.position.z);
+        kit.root.remove(o.obj); disposeTree(o.obj); objs.delete(id);
+      }
+      for (const b of beams) b.end();
+      kit.real.update(dt, ctx.camera);
       kit.fx.update(dt);
     },
 
     onEvent(ctx, e) {
       if (!kit) return;
-      const fx = kit.fx;
       if (e.k === 'jump' || e.k === 'land') return;
       if (kit.baseEvent(e)) return;
-      const hex = e.s >= 0 ? PAD[e.s] ?? '#ffffff' : '#ffffff';
-      const col = new THREE.Color(hex);
       switch (e.k) {
-        case 'paint':
-          fx.burst(e.x, 0.15, e.z, { shape: 'soft', color: [hex, 0xffffff], count: 3 + Math.round(e.v * 6), speed: 1.6 + e.v * 2, size: 0.35, life: 0.45, up: 2.5, gravity: 12, grow: 0.3 });
-          if (e.s === ctx.mySlot) sfx.playFile(bankN(13), 0.3);
-          if (e.o > 0) fx.stars(e.x, 0.5, e.z, 3, [0xffffff, hex]);
-          break;
+        case 'sfx': playId(e.v); break;
         case 'cash':
-          fx.confetti(e.x, 1.2, e.z, 26);
-          fx.wumpa(e.x, 1, e.z, 6);
-          fx.burst(e.x, 0.8, e.z, { shape: 'chip', color: [0x9a5fd0, 0xd8b0ff], count: 14, speed: 5, size: 0.3, life: 0.8, up: 4, gravity: 12 });
-          fx.ring(e.x, e.z, { color: hex, radius: 4, life: 0.6 });
-          fx.text(e.x, 2.6, e.z, `+${Math.round(e.v)}`, { color: '#' + col.getHexString(), size: 1.6, life: 1.4 });
+          // FUN_800b788c -> FUN_8008d5d4: the tiles cashed float up as a number over the tile; the "!" crate breaks (script 3)
+          kit.real.number(e.v, e.x, 256 * U, e.z + 256 * U, 0);
+          if (gameLvl !== 11) kit.real.play(PACK, 3, e.x, 0, e.z);
           kit.shake(0.3);
-          sfx.playFile(bankN(20), 0.5);
           break;
-        case 'crate': case 'power':
-          fx.ring(e.x, e.z, { color: e.k === 'crate' ? 0xd8b0ff : 0xffb0e8, radius: 2.4, life: 0.5 });
-          fx.stars(e.x, 1.2, e.z, 6);
-          break;
-        case 'pickup':
-          fx.stars(e.x, 1.4, e.z, 8, [0xffe14a, 0xffffff]);
-          fx.text(e.x, 2.8, e.z, ITEM_NAME[Math.round(e.v)] ?? '', { color: '#ffe14a', size: 1.0, life: 1.1 });
-          sfx.playFile(bankN(17), 0.5);
-          break;
-        case 'missile':
-          fx.smoke(e.x, 0.8, e.z, 4, 0x888899);
-          fx.sparks(e.x, 0.8, e.z, [0xffb030, 0xffffff], 8, 5);
-          sfx.playFile(bankN(19), 0.45);
+        case 'pickup': case 'line': case 'cross':
+          kit.real.play(PACK, 1, e.x, 0, e.z); // FUN_800b935c: every other pickup goes in script 1
+          if (e.k === 'cross') kit.shake(0.2);
           break;
         case 'beam': {
-          const horiz = e.o < 2, sign = e.o === 0 || e.o === 2 ? 1 : -1;
-          for (let i = 1; i <= TP_N; i++) fx.sparks(e.x + (horiz ? sign * i * TP_TILE : 0), 1, e.z + (horiz ? 0 : sign * i * TP_TILE), [0x80d0ff, 0xffffff], 2, 3);
-          sfx.playFile(bankN(21), 0.5);
-          break;
-        }
-        case 'lock':
-          fx.ring(e.x, e.z, { color: 0xc0c8ff, radius: 3, life: 0.6 });
-          fx.text(e.x, 2.8, e.z, 'LOCKED!', { color: '#c0c8ff', size: 1.0 });
-          break;
-        case 'arrow': {
-          const a = kit.actorForSlot(e.s);
-          const p = a?.holder.position;
-          const px = p?.x ?? e.x, pz = p?.z ?? e.z;
-          for (let i = -TP_N; i <= TP_N; i++) {
-            if (e.v === 0) fx.sparks(px + i * TP_TILE * 0.5, 0.4, pz, hex, 1, 1);
-            else fx.sparks(px, 0.4, pz + i * TP_TILE * 0.5, hex, 1, 1);
-          }
-          fx.text(px, 2.8, pz, 'SWOOSH!', { color: '#' + col.getHexString(), size: 1.0 });
-          kit.shake(0.15);
-          sfx.playFile(bankN(18), 0.5);
+          // FUN_800ba51c: script 8 at the far end of the line, 128 u up
+          const dir = Math.round(e.v), n = Math.max(1, Math.round(e.o));
+          const dx = dir === 0 ? 1 : dir === 1 ? -1 : 0, dz = dir === 2 ? -1 : dir === 3 ? 1 : 0; // world z is flipped
+          kit.real.play(PACK, 8, e.x + dx * n * TP_TILE, 128 * U, e.z + dz * n * TP_TILE);
           break;
         }
         case 'hit':
-          fx.sparks(e.x, 1, e.z, [0xffe14a, 0xff8a30], 14, 6);
-          fx.ring(e.x, e.z, { color: 0xff9a40, radius: 2.4, life: 0.4 });
+          kit.real.play(PACK, 0, e.x, 0, e.z); // stun entry (FUN_800b6960): the explosion at the victim
           kit.actorForSlot(e.s)?.hit(1);
           kit.shake(0.3);
-          sfx.playFile(bankN(22), 0.5);
-          break;
-        case 'stun':
-          fx.text(e.x, 3, e.z, 'STUNNED!', { color: '#ffb040', size: 1.0, life: 1.2 });
-          break;
-        case 'steal':
-          fx.text(e.x, 3.4, e.z, `STOLE ${Math.round(e.v)}`, { color: '#' + col.getHexString(), size: 1.0, life: 1.2 });
           break;
         case 'wipe':
-          fx.smoke(e.x, 0.8, e.z, 8, 0x886688);
-          fx.text(e.x, 2.8, e.z, 'LOST!', { color: '#ff6a5a', size: 1.3, life: 1.3 });
           kit.shake(0.2);
-          sfx.playFile(bankN(24), 0.5);
           break;
-        case 'capture':
-          fx.ring(e.x, e.z, { color: hex, radius: 4, life: 0.6 });
-          fx.stars(e.x, 1, e.z, 10, [0xffffff, hex]);
-          fx.text(e.x, 2.4, e.z, `+${Math.round(e.v)}`, { color: '#' + col.getHexString(), size: 1.4, life: 1.3 });
-          sfx.playFile(bankN(20), 0.5);
-          break;
-        case 'fizzle':
-          fx.smoke(e.x, 0.8, e.z, 4, 0x888899);
-          fx.sparks(e.x, 0.8, e.z, 0xffb030, 6, 4);
+        case 'boom':
+          kit.real.play(LOCO, 1, e.x, 0, e.z); // mine tile (FUN_800b8180): the level's script 1
+          kit.shake(0.35);
           break;
       }
+    },
+
+    /** Real HUD: faces, three-digit scores, clock. */
+    ps1Hud(w, ctx) {
+      return scoreHud(ctx.seats, (s) => w.data.score?.[s] ?? 0, (getGame('tilePainter')?.maxTime ?? 90) - w.time, w.time);
     },
 
     hud(w, slot) {
@@ -409,10 +484,13 @@ export function createTilePainterView(): ClientMiniGame {
 
     dispose() {
       for (const o of objs.values()) kit.root.remove(o.obj);
-      for (const t of icons.values()) kit.root.remove(t.sprite);
+      for (const t of icons.values()) if (t.obj) kit.root.remove(t.obj);
       objs.clear(); icons.clear(); pogoSprings.clear(); stunT.clear();
       for (const m of [...mats, ...paintMats]) m.dispose();
+      for (const b of beams) b.dispose();
+      beams = [];
       kit.dispose();
     },
   };
 }
+

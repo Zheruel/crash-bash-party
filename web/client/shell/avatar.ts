@@ -37,7 +37,8 @@ const faceCache = new Map<number, string>();
 /** Tight head shot (like the character-select icons), transparent PNG, rendered from the real 3D model. */
 export function faceShot(char: number): string {
   const key = ((char % CHARACTERS.length) + CHARACTERS.length) % CHARACTERS.length;
-  if ('portrait' in CHARACTERS[key]) return '';
+  const character = CHARACTERS[key];
+  if ('portrait' in character) return ASSET_BASE + character.portrait;
   const hit = faceCache.get(key);
   if (hit != null) return hit;
   let url = '';

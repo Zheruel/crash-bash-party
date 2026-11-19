@@ -1,5 +1,5 @@
 {
- "_notes": "Crate Crush = levels 0-3. Stage models: Jungle Bash 715 (dirt clearing + temple/ruins mesh extra_15d0, re-decoded because tools/t29.py strict scan skipped it; ferns are instanced parts), Space Bash 711 (rails + skyline; floor tiles drawn by the view from 0710 tex000/001; towers placed around), Snow Bash 707, Drain Bash 703. Alt/night twins 713 / 705 / 701 / 709. Arena floors are ~4.2 model units square (x3.6 = 15 world).",
+ "_notes": "Crate Crush = levels 0-3. Stage models: Jungle Bash 715 (dirt clearing + temple/ruins mesh extra_15d0, re-decoded because tools/t29.py strict scan skipped it; ferns are instanced parts), Space Bash 711 (rails + skyline; floor tiles drawn by the view from 0710 tex000/001; towers placed around), Snow Bash 707, Drain Bash 703. Alt/night twins 713 / 705 / 701 / 709. Arena floors are ~4.2 model units square (x3.6 = 15 world). Objects (from RAM of the running levels): crates/effects 0796 (parts 0-6 nitro anim, 7 drain crate, 8-14 TNT anim, 15-17 TNT 1/2/3, 18 stone crate, 19 '?' chest, 20+ blast/smoke/shards), pickups 0736 (0 shadow, 1 weight, 8 slow-mo, 9 boots, 12 Aku Aku, 14 orb, 23-36 wumpa spin, 37-47 dust).",
  "arenas": {
   "crateToss": {
    "model": 715,
@@ -353,5 +353,1051 @@
    ]
   }
  },
- "props": {}
+ "props": {
+  "ctNitro0": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ]
+  },
+  "ctNitro1": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part1"
+   ]
+  },
+  "ctNitro2": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part2"
+   ]
+  },
+  "ctNitro3": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part3"
+   ]
+  },
+  "ctNitro4": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part4"
+   ]
+  },
+  "ctNitro5": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part5"
+   ]
+  },
+  "ctNitro6": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part6"
+   ]
+  },
+  "ctDrainCrate": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part7"
+   ]
+  },
+  "ctTnt0": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part8"
+   ]
+  },
+  "ctTnt1": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part15"
+   ]
+  },
+  "ctTnt2": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part16"
+   ]
+  },
+  "ctTnt3": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part17"
+   ]
+  },
+  "ctTnt4": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part12"
+   ]
+  },
+  "ctTnt5": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part13"
+   ]
+  },
+  "ctTnt6": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part14"
+   ]
+  },
+  "ctWood": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part18"
+   ]
+  },
+  "ctChest": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part19"
+   ]
+  },
+  "ctBlastRing": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part20"
+   ]
+  },
+  "ctFlash": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part22"
+   ]
+  },
+  "ctFlashN": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part30"
+   ]
+  },
+  "ctFlashW": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part44"
+   ]
+  },
+  "ctSmokeT0": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part23"
+   ]
+  },
+  "ctSmokeT1": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part24"
+   ]
+  },
+  "ctSmokeN0": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part32"
+   ]
+  },
+  "ctSmokeN1": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part33"
+   ]
+  },
+  "ctSmokeW0": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part40"
+   ]
+  },
+  "ctSmokeW1": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part41"
+   ]
+  },
+  "ctShardT0": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part25"
+   ]
+  },
+  "ctShardT1": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part26"
+   ]
+  },
+  "ctShardT2": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part27"
+   ]
+  },
+  "ctShardN0": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part34"
+   ]
+  },
+  "ctShardN1": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part35"
+   ]
+  },
+  "ctShardN2": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part36"
+   ]
+  },
+  "ctShardC0": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part37"
+   ]
+  },
+  "ctShardC1": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part38"
+   ]
+  },
+  "ctShardC2": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part39"
+   ]
+  },
+  "ctShardW0": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part45"
+   ]
+  },
+  "ctShardW1": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part46"
+   ]
+  },
+  "ctShardW2": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part47"
+   ]
+  },
+  "ctShardW3": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part48"
+   ]
+  },
+  "ctSpark": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part28"
+   ]
+  },
+  "ctStar": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part42"
+   ]
+  },
+  "ctRock": {
+   "model": 796,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part43"
+   ]
+  },
+  "ctShadow": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ]
+  },
+  "ctWeight": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part1"
+   ]
+  },
+  "ctSlow": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part8"
+   ]
+  },
+  "ctBoots": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part9"
+   ]
+  },
+  "ctMissile": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part10"
+   ]
+  },
+  "ctRing": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part11"
+   ]
+  },
+  "ctMask": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part12"
+   ]
+  },
+  "ctRocket": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part13"
+   ]
+  },
+  "ctOrb": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part14"
+   ]
+  },
+  "ctGem": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part15"
+   ]
+  },
+  "ctFruit0": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part23"
+   ]
+  },
+  "ctFruit1": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part24"
+   ]
+  },
+  "ctFruit2": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part25"
+   ]
+  },
+  "ctFruit3": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part26"
+   ]
+  },
+  "ctFruit4": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part27"
+   ]
+  },
+  "ctFruit5": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part28"
+   ]
+  },
+  "ctFruit6": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part29"
+   ]
+  },
+  "ctFruit7": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part30"
+   ]
+  },
+  "ctFruit8": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part31"
+   ]
+  },
+  "ctFruit9": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part32"
+   ]
+  },
+  "ctFruit10": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part33"
+   ]
+  },
+  "ctFruit11": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part34"
+   ]
+  },
+  "ctFruit12": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part35"
+   ]
+  },
+  "ctFruit13": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part36"
+   ]
+  },
+  "ctDust0": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part37"
+   ]
+  },
+  "ctDust1": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part38"
+   ]
+  },
+  "ctDust2": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part39"
+   ]
+  },
+  "ctDust3": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part40"
+   ]
+  },
+  "ctDust4": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part41"
+   ]
+  },
+  "ctDust5": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part42"
+   ]
+  },
+  "ctDust6": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part43"
+   ]
+  },
+  "ctDust7": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part44"
+   ]
+  },
+  "ctDust8": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part45"
+   ]
+  },
+  "ctDust9": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part46"
+   ]
+  },
+  "ctDust10": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part47"
+   ]
+  },
+  "ctPenguin": {
+   "model": 798,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ],
+   "anims": {
+    "idle": 0,
+    "run": 2,
+    "hit": 1
+   }
+  },
+  "ctZ": {
+   "model": 798,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part2"
+   ]
+  }
+ }
 }

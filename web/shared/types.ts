@@ -17,6 +17,8 @@ export interface InputState {
   a: boolean;
   /** secondary button: dash / bump */
   b: boolean;
+  /** third button (Triangle): taunt where the game has one */
+  c?: boolean;
 }
 export interface Input extends InputState {
   seq: number;
@@ -96,6 +98,10 @@ export interface SlotInfo {
   slot: number;
   name: string;
   bot: boolean;
+  /** Index into look.ts CHARACTERS (games with per-character stats use it; may be absent in tests). */
+  char?: number;
+  /** Bot difficulty 0 easy / 1 normal / 2 hard (only for bot slots; games with their own AI inside step() use it). */
+  level?: number;
 }
 
 export interface ModifierInfo {

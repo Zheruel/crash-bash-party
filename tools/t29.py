@@ -263,7 +263,7 @@ def tex_lookup(texroot, outdir, stem, idx):
     sz = png_size(p)
     if not sz:
         return None
-    return os.path.relpath(p, outdir).replace(os.sep, '/'), sz[0], sz[1]
+    return os.path.relpath(os.path.realpath(p), os.path.realpath(outdir)).replace(os.sep, '/'), sz[0], sz[1]
 
 
 def build_gltf(info, stem, texroot=None, outdir='.'):

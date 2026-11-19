@@ -1,380 +1,415 @@
-// POLAR PUSH view (shared/games/pushOff.ts): the four real levels (TILT, POLAR, MELT, MANIC PANIC) seen through the real
-// low fixed camera. Backdrops and platforms come from the disc models listed in assets/stages/pushOff.json; the platform
-// is a separate prop so it can tilt and shrink under the bears.
+// POLAR PUSH view (shared/games/pushOff.ts): the four real levels (TILT, POLAR, MELT, MANIC PANIC) as the game builds them
+// (level placements 18-21, the platform as its own group so it can tilt and shrink), seen through the engine's fit-all
+// camera (mode 1). The sim keeps PS1 axes unmirrored (world z = +PS1 z), so this view mirrors z once on the way in.
 import * as THREE from 'three';
-import { PO_RADIUS } from '../../shared/games/pushOff';
-import { createCharacter, usedVariant } from '../characters';
-import { getCatalog } from '../crash';
-import { sfx } from '../shell/sound';
+import { POLAR_PILLARS, PO_RADIUS, U } from '../../shared/games/pushOff';
+import { CHARACTERS, DISC_CHARACTER } from '../../shared/look';
+import { getGame } from '../../shared/registry';
+import type { Body, GameEvent } from '../../shared/types';
+import { createCharacter } from '../characters';
+import { ASSET_BASE, getCatalog, ModelInstance, type ModelRef } from '../crash';
+import { sfx, sfxRate } from '../shell/sound';
+import { charVoice, hitVoice } from '../shell/voice';
+import { bigClock, HUD, hudTex, SLOT_X, type HudSprite } from '../ui/ps1hud';
 import type { ActorParts } from './kit';
-import { catalogInstance, disposeTree, Kit, preloadCatalogFor, propObject } from './kit';
-import type { ClientMiniGame } from './types';
+import { catalogInstance, Kit, nativeCharScale, preloadCatalogFor } from './kit';
+import { applyPose, levelStage, loadPlacements, Ps1Follow, TRACK_CAMS, type Placements, type Tracked } from './ps1cam';
+import type { ClientMiniGame, RenderWorld } from './types';
 
-const TILT_K = 0.14; // slope per unit of sim tilt (must match the cosmetic platform rotation)
-
-/** Real cameras (native units x scale; fitted by eye against emulator frames), x-stretch 1.295. */
-const cam = (y: number, z: number, pitch: number, fov: number, scale: number, x = 0) => ({ x: x * scale, y: y * scale, z: z * scale, pitch: (pitch * Math.PI) / 180, fov, sx: 1.295 });
-export const PO_CAMS: Record<string, ReturnType<typeof cam>> = {
-  tilt: cam(2.6, 4.9, 20, 65, 3.2, -1.1),
-  polar: cam(1.7, 4.3, 7, 65, 3.2),
-  melt: cam(2.1, 4.4, 10, 65, 3.2),
-  manic: cam(2.6, 5.0, 16, 65, 3.2),
+/** idle fidget scripts by engine character (FUN_800bcc9c): clip, frame sequence, loops (0x8000) or holds (0x8001) */
+const seq = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, k) => a + k);
+const FIDGET: Record<number, { clip: number; frames: number[]; loop: boolean }> = {
+  1: { clip: 4, frames: seq(0, 19), loop: true },
+  2: { clip: 5, frames: seq(0, 8), loop: false },
+  3: { clip: 5, frames: [...seq(0, 8), ...Array(13).fill(8), ...seq(9, 19)], loop: true },
+  4: { clip: 5, frames: seq(0, 2), loop: false },
+  7: { clip: 3, frames: seq(0, 19), loop: true },
 };
-const KEY: Record<string, string> = { tilt: 'tiltPanic', polar: 'polarPanic', melt: 'meltPanic', manic: 'manicPanic' };
-const PLAT: Record<string, string> = { tilt: 'poPlatTilt', polar: 'poPlatPolar', melt: 'poPlatMelt', manic: 'poPlatManic' };
+const fidT: (number | undefined)[] = [];
+
+const S = 1024 * U; // stage scale: sim raw units are PS1 units
+const LEVEL_ID: Record<string, number> = { tilt: 18, polar: 19, melt: 20, manic: 21 };
+const LEVEL_MODEL: Record<string, number> = { tilt: 486, polar: 478, melt: 474, manic: 466 };
+/** the ice the bears stand on (tilts / shrinks with the sim); everything else is static level */
+const PLATFORM: Record<string, string[]> = {
+  tilt: ['extra_18e4', 'extra_34e8'],
+  polar: ['extra_16b0', 'extra_3a68'],
+  melt: ['extra_db54'], // the melting disc is 16 copies of the native wedge (0474 part1), one per sim sector
+  manic: ['extra_2338'],
+};
 const BG: Record<string, number> = { tilt: 0x6f8fb8, polar: 0x05060f, melt: 0x000000, manic: 0x78b4d8 };
-/** TILT PANIC's sky: deep blue overhead fading to a lilac-pink horizon (the disc stores it as vertex colours we do not have). */
-function skyGradient(): THREE.CanvasTexture {
-  const c = document.createElement('canvas'); c.width = 4; c.height = 128;
-  const g = c.getContext('2d')!;
-  const gr = g.createLinearGradient(0, 0, 0, 128);
-  gr.addColorStop(0, '#2f63a0'); gr.addColorStop(0.55, '#5f8cc0'); gr.addColorStop(0.82, '#a99ac0'); gr.addColorStop(1, '#c9a8bf');
-  g.fillStyle = gr; g.fillRect(0, 0, 4, 128);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
 const WATER: Record<string, number> = { tilt: -2.4, polar: -3, melt: -4, manic: -3 };
-/** Level sound cue (banks 0449/0450 TILT, 0451 POLAR, 0448 MELT, 0447 MANIC) plus the shared polar pool. */
+const stageRef = (v: string): ModelRef => ({ model: LEVEL_MODEL[v] ?? 486, scale: S, offset: [0, 0, 0], yaw: 0 });
+const placements = new Map<string, Placements | null>();
+
+/**
+ * Real sound table (re/notes/polarPush.md): the code plays sound ids; table 0x80064508 gives slot/program/tone, the level bank (slot 1) maps
+ * that to a sample. Resolved to files here (the index aliases duplicate samples to earlier banks).
+ */
 const SND = {
-  hit: 'sfx/0447/1.mp3', ko: 'sfx/0446/0.mp3', splash: 'sfx/0165/20.mp3', pickup: 'sfx/0447/16.mp3', strike: 'sfx/0447/20.mp3', climb: 'sfx/0447/17.mp3',
-  level: { tilt: 'sfx/0449/20.mp3', polar: 'sfx/0451/20.mp3', melt: 'sfx/0448/20.mp3', manic: 'sfx/0447/19.mp3' } as Record<string, string>,
+  /** 0x446-0x449: collision thump (only TILT PANIC's bank has these tones). */
+  thump: { tilt: ['sfx/0164/32.mp3', 'sfx/0164/33.mp3', 'sfx/0164/32.mp3', 'sfx/0164/33.mp3'], polar: [], melt: [], manic: [] } as Record<string, string[]>,
+  /** 0x456-0x45b: skid when going idle at speed > 32. */
+  skid: {
+    tilt: ['sfx/0446/0.mp3', 'sfx/0446/1.mp3', 'sfx/0446/0.mp3', 'sfx/0446/1.mp3', 'sfx/0446/0.mp3', 'sfx/0446/1.mp3'],
+    polar: ['sfx/0446/0.mp3', 'sfx/0446/1.mp3', 'sfx/0446/2.mp3', 'sfx/0446/0.mp3', 'sfx/0446/1.mp3', 'sfx/0446/2.mp3'],
+    melt: ['sfx/0446/0.mp3', 'sfx/0446/1.mp3', 'sfx/0446/2.mp3', 'sfx/0446/0.mp3', 'sfx/0446/1.mp3', 'sfx/0446/2.mp3'],
+    manic: ['sfx/0446/0.mp3', 'sfx/0446/1.mp3', 'sfx/0446/2.mp3', 'sfx/0447/13.mp3', 'sfx/0446/0.mp3', 'sfx/0446/1.mp3'],
+  } as Record<string, string[]>,
+  slip: 'sfx/0446/3.mp3', // 0x45c: slipping over the edge
+  mask: 'sfx/0447/0.mp3', // 0x44c: mask appears / sector melts
+  shrink: 'sfx/0447/2.mp3', // 0x44e
+  freeze: 'sfx/0447/4.mp3', // 0x450
+  bomb: 'sfx/0165/17.mp3', // 0x451
+  boom: 'sfx/0165/20.mp3', // 0x452 (also used for the blast, est.)
+  pass: 'sfx/0165/22.mp3', // 0x454: bomb handed on
+  splash: 'sfx/0165/20.mp3',
+  /** MANIC PANIC bolt (bank 0447): 0x3fa appears, 0x48e taken, 0x48f lands / explodes, 0x490-0x493 hits a bear */
+  boltSpawn: 'sfx/0158/9.mp3', boltGrab: 'sfx/0158/48.mp3', boltLand: 'sfx/0159/48.mp3', boltHit: 'sfx/0447/23.mp3',
 };
+/** each level's id bank (the id -> tone table, and so the pitches, differ per level) */
+const PO_BANK: Record<string, string> = { tilt: '0450', polar: '0451', melt: '0448', manic: '0447' };
+const pick = <T,>(a: T[]): T | undefined => (a.length ? a[Math.floor(Math.random() * a.length)] : undefined);
 
-/** Stand-in polar bear (white body, head, ears) with the character riding on top. */
-function makeBear(): THREE.Group {
-  const g = new THREE.Group();
-  const white = new THREE.MeshStandardMaterial({ color: 0xf4f8ff, roughness: 0.9 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x1b1220 });
-  const body = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14).scale(0.7, 0.55, 1.0), white);
-  body.position.y = 0.6;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 12), white);
-  head.position.set(0, 0.75, 0.95);
-  const snout = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8).scale(1, 0.8, 1.2), white);
-  snout.position.set(0, 0.68, 1.3);
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), dark);
-  nose.position.set(0, 0.74, 1.5);
-  g.add(body, head, snout, nose);
-  for (const x of [-1, 1]) {
-    const ear = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), white);
-    ear.position.set(x * 0.28, 1.1, 0.85);
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), dark);
-    eye.position.set(x * 0.16, 0.9, 1.28);
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, 0.4, 10), white);
-    leg.position.set(x * 0.45, 0.2, 0.55);
-    const leg2 = leg.clone(); leg2.position.z = -0.55;
-    g.add(ear, eye, leg, leg2);
+/** Sim world -> view world: mirror z (and facing) so the PS1 stage and camera map exactly. */
+function mirrorBody(b: Body): Body { return { ...b, z: -b.z, vz: -b.vz, face: Math.PI - b.face }; }
+function mirrorWorld(w: RenderWorld): RenderWorld { return { ...w, bodies: w.bodies.map(mirrorBody) }; }
+
+/** A prop's mesh as a lean template (only the visible part), cloned per use. */
+const templates = new Map<string, THREE.Object3D | null>();
+function propClone(name: string): THREE.Object3D {
+  let t = templates.get(name);
+  if (t === undefined) {
+    const inst = catalogInstance(getCatalog().props[name]);
+    t = inst ? inst.root : null;
+    if (t) { const drop: THREE.Object3D[] = []; t.traverse((o) => { if ((o as THREE.Mesh).isMesh && !o.visible) drop.push(o); }); for (const o of drop) o.removeFromParent(); }
+    templates.set(name, t);
   }
-  return g;
+  return t ? t.clone() : new THREE.Group();
 }
 
-interface Bar { bg: THREE.Sprite; fg: THREE.Sprite }
-
-/** POLAR PANIC's rim: a ring of chunky ice blocks around the platform (the disc stores it as animated tiles we cannot place). */
-function iceRim(): THREE.Group {
-  const g = new THREE.Group();
-  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const n = 30;
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    const h = 0.55 + rnd() * 0.5, w = 1.5 + rnd() * 0.5;
-    const geo = new THREE.BoxGeometry(w, h, 0.9);
-    const pos = geo.attributes.position, col: number[] = [];
-    const t = 0.4 + rnd() * 0.3;
-    for (let k = 0; k < pos.count; k++) { const top = pos.getY(k) > 0; const c = top ? t * 1.15 : t * 0.7; col.push(c * 0.92, c * 0.97, Math.min(1, c)); }
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    // squash the top edge in so each block reads as a chunk of ice, not a crate
-    for (let k = 0; k < pos.count; k++) if (pos.getY(k) > 0) pos.setXYZ(k, pos.getX(k) * 0.7, pos.getY(k), pos.getZ(k) * 0.6);
-    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true }));
-    m.position.set(Math.sin(a) * (PO_RADIUS + 0.2), h * 0.5 - 0.05, Math.cos(a) * (PO_RADIUS + 0.2));
-    m.rotation.set((rnd() - 0.5) * 0.2, a + (rnd() - 0.5) * 0.25, (rnd() - 0.5) * 0.2);
-    g.add(m);
-  }
-  return g;
-}
+/** frame of the dash voice in each character's dash script (L18 RAM), per CHARACTERS index */
+const DASH_VOICE_FRAME = [16, 15, 24, 17, 31, 31, 17, 13];
 
 export function createPushOffView(): ClientMiniGame {
   let kit: Kit;
   let loaded = false;
   let platform: THREE.Group;
-  let edgeRing: THREE.Mesh;
-  let water: THREE.Mesh | null = null;
-  let backdrop: THREE.Group;
-  let beamObj: THREE.Group;
-  const bolts = new Map<number, THREE.Mesh>();
-  const bars = new Map<number, Bar>();
-  const weights = new Map<number, THREE.Object3D>();
+  let stage: THREE.Group | null = null;
+  let drone: THREE.Object3D;
+  let beam: THREE.Object3D;
+  let seal: { obj: THREE.Group; inst: ReturnType<typeof catalogInstance> } | null = null;
+  const bolts = new Map<number, THREE.Group>();
+  /** knocked-off bears (object 0x1611): the MANIC level model's animated part4, clip 0 frames 0-6 then held (script 0x800d569c) */
+  const flyBears = new Map<number, { inst: ModelInstance; t: number }>();
   const splashed = new Set<number>();
-  const hangText = new Map<number, number>();
-  let chipT = 0, meltCue = false;
   let variant = 'tilt';
   let tilt: [number, number] = [0, 0];
-  let bgColor = new THREE.Color(0);
-  let bgTex: THREE.CanvasTexture | null = null;
   const up = new THREE.Vector3(0, 1, 0);
-
-  function setCamera(cam: THREE.PerspectiveCamera) {
-    const C = PO_CAMS[variant] ?? PO_CAMS.tilt;
-    const a = cam.aspect, t0 = Math.tan((C.fov * Math.PI) / 360);
-    cam.fov = a < 4 / 3 ? (2 * Math.atan((t0 * (4 / 3)) / a) * 180) / Math.PI : C.fov;
-    cam.updateProjectionMatrix();
-    cam.projectionMatrix.elements[0] *= C.sx; // the PS1 projection is wider than tall: real x-stretch
-    cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
-    cam.position.set(C.x, C.y, C.z);
-    cam.lookAt(C.x, C.y - Math.sin(C.pitch) * 10, C.z - Math.cos(C.pitch) * 10);
-  }
+  let follow: Ps1Follow | null = null;
+  interface Piece { obj: THREE.Object3D; t: number; life: number; v: THREE.Vector3; g: number; frames?: THREE.Object3D[] }
+  const pieces: Piece[] = [];
+  const billboards = new Set<THREE.Object3D>();
+  const sectors: THREE.Object3D[] = [];
+  /** POLAR pillars: the placed stage holder of each sim pillar (same PS1 position), hidden once it breaks */
+  let pillarObjs: (THREE.Object3D | null)[] = [];
 
   function buildStage() {
     const R = kit.root;
-    if (backdrop) { R.remove(backdrop); disposeTree(backdrop); }
-    if (water) { R.remove(water); water = null; }
-    if (platform) { R.remove(platform); disposeTree(platform); }
-    backdrop = new THREE.Group();
-    const cat = getCatalog();
-    const arena = catalogInstance(cat.arenas['pushOff:' + KEY[variant]]);
-    if (arena) backdrop.add(arena.root);
-    R.add(backdrop);
-    platform = new THREE.Group();
-    const plat = catalogInstance(cat.props[PLAT[variant]]);
-    if (plat) platform.add(plat.root);
-    if (variant === 'polar') platform.add(iceRim());
-    edgeRing = new THREE.Mesh(new THREE.RingGeometry(0.93 * PO_RADIUS, PO_RADIUS, 80).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff5a4f, transparent: true, opacity: 0, depthWrite: false }));
-    edgeRing.position.y = 0.05;
-    platform.add(edgeRing);
-    R.add(platform);
-    if (!arena) {
-      // model not loaded yet (preload still running): plain sea so the level is never blank
-      water = new THREE.Mesh(new THREE.PlaneGeometry(140, 140).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x1b5a8c }));
-      water.position.y = WATER[variant];
-      R.add(water);
+    if (stage) R.remove(stage);
+    if (platform) R.remove(platform);
+    const pl = placements.get(variant) ?? null;
+    const ref = stageRef(variant);
+    const plat = PLATFORM[variant] ?? [];
+    const make = (r: ModelRef) => catalogInstance(r)?.root ?? null;
+    stage = levelStage(ref, pl, make, { skip: plat }) ?? new THREE.Group();
+    R.add(stage);
+    pillarObjs = [];
+    if (variant === 'polar') {
+      const held: THREE.Object3D[] = [];
+      stage.traverse((o) => { if (o.userData.ps1) held.push(o); });
+      pillarObjs = POLAR_PILLARS.map(([x, z]) => held.find((h) => h.userData.ps1[0] === x && h.userData.ps1[2] === z) ?? null);
     }
-    // power-up beam column (Uka Uka's beam)
-    beamObj = new THREE.Group();
-    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 9, 20, 1, true), new THREE.MeshBasicMaterial({ color: 0xff7ad0, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }));
-    col.position.y = 4.5;
-    const base = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.15, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }));
-    base.position.y = 0.05;
-    beamObj.add(col, base);
-    beamObj.visible = false;
-    R.add(beamObj);
+    platform = new THREE.Group();
+    sectors.length = 0;
+    if (variant === 'melt') {
+      // sector i spans angles i*256 + 0x7d .. (sectorOf): the wedge points along PS1 +z, so it turns by -(centre angle)
+      for (let i = 0; i < 16; i++) {
+        const w = propClone('poMeltSector');
+        w.rotation.y = (-(i * 256 + 0x7d + 128) * Math.PI * 2) / 4096;
+        platform.add(w);
+        sectors.push(w);
+      }
+    } else {
+      const ice = pl ? levelStage(ref, { ...pl, objects: pl.objects.filter((o) => plat.includes(o.part)) }, make) : null;
+      if (ice) platform.add(ice);
+    }
+    R.add(platform);
+    drone = propClone('poDrone');
+    drone.visible = false;
+    beam = propClone('poBeam');
+    beam.visible = false;
+    R.add(drone, beam);
+    seal = null;
+    if (variant === 'tilt') {
+      const inst = catalogInstance(getCatalog().props.poSeal);
+      const obj = new THREE.Group();
+      if (inst) obj.add(inst.root);
+      obj.visible = false;
+      R.add(obj);
+      seal = { obj, inst };
+    }
   }
 
   function bearParts(slot: number): ActorParts {
     const inst = createCharacter(kit.look(slot), { variant: 'polarBear', ring: false });
-    if (usedVariant(inst)) {
-      const r = new THREE.Mesh(new THREE.RingGeometry(1.25, 1.42, 36).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: new THREE.Color(kit.hex(slot)), transparent: true, opacity: 0.9, depthWrite: false }));
-      r.position.y = 0.03;
-      return { inst, extra: r, shadow: 1.6, scale: 2.0, headY: 1.5 };
-    }
-    // stand-in: bear body + character riding on its back
-    inst.root.position.set(0, 0.95, -0.05);
-    inst.root.scale.setScalar(0.6);
-    const hex = kit.hex(slot);
-    const bear = makeBear();
-    const ring = new THREE.Mesh(new THREE.RingGeometry(1.05, 1.18, 36).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: new THREE.Color(hex), transparent: true, opacity: 0.9, depthWrite: false }));
-    ring.position.y = 0.03;
-    bear.add(ring);
-    return { inst, extra: bear, shadow: 1.1, scale: 1.0, headY: 2.0 };
+    const sc = inst.ref?.scale;
+    return { inst, shadow: 1.6, scale: sc ? S / sc : 1, headY: 1.5 };
   }
 
-  function bar(slot: number): Bar {
-    let b = bars.get(slot);
-    if (!b) {
-      const mk = (c: number) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ color: c, depthTest: false, transparent: true })); s.renderOrder = 44; kit.root.add(s); return s; };
-      b = { bg: mk(0x14101c), fg: mk(0x5ad0ff) };
-      b.fg.renderOrder = 45;
-      bars.set(slot, b);
+  function footParts(slot: number): ActorParts {
+    const look = kit.look(slot);
+    const inst = createCharacter(look, { ring: false });
+    return { inst, shadow: 1, scale: nativeCharScale(look, S), headY: 1.1 };
+  }
+
+  function piece(names: string[], x: number, y: number, z: number, life: number, v = new THREE.Vector3(), g = 0, bill = true) {
+    const obj = new THREE.Group();
+    const frames = names.map((n) => { const f = propClone(n); obj.add(f); return f; });
+    frames.forEach((f, i) => (f.visible = i === 0));
+    obj.position.set(x, y, z);
+    if (bill) billboards.add(obj);
+    kit.root.add(obj);
+    pieces.push({ obj, t: 0, life, v, g, frames: frames.length > 1 ? frames : undefined });
+  }
+  const SMOKE = Array.from({ length: 16 }, (_, i) => `poSmoke${i}`);
+  const smoke = (x: number, y: number, z: number) => piece(SMOKE, x, y, z, 0.55);
+  function chunks(x: number, y: number, z: number, n: number) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 2.5;
+      piece([`poChunk${i % 9}`], x, y, z, 0.9, new THREE.Vector3(Math.cos(a) * sp, 3 + Math.random() * 3, Math.sin(a) * sp), 12, false);
     }
-    return b;
+  }
+  function stepPieces(dt: number) {
+    for (let i = pieces.length - 1; i >= 0; i--) {
+      const p = pieces[i];
+      p.t += dt;
+      p.v.y -= p.g * dt;
+      p.obj.position.addScaledVector(p.v, dt);
+      if (p.g) p.obj.rotation.x += dt * 6;
+      if (p.frames) { const f = Math.min(p.frames.length - 1, Math.floor((p.t / p.life) * p.frames.length)); p.frames.forEach((o, j) => (o.visible = j === f)); }
+      if (p.t >= p.life) { kit.root.remove(p.obj); billboards.delete(p.obj); pieces.splice(i, 1); }
+    }
   }
 
   return {
     id: 'pushOff',
-    async preload() { await preloadCatalogFor('pushOff', ['polarBear', 'weight', ...Object.values(PLAT)]); loaded = true; },
+    async preload() {
+      await Promise.all([preloadCatalogFor('pushOff', ['poMeltSector', 'polarBear', 'poDrone', 'poBeam', 'poSeal', 'poSmoke0', 'poBolt0']), ...Object.entries(LEVEL_ID).map(async ([v, l]) => placements.set(v, await loadPlacements('L' + l)))]);
+      loaded = true;
+    },
 
     init(ctx, world) {
       variant = world.data.variant ?? 'tilt';
-      bgColor = new THREE.Color(BG[variant] ?? 0);
-      bgTex = variant === 'tilt' ? skyGradient() : null;
       kit = new Kit(ctx, 'pushOff', { bg: BG[variant] ?? 0, hemi: [0xe4f3ff, 0x3a5a7a, 1.6] });
-      splashed.clear(); bolts.clear(); bars.clear(); weights.clear(); hangText.clear();
-      chipT = 0; meltCue = false; tilt = [0, 0];
+      splashed.clear(); bolts.clear(); flyBears.clear(); pieces.length = 0; billboards.clear();
+      tilt = [0, 0];
+      follow = null;
       buildStage();
-      setCamera(ctx.camera);
+      applyPose(ctx.camera, (follow = new Ps1Follow(TRACK_CAMS[LEVEL_ID[variant] ?? 18], stageRef(variant))).step(0, []));
       if (!loaded) this.preload!().then(() => { if (kit) { kit.reset(); buildStage(); } });
     },
 
-    render(ctx, w, dt) {
+    render(ctx, w0, dt) {
+      const w = mirrorWorld(w0);
       kit.checkOver(w);
-      ctx.scene.background = bgTex ?? bgColor;
-      setCamera(ctx.camera);
       const d = w.data;
       const R: number = d.radius ?? PO_RADIUS;
       const k = R / PO_RADIUS;
-      tilt = d.tilt ?? [0, 0];
-      // platform scale + slope
-      platform.scale.set(k, 1, k);
-      const n = new THREE.Vector3(TILT_K * tilt[0], 1, TILT_K * tilt[1]).normalize();
-      platform.quaternion.setFromUnitVectors(up, n);
-      const shrinking = R < PO_RADIUS - 0.3 && R > 3.25;
-      const em = edgeRing.material as THREE.MeshBasicMaterial;
-      em.opacity = shrinking && !kit.over.done ? 0.5 + Math.sin(ctx.time * 8) * 0.3 : 0;
-      const surf = (x: number, z: number) => -TILT_K * (tilt[0] * x + tilt[1] * z);
-
-      if (shrinking && !meltCue) { meltCue = true; sfx.playFile(SND.level[variant], 0.6); }
-      if (shrinking && !kit.over.done) {
-        chipT -= dt;
-        if (chipT <= 0) {
-          chipT = 0.09;
-          const a = Math.random() * 6.28;
-          kit.fx.burst(Math.cos(a) * R, surf(Math.cos(a) * R, Math.sin(a) * R), Math.sin(a) * R, { shape: 'chip', color: 0xdff4ff, count: 2, speed: 1, size: 0.3, life: 0.9, gravity: 10, up: 0.5, vx: Math.cos(a) * 1.5, vz: Math.sin(a) * 1.5 });
-        }
-      }
+      const t0 = d.tiltRad?.[0] ?? 0, t1 = -(d.tiltRad?.[1] ?? 0); // z mirrored
+      tilt = [t0, t1];
+      const pil: [number, number, number][] | undefined = w0.data.pillars;
+      if (pil) pillarObjs.forEach((o, i) => { if (o) o.visible = (pil[i]?.[2] ?? 1) !== 0; });
+      if (sectors.length) sectors.forEach((o, i) => { const m = d.melt?.[i] ?? 0; o.visible = m < 0.99; o.position.y = -m * 0.8; });
+      else platform.scale.set(k, 1, k);
+      platform.quaternion.setFromUnitVectors(up, new THREE.Vector3(Math.tan(t0), 1, Math.tan(t1)).normalize());
+      const surf = (x: number, z: number) => -(Math.tan(tilt[0]) * x + Math.tan(tilt[1]) * z);
 
       const seen = new Set<number>();
       const seenBolts = new Set<number>();
-      let beam = false;
+      const tracked: Tracked[] = [];
+      let mask = false;
       for (const b of w.bodies) {
         if (b.kind === 'player') {
-          seen.add(b.id);
-          const a = kit.actor(b, () => bearParts(b.slot));
+          // MANIC: a bolt hit knocks the rider off the bear (data.foot): the character goes on alone
+          const onFoot = (w0.data.foot?.[b.slot] ?? 0) > 0;
+          const ab = onFoot ? { ...b, id: b.id + 100000 } : b;
+          seen.add(ab.id);
+          const a = kit.actor(ab, () => (onFoot ? footParts(b.slot) : bearParts(b.slot)));
           const hanging = (d.hang?.[b.slot] ?? 0) > 0 && !b.fall;
-          const under = b.y < WATER[variant] + 0.4;
-          if (b.fall && under && !splashed.has(b.id)) {
+          if (b.fall && b.y < WATER[variant] + 0.4 && !splashed.has(b.id)) {
             splashed.add(b.id);
-            kit.fx.splash(b.x, WATER[variant], b.z, 1.2);
+            smoke(b.x, WATER[variant] + 0.3, b.z);
             sfx.playFile(SND.splash, 0.5);
-            kit.shake(0.25);
           }
           const sf = b.fall || hanging ? 0 : surf(b.x, b.z);
-          const charging = b.dash > 0;
           a.update(b, dt, {
             hidden: !b.alive || b.y < WATER[variant] - 0.3,
-            hop: hanging ? -0.7 + Math.sin(ctx.time * 30) * 0.05 : sf,
+            hop: hanging ? -0.7 : sf,
             tumble: b.fall,
-            role: b.fall ? 'jump' : hanging ? 'hit' : kit.over.done ? undefined : charging ? 'push' : 'idle',
+            role: b.fall ? 'jump' : hanging ? 'hit' : kit.over.done ? undefined : b.dash > 0 ? 'push' : 'idle',
             freeze: false,
           });
+          // FUN_800bcc9c: a CPU's idle fidget, the level's own scripts (L18 RAM 0x800d3bb4 ...): pose 0x4000 + clip<<7 + frame
+          if (d.fid?.[b.slot] && !onFoot) {
+            const eng = DISC_CHARACTER[(ctx.seats[b.slot]?.look.char ?? 0) % 8];
+            const f = FIDGET[eng];
+            if (f) {
+              const st = (fidT[b.slot] ??= ctx.time);
+              const n = Math.floor((ctx.time - st) * 30);
+              a.inst.pose(f.clip, f.frames[f.loop ? n % f.frames.length : Math.min(n, f.frames.length - 1)]);
+            }
+          } else fidT[b.slot] = undefined;
           if (b.fall || hanging) a.shadow.visible = false;
-          // charge meter
-          if (!b.fall && b.alive && !kit.over.done) {
-            const m = Math.max(0, Math.min(1, d.meter?.[b.slot] ?? 0));
-            const br = bar(b.slot);
-            const y = b.y + a.headY + 0.1 + sf;
-            br.bg.position.set(b.x, y, b.z); br.bg.scale.set(1.1, 0.2, 1);
-            br.fg.scale.set(Math.max(0.001, 1.0 * m), 0.12, 1);
-            br.fg.position.set(b.x - 0.5 * (1 - m), y, b.z);
-            const zap = (d.zap?.[b.slot] ?? 0) > 0;
-            (br.fg.material as THREE.SpriteMaterial).color.set(zap ? 0xffe14a : m >= 0.4 ? 0x5ad0ff : 0xff6a5a);
-            br.bg.visible = br.fg.visible = true;
-            if (zap && Math.random() < dt * 20) kit.fx.sparks(b.x, b.y + 1, b.z, [0xffe14a, 0xffffff], 2, 3);
-          } else { const br = bars.get(b.slot); if (br) br.bg.visible = br.fg.visible = false; }
-          // weight curse
-          const wt = (d.weight?.[b.slot] ?? 0) > 0 && !b.fall && b.alive;
-          let wo = weights.get(b.slot);
-          if (wt && !wo) {
-            wo = propObject('weight', 0.9, () => { const g = new THREE.Group(); const m = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.55, 0.7, 12), new THREE.MeshStandardMaterial({ color: 0x3a3a4a, metalness: 0.5, roughness: 0.4 })); m.position.y = 0.35; g.add(m); return g; }, 'height');
-            kit.root.add(wo);
-            weights.set(b.slot, wo);
+          a.holder.scale.setScalar(d.scale?.[b.slot] ?? 1); // Uka shrink (0.625) / grow (1.5)
+          if (b.alive && !b.fall) tracked.push({ pos: new THREE.Vector3(b.x, b.y, b.z), face: b.face });
+        } else if (b.kind === 'seal' && seal) {
+          seal.obj.visible = b.alive;
+          seal.obj.position.set(b.x, surf(b.x, b.z) + b.y, b.z); // y: the jump out of the water (0x400 below the ice at the start)
+          seal.obj.rotation.y = b.face;
+          seal.inst?.play('run');
+          seal.inst?.update(dt);
+        } else if (b.kind === 'mask') {
+          mask = true;
+          drone.position.set(b.x, 2.6, b.z);
+          drone.rotation.y += dt * 2;
+          beam.visible = (d.beam ?? 0) > 0;
+          if (beam.visible) beam.position.set(b.x, surf(b.x, b.z), b.z);
+        } else if (b.kind === 'flybear') {
+          seenBolts.add(b.id);
+          let fb = flyBears.get(b.id);
+          if (!fb) {
+            const inst = new ModelInstance({ model: LEVEL_MODEL.manic, scale: S, parts: ['part4'] });
+            if (inst.build()) { inst.root.userData.shared = true; kit.root.add(inst.root); }
+            fb = { inst, t: 0 }; flyBears.set(b.id, fb);
           }
-          if (wo) { wo.visible = wt; wo.position.set(b.x, b.y + a.headY + 0.45 + sf, b.z); }
-          if (hanging && b.slot === ctx.mySlot) {
-            const t = (hangText.get(b.slot) ?? 0) - dt;
-            if (t <= 0) { hangText.set(b.slot, 0.6); kit.fx.text(b.x, 2.4, b.z, 'MASH A!', { color: '#ff6a5a', size: 1.1, life: 0.7 }); } else hangText.set(b.slot, t);
-          }
-        } else if (b.kind === 'beam') {
-          beam = true;
-          beamObj.position.set(b.x, surf(b.x, b.z), b.z);
-          beamObj.rotation.y += dt * 2;
-          beamObj.scale.set(1 + Math.sin(ctx.time * 8) * 0.05, 1, 1 + Math.sin(ctx.time * 8) * 0.05);
+          fb.t += dt * 30;
+          fb.inst.pose(0, Math.min(6, fb.t));
+          fb.inst.root.position.set(b.x, surf(b.x, b.z) + b.y, b.z);
+          fb.inst.root.rotation.y = Math.PI - b.face; // b.face = yaw + 0x800 (faceOf); a raw model at game yaw a turns by -a
         } else if (b.kind === 'bolt') {
           seenBolts.add(b.id);
           let m = bolts.get(b.id);
-          if (!m) {
-            m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 36).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff3a5a, transparent: true, opacity: 0.8, depthWrite: false }));
-            m.add(new THREE.Mesh(new THREE.CircleGeometry(0.85, 36).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff3a5a, transparent: true, opacity: 0.25, depthWrite: false })));
-            kit.root.add(m);
-            bolts.set(b.id, m);
-          }
-          m.position.set(b.x, surf(b.x, b.z) + 0.06, b.z);
-          m.scale.setScalar(b.r * (0.8 + 0.2 * Math.sin(ctx.time * 20)));
+          if (!m) { m = new THREE.Group(); for (let i = 0; i < 4; i++) m.add(propClone(`poBolt${i}`)); kit.root.add(m); bolts.set(b.id, m); }
+          m.position.set(b.x, surf(b.x, b.z) + b.y, b.z); // y: carried above the head / thrown arc
+          const f = Math.floor(ctx.time * 20) % 4;
+          m.children.forEach((c, i) => (c.visible = i === f));
+          m.quaternion.copy(ctx.camera.quaternion);
         }
       }
-      beamObj.visible = beam;
+      drone.visible = mask;
+      if (!mask) beam.visible = false;
       kit.prune(seen);
-      for (const [id, m] of bolts) if (!seenBolts.has(id)) { kit.root.remove(m); disposeTree(m); bolts.delete(id); }
+      for (const [id, m] of bolts) if (!seenBolts.has(id)) { kit.root.remove(m); bolts.delete(id); }
+      for (const [id, f] of flyBears) if (!seenBolts.has(id)) { kit.root.remove(f.inst.root); flyBears.delete(id); }
+      stepPieces(dt);
+      for (const o of billboards) o.quaternion.copy(ctx.camera.quaternion);
+      if (follow) applyPose(ctx.camera, follow.step(dt, tracked));
       kit.fx.update(dt);
     },
 
-    onEvent(ctx, e) {
+    onEvent(ctx, e0) {
       if (!kit) return;
-      const fx = kit.fx;
-      if (kit.baseEvent(e)) return;
-      switch (e.k) {
-        case 'hit': {
-          fx.sparks(e.x, 0.8, e.z, [0xffffff, 0xbfe9ff], 14, 6);
-          fx.stars(e.x, 1.4, e.z, 5);
-          fx.ring(e.x, e.z, { color: 0xffffff, radius: 2.8, life: 0.45 });
-          fx.text(e.x, 2.5, e.z, 'BONK!', { color: '#ffe14a', size: 1.2 });
-          kit.actorForSlot(e.s)?.hit(e.v);
-          sfx.playFile(SND.hit, 0.7);
-          kit.actorForSlot(e.o)?.squash.kick(0.35);
-          kit.shake(0.3 + e.v * 0.25);
-          break;
-        }
-        case 'ko':
-          fx.burst(e.x, 0.6, e.z, { shape: 'soft', color: [0xffffff, 0xbfe9ff], count: 14, speed: 4, size: 0.5, life: 0.7, up: 4 });
-          fx.text(e.x, 2.4, e.z, 'AAAH!', { color: '#ff6a5a', size: 1.3, life: 1.3 });
-          sfx.playFile(SND.ko, 0.7);
-          kit.shake(0.35);
-          break;
-        case 'hang':
-          fx.text(e.x, 2.2, e.z, 'HELP!', { color: '#ffb040', size: 1.1, life: 1 });
-          sfx.playFile(SND.level[variant], 0.4);
-          fx.sparks(e.x, 0.4, e.z, 0xffffff, 6, 3);
-          break;
-        case 'climb':
-          fx.stars(e.x, 0.8, e.z, 6);
-          sfx.playFile(SND.climb, 0.6);
-          fx.ring(e.x, e.z, { color: 0xffffff, radius: 2, life: 0.4 });
-          break;
-        case 'pickup': {
-          const zap = e.v === 1;
-          sfx.playFile(SND.pickup, 0.7);
-          fx.stars(e.x, 1.2, e.z, 12, zap ? [0xffe14a, 0xffffff] : [0xb070ff, 0xffffff]);
-          fx.text(e.x, 2.6, e.z, zap ? 'LIGHTNING!' : 'WEIGHT!', { color: zap ? '#ffe14a' : '#c090ff', size: 1.1, life: 1.2 });
-          fx.ring(e.x, e.z, { color: zap ? 0xffe14a : 0xb070ff, radius: 3, life: 0.5 });
-          break;
-        }
-        case 'weight':
-          fx.text(e.x, 2.6, e.z, 'WEIGHT!', { color: '#c090ff', size: 1.0, life: 1 });
-          break;
-        case 'bolt':
-          break;
-        case 'strike': {
-          fx.burst(e.x, 1, e.z, { shape: 'soft', color: [0xffffff, 0xff5a8a, 0xffe14a], count: 24, speed: 7, size: 0.8, life: 0.5, up: 4 });
-          fx.sparks(e.x, 0.8, e.z, [0xffe14a, 0xffffff], 22, 9);
-          fx.ring(e.x, e.z, { color: 0xff5a8a, radius: e.v * 1.6, life: 0.5 });
-          kit.shake(0.55);
-          sfx.playFile(SND.strike, 0.8);
-          break;
+      const e: GameEvent = { ...e0, z: -e0.z };
+      if (e.k === 'dash') { // dash clip 0x3e: `0x8008 block*0x32+0x18` at a per-character frame (engine 8 = Koala Kong also 0x16 at 2)
+        const c = ctx.seats[e.s]?.look.char;
+        if (c != null) {
+          charVoice('b', c, 0x18, DASH_VOICE_FRAME[c % DASH_VOICE_FRAME.length]);
+          if (CHARACTERS[c % CHARACTERS.length]?.id === 'koala') charVoice('b', c, 0x16, 2);
         }
       }
+      if (kit.baseEvent(e)) return;
+      switch (e.k) {
+        case 'thump': { // 0x446-0x449 (TILT PANIC bank only)
+          const l = SND.thump[variant] ?? [], i = Math.floor(Math.random() * l.length), f = l[i], rate = sfxRate(PO_BANK[variant], 0x446 + i);
+          if (f) sfx.playFile(f, 0.6, false, rate);
+          break;
+        }
+        case 'hit': // collision at speed^2 > 0x1000: hit voice rand(4) of 0x8009e080 (the sim's ri(w, 4))
+          kit.actorForSlot(e.s)?.hit(e.v);
+          hitVoice('b', ctx.seats[e.s]?.look.char);
+          break;
+        case 'skid': { // entering idle at speed > 32
+          const l = SND.skid[variant] ?? [], i = Math.floor(Math.random() * l.length), f = l[i], rate = sfxRate(PO_BANK[variant], 0x456 + i);
+          if (f) sfx.playFile(f, 0.45, false, rate);
+          break;
+        }
+        case 'hang': // state 0x4e: anim 0x3d + sfx 0x45c
+          sfx.playFile(SND.slip, 0.6);
+          break;
+        case 'pickup': // v: 1 shrink, 2 grow, 3 bomb, 4 freeze
+          sfx.playFile(e.v === 1 ? SND.shrink : e.v === 4 ? SND.freeze : e.v === 3 ? SND.bomb : SND.mask, 0.7);
+          break;
+        case 'beam': case 'zap': // mask beams an item down (0x44c) / zap goes off (0x466)
+          sfx.playFile(SND.mask, 0.6);
+          break;
+        case 'bomb': // bomb handed on (0x454)
+          sfx.playFile(SND.pass, 0.7);
+          break;
+        case 'boom':
+          sfx.playFile(SND.boom, 0.8);
+          smoke(e.x, 1, e.z);
+          kit.shake(0.4);
+          break;
+        case 'melt': // the mask melts a sector (0x44c)
+          sfx.playFile(SND.mask, 0.5);
+          chunks(e.x, 0.3, e.z, 6);
+          break;
+        case 'pillar':
+          chunks(e.x, 0.8, e.z, 8);
+          break;
+        case 'strike': // the thrown bolt lands / explodes (0x48f)
+          sfx.playFile(SND.boltLand, 0.7);
+          smoke(e.x, 0.6, e.z);
+          kit.shake(0.4);
+          break;
+        case 'bolt': sfx.playFile(SND.boltSpawn, 0.5); break; // a bolt appears on the ice (0x3fa)
+        case 'grab': sfx.playFile(SND.boltGrab, 0.6); break; // a bear takes it (0x48e)
+        case 'zapped': // hit by a bolt (0x490-0x493): v 1 = knocked off the bear, 2 = out
+          sfx.playFile(SND.boltHit, 0.8);
+          kit.actorForSlot(e.s)?.hit(1.5);
+          break;
+      }
+      void ctx;
+    },
+
+    /** Real HUD (as Crate Crush): face, orange arrow and the push meter per player, clock in the middle. */
+    ps1Hud(w, ctx) {
+      const out: HudSprite[] = [];
+      SLOT_X.forEach((x, slot) => {
+        const seat = ctx.seats[slot];
+        if (!seat) return;
+        const id = CHARACTERS[seat.look.char % CHARACTERS.length].id;
+        out.push({ tex: hudTex(HUD.face[id] ?? 3), x, y: 10, w: 64, h: 40 });
+        const m = Math.max(0, Math.min(1, w.data.meter?.[slot] ?? 0));
+        const g = Math.round(52 * m);
+        out.push({ tex: `${ASSET_BASE}hud/barR.png`, x: x + 16, y: 39, w: 52, h: 6 });
+        if (g > 0) out.push({ tex: `${ASSET_BASE}hud/barG.png`, x: x + 16, y: 39, w: g, h: 6 });
+        out.push({ tex: hudTex(33), x: x - 8, y: 33, w: 24, h: 18 });
+      });
+      out.push(...bigClock((getGame('pushOff')?.maxTime ?? 90) - w.time, Math.floor(w.time * 2) % 2 === 1));
+      return out;
     },
 
     hud(w, slot) {
       const p = w.bodies.find((b) => b.kind === 'player' && b.slot === slot);
       if (!p || p.fall || !p.alive) return 'OUT';
-      const d = w.data;
-      const m = Math.round((d.meter?.[slot] ?? 0) * 100);
-      return `${(d.zap?.[slot] ?? 0) > 0 ? '⚡ ' : ''}${(d.weight?.[slot] ?? 0) > 0 ? '⚓ ' : ''}${(d.hang?.[slot] ?? 0) > 0 ? 'HANGING' : `${m}%`}`;
+      return `${Math.round((w.data.meter?.[slot] ?? 0) * 100)}%`;
     },
 
     dispose() {
       for (const m of bolts.values()) kit.root.remove(m);
-      bgTex?.dispose();
-      for (const b of bars.values()) { kit.root.remove(b.bg); kit.root.remove(b.fg); b.bg.material.dispose(); b.fg.material.dispose(); }
-      for (const o of weights.values()) kit.root.remove(o);
-      bolts.clear(); bars.clear(); weights.clear(); splashed.clear(); hangText.clear();
+      bolts.clear(); splashed.clear(); pieces.length = 0; billboards.clear();
       kit.dispose();
     },
   };

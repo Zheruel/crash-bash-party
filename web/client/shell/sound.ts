@@ -3,7 +3,7 @@ import { ASSET_BASE } from '../crash';
 type Wave = OscillatorType;
 
 interface MusicMeta { file: string; loopStart: number | null; loopEnd: number | null }
-interface AudioIndex { music: Record<string, MusicMeta>; sfx?: { ui?: { guesses?: Record<string, string> } } }
+interface AudioIndex { music: Record<string, MusicMeta>; sfx?: { ui?: { guesses?: Record<string, string> }; banks?: Record<string, { samples: { file?: string | null }[] }> } }
 
 export type Sfx =
   | 'click' | 'pop' | 'turn' | 'roll' | 'land' | 'step' | 'coin' | 'bad' | 'lucky' | 'chaos' | 'crystal'
@@ -38,11 +38,21 @@ class SoundSystem {
     this.index ??= fetch(ASSET_BASE + 'audio/index.json').then((r) => (r.ok ? (r.json() as Promise<AudioIndex>) : null)).catch(() => null);
     return this.index;
   }
+  /** Bank samples are de-duplicated on disc: 'sfx/<bank>/<n>.mp3' may live in another bank (audio/index.json). */
+  private async resolve(path: string): Promise<string | null> {
+    const m = /^sfx\/(\d{4})\/(\d+)\.mp3$/.exec(path);
+    if (!m) return path;
+    const idx = await this.loadIndex();
+    const smp = idx?.sfx?.banks?.[m[1]]?.samples?.[+m[2]];
+    if (!smp) return path;
+    return smp.file ?? null;
+  }
   private loadBuffer(path: string): Promise<AudioBuffer | null> {
     let p = this.buffers.get(path);
     if (!p) {
-      p = fetch(ASSET_BASE + 'audio/' + path)
-        .then((r) => (r.ok ? r.arrayBuffer() : null))
+      p = this.resolve(path)
+        .then((f) => (f ? fetch(ASSET_BASE + 'audio/' + f) : null))
+        .then((r) => (r && r.ok ? r.arrayBuffer() : null))
         .then((ab) => (ab && this.ctx ? this.ctx.decodeAudioData(ab) : null))
         .catch(() => null);
       this.buffers.set(path, p);
@@ -117,16 +127,20 @@ class SoundSystem {
     if (kind === 'sfx' && this.sfxBus) this.sfxBus.gain.value = this.vol.sfx;
   }
 
-  /** A short sample from the disc's sound banks (e.g. 'sfx/0272/9.mp3'). Returns false if it isn't loaded yet. */
-  playFile(path: string, vol = 0.8): boolean {
+  /**
+   * A short sample from the disc's sound banks (e.g. 'sfx/0272/9.mp3'). Returns false if it isn't loaded yet; with `late`
+   * it then plays as soon as it has loaded (one-off voices that should not be skipped the first time).
+   */
+  playFile(path: string, vol = 0.8, late = false, rate = 1): boolean {
     const c = this.ctx;
     if (!c || this.muted || !this.sfxBus) return false;
-    const p = this.buffers.get(path);
-    if (!p) { void this.loadBuffer(path); return false; }
+    let p = this.buffers.get(path);
+    if (!p) { const q = this.loadBuffer(path); if (!late) return false; p = q; }
     void p.then((b) => {
       if (!b || !this.sfxBus) return;
       const s = c.createBufferSource(), g = c.createGain();
       s.buffer = b; g.gain.value = vol;
+      if (rate !== 1) s.playbackRate.value = rate;
       s.connect(g).connect(this.sfxBus);
       s.start();
     });
@@ -246,3 +260,11 @@ class SoundSystem {
 }
 
 export const sfx = new SoundSystem();
+
+/**
+ * The game's pitch for a sound id: every effect keys note 60 against its VAB tone's centre + fine tune, and one sample
+ * often serves several ids at different pitches (tools/sfx_pitch.py -> assets/audio/pitch.json {bank: {id: rate}}).
+ */
+let pitchTable: Record<string, Record<string, number>> | null = null;
+void fetch(ASSET_BASE + 'audio/pitch.json').then((r) => (r.ok ? r.json() : null)).then((j) => { pitchTable = j; }).catch(() => {});
+export const sfxRate = (bank: string | undefined, id: number): number => (bank && pitchTable?.[bank]?.[String(id)]) || 1;

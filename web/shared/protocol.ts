@@ -33,7 +33,7 @@ export type C2S =
   | { t: 'emote'; id: number }
   | { t: 'rematch' }
   | { t: 'skip' } // host: skip the current waiting screen (wheel/intro/results)
-  | { t: 'input'; seq: number; x: number; y: number; a: boolean; b: boolean };
+  | { t: 'input'; seq: number; x: number; y: number; a: boolean; b: boolean; c?: boolean };
 
 export interface SeatInfo {
   name: string;

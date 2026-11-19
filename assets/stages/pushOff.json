@@ -1,5 +1,5 @@
 {
- "_notes": "POLAR PUSH levels 18-21 (cheat ids 0x12-0x15). TILT PANIC = 486 (t08 485): sea + icebergs; POLAR PANIC = 478 (t08 477): aurora; MELT PANIC = 474 (t08 473): crystal cave (platform not in file, reuses the 486 tile platform); MANIC PANIC = 466 (t08 467): canyon with Uka Uka beam. Platform pieces (486 extra_18e4+34e8, 478 extra_16b0+3a68, 466 extra_2338) are split into props so the view can tilt/shrink them. Scale 3.2 for all: platform half-width incl. jagged rim 2.5 native = PO_RADIUS 8.",
+ "_notes": "POLAR PUSH levels 18-21 (cheat ids 0x12-0x15). TILT PANIC = 486 (t08 485): sea + icebergs; POLAR PANIC = 478 (t08 477): aurora; MELT PANIC = 474 (t08 473): crystal cave (platform not in file, reuses the 486 tile platform); MANIC PANIC = 466 (t08 467): canyon with Uka Uka beam. Platform pieces (486 extra_18e4+34e8, 478 extra_16b0+3a68, 466 extra_2338) are split into props so the view can tilt/shrink them. Scale 3.2 for all: platform half-width incl. jagged rim 2.5 native = PO_RADIUS 8. Objects (RAM of levels 18-21): 0403 shared props (18 item drone, 19-22 lightning, 23/25 bomb, 24 zap bolt, 26-41 smoke, 9-17 ice chunks, 46 shadow), 0456 (6 pink beam, 0 flash, 7 glow), TILT seal 0468 (4 clips), edge paws 0419.",
  "arenas": {
   "pushOff": {
    "model": 486,
@@ -146,6 +146,516 @@
     "extra_2338"
    ],
    "anims": {}
+  },
+  "poDrone": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part18"
+   ]
+  },
+  "poBomb": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part23"
+   ]
+  },
+  "poZap": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part24"
+   ]
+  },
+  "poShadow": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part46"
+   ]
+  },
+  "poBolt0": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part19"
+   ]
+  },
+  "poBolt1": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part20"
+   ]
+  },
+  "poBolt2": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part21"
+   ]
+  },
+  "poBolt3": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part22"
+   ]
+  },
+  "poSmoke0": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part26"
+   ]
+  },
+  "poSmoke1": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part27"
+   ]
+  },
+  "poSmoke2": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part28"
+   ]
+  },
+  "poSmoke3": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part29"
+   ]
+  },
+  "poSmoke4": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part30"
+   ]
+  },
+  "poSmoke5": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part31"
+   ]
+  },
+  "poSmoke6": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part32"
+   ]
+  },
+  "poSmoke7": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part33"
+   ]
+  },
+  "poSmoke8": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part34"
+   ]
+  },
+  "poSmoke9": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part35"
+   ]
+  },
+  "poSmoke10": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part36"
+   ]
+  },
+  "poSmoke11": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part37"
+   ]
+  },
+  "poSmoke12": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part38"
+   ]
+  },
+  "poSmoke13": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part39"
+   ]
+  },
+  "poSmoke14": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part40"
+   ]
+  },
+  "poSmoke15": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part41"
+   ]
+  },
+  "poChunk0": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part9"
+   ]
+  },
+  "poChunk1": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part10"
+   ]
+  },
+  "poChunk2": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part11"
+   ]
+  },
+  "poChunk3": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part12"
+   ]
+  },
+  "poChunk4": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part13"
+   ]
+  },
+  "poChunk5": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part14"
+   ]
+  },
+  "poChunk6": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part15"
+   ]
+  },
+  "poChunk7": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part16"
+   ]
+  },
+  "poChunk8": {
+   "model": 403,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part17"
+   ]
+  },
+  "poBeam": {
+   "model": 456,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part6"
+   ]
+  },
+  "poFlash": {
+   "model": 456,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ]
+  },
+  "poGlow": {
+   "model": 456,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part7"
+   ]
+  },
+  "poSeal": {
+   "model": 468,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "hit": 2,
+    "action": 3
+   }
+  },
+  "poPaw": {
+   "model": 419,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0
+   }
+  },
+  "poMeltSector": {
+   "model": 474,
+   "scale": 3.2,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part1"
+   ]
   }
  }
 }

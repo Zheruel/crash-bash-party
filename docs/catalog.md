@@ -89,7 +89,8 @@ Sky/backdrop is baked into each arena model (curved sky strips), so `extra` is e
 Warp rooms / hub (group 29, models 607-715 odd): 607 (storm tower), 609 (desert), 613 (purple dungeon), 615 (snow castle),
 617 (stone rotunda, used as `board`), 621 (green hill), 623 (stone ring), 629 (teal cave), 631 (canyon),
 633 (volcano), 635 (green slime), 637, 641. Title screen: 379-393 (logo + level collage, 379 = CRASH BASH logo).
-Podium: no true podium mesh found, `props.podium` = 135 (yellow-ringed pedestal disc, L); `props.logo` = 133.
+Podium (level 43, H): level model 379 = podium disc `extra_df8c` + machine `extra_eb1c`, sky `part6` / `part7`, pedestals `part11` / `part10` / `part8`,
+trophy `part9`; fireworks from pack 377; characters 744-758. See `assets/stages/podium.json`, `re/notes/podium.md`. `props.podium` = 135 and `props.logo` = 133 are not part of it.
 
 ## Props (`props[...]`)
 

@@ -27,7 +27,9 @@ export class ShowcaseScene implements Mode {
   readonly background = null;
   private lit = false;
   private slots: (Slot | null)[] = [];
-  private layout: 'title' | 'lobby' | 'between' = 'lobby';
+  private layout: 'title' | 'lobby' | 'between' | 'champ' = 'lobby';
+  /** round winner shown alone in the 'champ' layout */
+  private champ = -1;
   private viewX = 0.5;
   private viewY = 0.5;
   private az = 0;
@@ -42,6 +44,8 @@ export class ShowcaseScene implements Mode {
   }
 
   setLayout(l: 'title' | 'lobby' | 'between', fx = 0.5, fy = 0.5) { this.layout = l; this.viewX = fx; this.viewY = fy; this.place(); }
+  /** Round results on a wide screen: the winner alone, big, cheering on the left of the leaderboard. */
+  setChamp(slot: number) { this.layout = 'champ'; this.champ = slot; this.place(); this.react(slot); }
   setSpin(_on: boolean) { /* the camera orbits instead */ }
 
   /** null entries leave the seat empty. */
@@ -61,9 +65,7 @@ export class ShowcaseScene implements Mode {
       const hex = colorHex(l);
       const pad = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.25, 0.3, 24), padMaterials(hex));
       pad.position.y = -0.15;
-      const ring = teamRing(hex, 1.0);
-      ring.position.y = 0.02;
-      holder.add(pad, ring, body);
+      holder.add(pad, body);
       this.root.add(holder);
       this.slots[i] = { root: holder, body, mi, key, bounce: 0 };
     });
@@ -80,6 +82,8 @@ export class ShowcaseScene implements Mode {
   bounce(slot: number) { const s = this.slots[slot]; if (s) s.bounce = 1; }
 
   private place() {
+    this.slots.forEach((s, i) => s && (s.root.visible = this.layout !== 'champ' || i === this.champ));
+    if (this.layout === 'champ') { this.slots.forEach((s) => s && s.root.position.set(0, 0, 0)); return; }
     if (this.layout === 'title') { this.slots.forEach((s) => s && s.root.position.set(0, 0, 0)); return; }
     this.slots.forEach((s, i) => s && s.root.position.set((i - 1.5) * 2.6, 0, i % 2 ? -0.3 : 0.3));
   }
@@ -107,6 +111,14 @@ export class ShowcaseScene implements Mode {
       cam.updateProjectionMatrix();
       const w = innerWidth, h = innerHeight;
       cam.setViewOffset(w, h, (0.5 - this.viewX) * w, (0.5 - this.viewY) * h, w, h);
+    } else if (this.layout === 'champ') {
+      this.az = Math.sin(t * 0.3) * 0.35;
+      const dist = 9.5;
+      cam.position.set(Math.sin(this.az) * dist, 2.4, Math.cos(this.az) * dist);
+      cam.lookAt(0, 1.5, 0);
+      cam.updateProjectionMatrix();
+      const w = innerWidth, h = innerHeight;
+      cam.setViewOffset(w, h, (0.5 - 0.24) * w, (0.5 - 0.52) * h, w, h);
     } else {
       this.az = Math.sin(t * 0.18) * 0.5;
       const between = this.layout === 'between';

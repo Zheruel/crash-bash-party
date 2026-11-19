@@ -1,5 +1,5 @@
 {
- "_notes": "CRASH DASH (levels 23-26, group-29 stages 643 Dot / 639 Toxic / 641 Splash / 637 Dante, model units x3.4, origin = track centre, start line on +x, race runs clockwise seen from above). Parts are the static extra_* groups; the hazard frames (monster/trees/bats) and ground-level props are placed by the view. Kart models: 816-830 hover pods (Dot/Toxic/Dante), 800-814 sea creatures (Splash); order koala/rilla/dingodile/brio/tiny/cortex/coco/crash is 816+2i resp. 802,806,808,800,810,812,804,814.",
+ "_notes": "CRASH DASH (levels 23-26, group-29 stages 643 Dot / 639 Toxic / 641 Splash / 637 Dante, model units x3.4, origin = track centre, start line on +x, race runs clockwise seen from above). Parts are the static extra_* groups; the hazard frames (monster/trees/bats) and ground-level props are placed by the view. Kart models: 816-830 hover pods (Dot/Toxic/Dante), 800-814 sea creatures (Splash); order koala/rilla/dingodile/brio/tiny/cortex/coco/crash is 816+2i resp. 802,806,808,800,810,812,804,814. EFFECTS (played by realFx from the pack / level effect scripts, see re/notes/crashDash.md): exhaust flip-books dashRace.fx.boost* (0760 parts 40-55, object 0x170a), .smoke* (0403 parts 26,28-41, object 0x1709), .spray* (0760 parts 56-71, object 0x1711, Splash); missile trail 0760 script 0 (part 17) and explosion script 1 (parts 18-21); the level models' own scripts: 9 respawn burst, 5 Splash respawn, 8 shield ring, Dante 4/10/3/1 volcano, Toxic 10 spit. dashRace.missile = the real missile mesh (0760 part 16), not wired yet.",
  "arenas": {
   "dashRace": {
    "model": 643,
@@ -58,7 +58,7 @@
  "props": {
   "dashRace.kart.koala": {
    "model": 816,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -77,7 +77,7 @@
   },
   "dashRace.sea.koala": {
    "model": 802,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -96,7 +96,7 @@
   },
   "dashRace.kart.rilla": {
    "model": 820,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -115,7 +115,7 @@
   },
   "dashRace.sea.rilla": {
    "model": 806,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -134,7 +134,7 @@
   },
   "dashRace.kart.dingodile": {
    "model": 824,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -153,7 +153,7 @@
   },
   "dashRace.sea.dingodile": {
    "model": 808,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -172,7 +172,7 @@
   },
   "dashRace.kart.brio": {
    "model": 822,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -191,7 +191,7 @@
   },
   "dashRace.sea.brio": {
    "model": 800,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -210,7 +210,7 @@
   },
   "dashRace.kart.tiny": {
    "model": 826,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -229,7 +229,7 @@
   },
   "dashRace.sea.tiny": {
    "model": 810,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -248,7 +248,7 @@
   },
   "dashRace.kart.cortex": {
    "model": 828,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -267,7 +267,7 @@
   },
   "dashRace.sea.cortex": {
    "model": 812,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -286,7 +286,7 @@
   },
   "dashRace.kart.coco": {
    "model": 818,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -305,7 +305,7 @@
   },
   "dashRace.sea.coco": {
    "model": 804,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -324,7 +324,7 @@
   },
   "dashRace.kart.crash": {
    "model": 830,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -343,7 +343,7 @@
   },
   "dashRace.sea.crash": {
    "model": 814,
-   "scale": 2.8899999999999997,
+   "scale": 3.4,
    "offset": [
     0,
     0,
@@ -569,6 +569,834 @@
    "scale": 3.4,
    "parts": [
     "part30"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost0": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part40"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost1": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part41"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost2": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part42"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost3": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part43"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost4": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part44"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost5": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part45"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost6": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part46"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost7": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part47"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost8": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part48"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost9": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part49"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost10": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part50"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost11": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part51"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost12": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part52"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost13": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part53"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost14": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part54"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boost15": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part55"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray0": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part56"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray1": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part57"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray2": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part58"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray3": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part59"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray4": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part60"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray5": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part61"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray6": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part62"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray7": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part63"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray8": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part64"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray9": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part65"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray10": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part66"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray11": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part67"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray12": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part68"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray13": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part69"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray14": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part70"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.spray15": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part71"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke0": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part26"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke1": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part28"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke2": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part29"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke3": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part30"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke4": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part31"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke5": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part32"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke6": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part33"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke7": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part34"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke8": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part35"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke9": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part36"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke10": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part37"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke11": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part38"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke12": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part39"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke13": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part40"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.smoke14": {
+   "model": 403,
+   "scale": 3.4,
+   "parts": [
+    "part41"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.trail": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part17"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boomFlash": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part18"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boomSmoke": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part19"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boomSmoke2": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part20"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fx.boomSparks": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part21"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.missile": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part16"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit0": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part23"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit1": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part24"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit2": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part25"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit3": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part26"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit4": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part27"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit5": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part28"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit6": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part29"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit7": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part30"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit8": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part31"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit9": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part32"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit10": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part33"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit11": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part34"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit12": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part35"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.fruit13": {
+   "model": 736,
+   "scale": 3.4,
+   "parts": [
+    "part36"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.dante.rock": {
+   "model": 637,
+   "scale": 3.4,
+   "parts": [
+    "part24"
+   ],
+   "offset": [
+    0,
+    0,
+    0
+   ]
+  },
+  "dashRace.star": {
+   "model": 760,
+   "scale": 3.4,
+   "parts": [
+    "part22"
    ],
    "offset": [
     0,

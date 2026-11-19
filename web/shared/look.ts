@@ -17,6 +17,9 @@ export const CHARACTERS = [
   { id: 'rilla', name: 'Rilla Roo', blurb: 'Bouncy, bonkers, unstoppable' },
 ] as const;
 
+/** Roster index to disc character for movement tables and sounds. */
+export const DISC_CHARACTER = [1, 2, 5, 7, 3, 4, 8, 6] as const;
+
 export const COLORS = [
   { name: 'Tomato', hex: '#ff5a4f' },
   { name: 'Sky', hex: '#3fa7ff' },

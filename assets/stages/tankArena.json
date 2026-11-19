@@ -1,13 +1,13 @@
 {
- "_notes": "TANK WARS (levels 5-8). Stage models are in group 29: Metal Fox 689, Desert Fox 693, Jungle Fox 691 (the Swamp Fox stage model was not found among the extracted models, it is built procedurally by the view). Scale 2.6 = world units per model unit; offset centres the play field on the origin. Tank body 774 at 0.68 of the stage scale (the real tank is 0.63 model units wide); driver busts 880-894 are in catalog characters[].variants.tank.",
+ "_notes": "TANK WARS (levels 5-8). Stage models are in group 29: Metal Fox 689, Desert Fox 693, Jungle Fox 691 (the Swamp Fox stage model was not found among the extracted models, it is built procedurally by the view). Scale 2.6 = world units per model unit; offset centres the play field on the origin. Tank body 774 at 0.68 of the stage scale (the real tank is 0.63 model units wide); driver busts 880-894 are in catalog characters[].variants.tank. Offsets are exact: the sim maps game (x, z) to ((x - cx) k, -(z - cz) k), so the stage (level coords) sits at (-cx k, 0, cz k), k = 2.6/1024. Tanks (RAM of levels 5-8): 0784 = treads part5 (anim 0), turrets by weapon 8/9/10/11 = parts 8/9/10/11, mines parts 1-4 (per player), '?' crate part12, drum 18, missile 6, explosions 24+; swamp hover-tank 0774 part0; pilots = character 'tank' variants 0880-0894 (scale 2.6 = stage). EFFECTS (played by realFx from pack 0786's effect scripts, see re/notes/tankWars.md): taFx* are the parts those scripts use (muzzle flashes 6/7/8/15, shell ends 10-13, trails 2/17, lob hops 9/18, bomb throw 0 and blast 1, mine blast 16, crate break 3, wreck 14); taSmoke0-8 = pack 0784 parts 24-32, the 9-frame smoke puff (object 0x1306) where a shell ends on levels 6-8. Bomb pickup/shot: 0786 parts 11-18 (lit-fuse flip-book). Mine flames (L6/L8): 0784 parts 24-32 fire flip-book.",
  "arenas": {
   "tankArena": {
    "model": 689,
    "scale": 2.6,
    "offset": [
-    -0.676,
+    -5.85,
     0,
-    -0.65
+    4.55
    ],
    "parts": [
     "extra_2ab4",
@@ -20,9 +20,9 @@
    "model": 689,
    "scale": 2.6,
    "offset": [
-    -0.676,
+    -5.85,
     0,
-    -0.65
+    4.55
    ],
    "parts": [
     "extra_2ab4",
@@ -35,9 +35,9 @@
    "model": 693,
    "scale": 2.6,
    "offset": [
-    0.169,
+    -5.2,
     0,
-    -0.325
+    5.2
    ],
    "parts": [
     "extra_10a4",
@@ -50,9 +50,9 @@
    "model": 691,
    "scale": 2.6,
    "offset": [
-    -5.59,
+    -5.2,
     0,
-    5.46
+    5.2
    ],
    "parts": [
     "extra_12f8",
@@ -61,6 +61,23 @@
     "extra_3de0",
     "extra_4a24",
     "extra_4d38"
+   ]
+  },
+  "tankArena:swampFox": {
+   "model": 695,
+   "scale": 2.6,
+   "offset": [
+    -5.2,
+    0,
+    5.2
+   ],
+   "yaw": 0,
+   "parts": [
+    "extra_1340",
+    "extra_3974",
+    "extra_48ec",
+    "extra_4a1c",
+    "extra_4b58"
    ]
   }
  },
@@ -86,6 +103,1074 @@
     0,
     0,
     0
+   ]
+  },
+  "taTreads": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part5"
+   ],
+   "anims": {
+    "idle": 0,
+    "run": 0
+   }
+  },
+  "taTurret8": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part8"
+   ],
+   "anims": {
+    "idle": 2
+   }
+  },
+  "taTurret9": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part9"
+   ]
+  },
+  "taTurret10": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part10"
+   ]
+  },
+  "taTurret11": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part11"
+   ]
+  },
+  "taMine0": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part1"
+   ]
+  },
+  "taMine1": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part2"
+   ]
+  },
+  "taMine2": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part3"
+   ]
+  },
+  "taMine3": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part4"
+   ]
+  },
+  "taCrate": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part12"
+   ]
+  },
+  "taDrum": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part18"
+   ]
+  },
+  "taMissile": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part6"
+   ]
+  },
+  "taHover": {
+   "model": 774,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ],
+   "anims": {
+    "idle": 0,
+    "run": 1
+   }
+  },
+  "taSmoke0": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part24"
+   ]
+  },
+  "taSmoke1": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part25"
+   ]
+  },
+  "taSmoke2": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part26"
+   ]
+  },
+  "taSmoke3": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part27"
+   ]
+  },
+  "taSmoke4": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part28"
+   ]
+  },
+  "taSmoke5": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part29"
+   ]
+  },
+  "taSmoke6": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part30"
+   ]
+  },
+  "taSmoke7": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part31"
+   ]
+  },
+  "taSmoke8": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part32"
+   ]
+  },
+  "taFxFlash": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part4"
+   ]
+  },
+  "taFxGlow": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part5"
+   ]
+  },
+  "taFxSmoke": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part6"
+   ]
+  },
+  "taFxRing": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part10"
+   ]
+  },
+  "taFxFlash2": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part23"
+   ]
+  },
+  "taFxPuff": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part24"
+   ]
+  },
+  "taFxPuff2": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part25"
+   ]
+  },
+  "taFxBlast": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part27"
+   ]
+  },
+  "taFxRays": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part31"
+   ]
+  },
+  "taFxTrail": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part33"
+   ]
+  },
+  "taFxShard0": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part35"
+   ]
+  },
+  "taFxShard1": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part36"
+   ]
+  },
+  "taFxShard2": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part37"
+   ]
+  },
+  "taFxCrateSmoke": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part38"
+   ]
+  },
+  "taFxCrateSmoke2": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part39"
+   ]
+  },
+  "taFxStar": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part40"
+   ]
+  },
+  "taFxMuzzle": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part45"
+   ]
+  },
+  "taFxSpark": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part49"
+   ]
+  },
+  "taFxSpark2": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part52"
+   ]
+  },
+  "taFxDebris": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part54"
+   ]
+  },
+  "taFxMuzzle9": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part56"
+   ]
+  },
+  "taFxSplash": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part58"
+   ]
+  },
+  "taBomb0": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part11"
+   ]
+  },
+  "taBomb1": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part12"
+   ]
+  },
+  "taBomb2": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part13"
+   ]
+  },
+  "taBomb3": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part14"
+   ]
+  },
+  "taBomb4": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part15"
+   ]
+  },
+  "taBomb5": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part16"
+   ]
+  },
+  "taBomb6": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part17"
+   ]
+  },
+  "taBomb7": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part18"
+   ]
+  },
+  "taFlame0": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part24"
+   ]
+  },
+  "taFlame1": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part25"
+   ]
+  },
+  "taFlame2": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part26"
+   ]
+  },
+  "taFlame3": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part27"
+   ]
+  },
+  "taFlame4": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part28"
+   ]
+  },
+  "taFlame5": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part29"
+   ]
+  },
+  "taFlame6": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part30"
+   ]
+  },
+  "taFlame7": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part31"
+   ]
+  },
+  "taFlame8": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part32"
+   ]
+  },
+  "taDropper": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part13"
+   ],
+   "anims": {
+    "idle": 3,
+    "run": 3
+   }
+  },
+  "taDropperShadow": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part14"
+   ]
+  },
+  "taDrop": {
+   "model": 786,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part42"
+   ]
+  },
+  "taDouble": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part6"
+   ]
+  },
+  "taBombPick": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part11"
+   ]
+  },
+  "taMinePick": {
+   "model": 784,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part18"
+   ]
+  },
+  "taFruit0": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part23"
+   ]
+  },
+  "taFruit1": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part24"
+   ]
+  },
+  "taFruit2": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part25"
+   ]
+  },
+  "taFruit3": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part26"
+   ]
+  },
+  "taFruit4": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part27"
+   ]
+  },
+  "taFruit5": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part28"
+   ]
+  },
+  "taFruit6": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part29"
+   ]
+  },
+  "taFruit7": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part30"
+   ]
+  },
+  "taFruit8": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part31"
+   ]
+  },
+  "taFruit9": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part32"
+   ]
+  },
+  "taFruit10": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part33"
+   ]
+  },
+  "taFruit11": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part34"
+   ]
+  },
+  "taFruit12": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part35"
+   ]
+  },
+  "taFruit13": {
+   "model": 736,
+   "scale": 2.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part36"
    ]
   }
  }

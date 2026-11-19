@@ -1,5 +1,5 @@
 {
- "_notes": "Pogo Pandemonium = levels 10-13 (stage models 675, 671, 667, 663; alt/backdrop twins 673/669/665/661). Hole (8x8 tiles of 0.5 model units) is centred at the origin, scale 3.6 => tile 1.8. Tile-template quads and in-hole props are omitted via parts. Tile textures: 0674 (053-056 red/blue/green/yellow, 000 neutral), 0662 (038-041, 000).",
+ "_notes": "Pogo Pandemonium = levels 10-13 (stage models 675, 671, 667, 663; alt/backdrop twins 673/669/665/661). Hole (8x8 tiles of 0.5 model units) is centred at the origin, scale 3.6 => tile 1.8. Tile-template quads and in-hole props are omitted via parts. Tile textures: 0674 (053-056 red/blue/green/yellow, 000 neutral), 0662 (038-041, 000). EFFECTS (played by realFx from pack 0770's effect scripts, see re/notes/pogoPainter.md): tpBoom* = script 0 (projectile end / stun entry), tpPuff*/tpStar = script 1 (pickup), tpStunPuff = script 2 (every 4 frames while stunned), tpShard* = script 3 (the '!' crate breaks), tpDust* = script 4 (touchdown), tpBeam0-7 = beam segment frames (object 0x1405), tpBeamEnd/Spark = script 8; tpMine* = El Pogo Loco's mine blast (level model 0667 script 1). Cash-in number = HUD pack 0732 digits (object 0x1409).",
  "arenas": {
   "tilePainter": {
    "model": 675,
@@ -369,5 +369,357 @@
    ]
   }
  },
- "props": {}
+ "props": {
+  "tpBeam0": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part2"
+   ]
+  },
+  "tpBeam1": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part3"
+   ]
+  },
+  "tpBeam2": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part4"
+   ]
+  },
+  "tpBeam3": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part5"
+   ]
+  },
+  "tpBeam4": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part6"
+   ]
+  },
+  "tpBeam5": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part7"
+   ]
+  },
+  "tpBeam6": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part8"
+   ]
+  },
+  "tpBeam7": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part9"
+   ]
+  },
+  "tpBoomFlash": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part14"
+   ]
+  },
+  "tpBoomSmoke": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part15"
+   ]
+  },
+  "tpBoomSmoke2": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part16"
+   ]
+  },
+  "tpBoomSparks": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part17"
+   ]
+  },
+  "tpShard0": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part18"
+   ]
+  },
+  "tpShard1": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part19"
+   ]
+  },
+  "tpShard2": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part20"
+   ]
+  },
+  "tpPuff": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part21"
+   ]
+  },
+  "tpPuff2": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part22"
+   ]
+  },
+  "tpStunPuff": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part23"
+   ]
+  },
+  "tpStar": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part24"
+   ]
+  },
+  "tpDust": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part27"
+   ]
+  },
+  "tpDust2": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part28"
+   ]
+  },
+  "tpBeamEnd": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part36"
+   ]
+  },
+  "tpBeamSpark": {
+   "model": 770,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part37"
+   ]
+  },
+  "tpMineFlash": {
+   "model": 667,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ]
+  },
+  "tpMineGlow": {
+   "model": 667,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part1"
+   ]
+  },
+  "tpMineSmoke": {
+   "model": 667,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part2"
+   ]
+  },
+  "tpMineSmoke2": {
+   "model": 667,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part3"
+   ]
+  }
+ }
 }

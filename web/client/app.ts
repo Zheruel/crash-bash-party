@@ -4,7 +4,7 @@ import type { Phase, ResultsMsg, RoomState, RoundMsg, WheelMsg } from '../shared
 import { getGame } from '../shared/registry';
 import { DT, type World } from '../shared/types';
 import { preloadBoardTextures } from './scene/tex';
-import { PodiumScene } from './scene/podium';
+import { PodiumScene, preloadPodium } from './scene/podium';
 import { ShowcaseScene } from './scene/showcase';
 import { characterRefs, preloadCharacters } from './characters';
 import { getCatalog, ready } from './crash';
@@ -24,13 +24,19 @@ import { TouchControls } from './shell/touch';
 import { FinalOverlay } from './ui/final';
 import { $, div, esc } from './ui/dom';
 import { Hud, type SeatView } from './ui/hud';
+import { Ps1Hud } from './ui/ps1hud';
 import { LobbyScreen } from './ui/lobby';
-import { CountOverlay, IntroOverlay, ResultsOverlay, WheelOverlay } from './ui/overlays';
+import { thumb, CountOverlay, IntroOverlay, ResultsOverlay, WheelOverlay } from './ui/overlays';
+import { LoadingScreen } from './ui/loading';
+import { VortexBackdrop } from './ui/vortex';
+
+/** shortest LOADING screen, so a fast load still reads as a beat rather than a flicker */
+const LOADING_MIN_MS = 900;
 import { TitleScreen, type Profile } from './ui/title';
 import LOGO from './ui/img/logo.png';
 import { Stage } from './view';
 
-const FASTISH: Timing = { ...NORMAL_TIMING, intro: 1800, countdown: 1500, results: 4200, wheel: 3000, final: 18000, playCap: 5 };
+const FASTISH: Timing = { ...NORMAL_TIMING, intro: 1800, countdown: 1500, results: 4200, wheel: 3000, final: 32000, playCap: 5 };
 
 interface HostHandle { core: HostCore; peer: PeerHost | null }
 
@@ -39,6 +45,8 @@ export class App {
   private lan = this.params.get('lan') === '1';
   private fast = this.params.get('fast');
   private nopeer = this.params.get('nopeer') === '1';
+  /** ?game=ringDing,tankArena: only rotate through these mini-games */
+  private games = this.params.get('game')?.split(',').filter(Boolean);
   private stage!: Stage;
   private input = new InputManager();
   private touch!: TouchControls;
@@ -48,8 +56,11 @@ export class App {
   private title!: TitleScreen;
   private lobby!: LobbyScreen;
   private hud!: Hud;
+  private ps1hud!: Ps1Hud;
   private wheel = new WheelOverlay();
   private intro = new IntroOverlay();
+  /** the real LOADING vortex between the pick and the level, and before the podium */
+  private loading = new LoadingScreen();
   private count = new CountOverlay();
   private results = new ResultsOverlay();
   private final = new FinalOverlay();
@@ -77,11 +88,14 @@ export class App {
   private acc = 0;
   private finalTimer = 0;
   private wake: { release(): Promise<void> } | null = null;
+  private backdrop: VortexBackdrop | null = null;
 
   // ------------------------------------------------------------ boot
   async boot() {
     const root = document.getElementById('ui')!;
     this.ui = root;
+    const vx = document.getElementById('vortex');
+    if (vx) this.backdrop = new VortexBackdrop(vx);
     this.stage = new Stage(document.getElementById('c') as HTMLCanvasElement);
     this.confetti = new Confetti(document.getElementById('confetti') as HTMLCanvasElement);
     initPortraits(this.stage.renderer);
@@ -115,6 +129,7 @@ export class App {
     const cat = getCatalog();
     const refs = [cat.props?.crystal, cat.props?.wumpa, cat.props?.podium, cat.arenas?.board, ...(cat.arenas?.board?.extra ?? [])];
     await Promise.all([ready(refs), preloadBoardTextures()]);
+    void preloadPodium(); // the final's stage streams in behind the title
     void characterRefs;
   }
 
@@ -141,6 +156,7 @@ export class App {
       copy: () => void this.copyLink(),
     });
     this.hud = new Hud(root);
+    this.ps1hud = new Ps1Hud(root);
     this.touch = new TouchControls(root);
     this.touch.enabled = TouchControls.likely();
     this.input.touch = this.touch.sample;
@@ -182,6 +198,7 @@ export class App {
   private goTitle(room = '', error = '', solo = false) {
     this.phase = 'title';
     sfx.music('title');
+    this.loading.cancel();
     this.stage.unloadGame();
     this.setScreens('title');
     this.showcase.setLooks([this.title.profile.look]);
@@ -198,11 +215,19 @@ export class App {
   }
 
   /** Switch which top-level DOM layers are visible. */
+  /** Results with the winner's model: the menu vortex comes back behind it. */
+  private setChamp(on: boolean) {
+    document.body.classList.toggle('champ', on);
+    if (this.backdrop) this.backdrop.active = on || document.body.dataset.screen !== 'game';
+  }
+
   private setScreens(s: 'title' | 'lobby' | 'game') {
     this.title.el.classList.toggle('hidden', s !== 'title');
     this.lobby.show(s === 'lobby');
     this.hud.show(s === 'game');
     document.body.dataset.screen = s;
+    document.body.classList.remove('champ');
+    if (this.backdrop) this.backdrop.active = s !== 'game';
     $('#leave').classList.toggle('hidden', s === 'title');
     document.body.classList.remove('lb');
     if (s !== 'game') { this.wheel.hide(); this.intro.hide(); this.count.set(''); this.results.hide(); this.final.hide(); this.emoteBar.classList.add('hidden'); this.touch.show(false); this.input.capture = false; }
@@ -231,7 +256,7 @@ export class App {
         make = () => new WsTransport();
       } else {
         let code = newRoomCode();
-        let core = createHostCore(code, 8, this.timing());
+        let core = createHostCore(code, 8, this.timing(), this.games);
         let peer: PeerHost | null = null;
         if (!solo && !this.nopeer) {
           const proxy: HostCore = { open: (...a) => core.open(...a), message: (...a) => core.message(...a), close: (...a) => core.close(...a), destroy: () => core.destroy() };
@@ -239,7 +264,7 @@ export class App {
           peer.onFatal = (m) => this.toast('Matchmaking connection problem: ' + m);
           try {
             const final = await peer.start();
-            if (final !== code) { core.destroy(); code = final; core = createHostCore(code, 8, this.timing()); }
+            if (final !== code) { core.destroy(); code = final; core = createHostCore(code, 8, this.timing(), this.games); }
           } catch (e) {
             core.destroy();
             peer.stop();
@@ -399,6 +424,8 @@ export class App {
   private enterLobby() {
     this.phase = 'lobby';
     sfx.music('warp');
+    this.loading.cancel();
+    void this.loading.preload();
     clearTimeout(this.finalTimer);
     this.stage.unloadGame();
     this.pendingGame = null;
@@ -447,7 +474,7 @@ export class App {
         void this.levelMusic();
         this.results.hide();
         this.touch.show(false);
-        this.showIntro();
+        this.showIntro(ms);
         break;
       case 'countdown':
         this.intro.hide();
@@ -456,9 +483,11 @@ export class App {
         if (prev !== 'countdown') void this.levelMusic();
         this.intro.hide();
         this.count.set('GO!');
-        sfx.play('go');
+        // GO on the game's menu confirm sound
+        if (!sfx.playFile('sfx/0272/9.mp3', 1)) sfx.play('go');
         this.playAt = performance.now();
         this.input.capture = true;
+        this.touch.setTaunt(this.client?.round?.gameId === 'tankArena');
         this.touch.show(this.mySlot() != null);
         {
           const m = this.client?.round;
@@ -490,11 +519,14 @@ export class App {
     this.results.hide();
     document.body.classList.remove('lb');
     this.enterBetween();
+    this.setChamp(false);
+    this.showcase.setLayout('between');
     this.wheel.run(m, `ROUND ${m.round} OF ${m.total}`);
     this.hud.setRound(m.round, m.total);
   }
 
   private onRound(m: RoundMsg) {
+    this.loading.show();
     this.wheel.hide();
     this.pendingGame = m;
     this.gameName = m.gameName;
@@ -513,6 +545,8 @@ export class App {
     const seats = m.seats.map((s) => ({ name: s.name, look: s.look, bot: s.bot }));
     void this.stage.loadGame(factory(), w, c.roundSlot, seats).then((ok) => {
       if (ok) { this.setScreens('game'); this.hud.show(true); this.input.capture = true; this.emoteBar.classList.add('hidden'); }
+      // superseded loads leave the screen to the newer one
+      if (ok || !this.pendingGame) void this.loading.hide(LOADING_MIN_MS);
     });
   }
 
@@ -545,11 +579,19 @@ export class App {
     }
   }
 
-  private showIntro() {
+  /** the level the host picked: {id, name} (id = the variant key the stage stills use) */
+  private variantInfo(): { id: string; name: string } | null {
+    const name = this.variantName();
+    const w = this.client?.snaps[this.client.snaps.length - 1]?.w as World | undefined;
+    const v = (w?.data as Record<string, unknown> | undefined)?.variant;
+    return name ? { id: typeof v === 'string' ? v : '', name } : null;
+  }
+
+  private showIntro(ms = 4000) {
     const c = this.client;
     const m = c?.round;
     if (!c || !m) return;
-    this.intro.show(m, this.variantName(), c.roundSlot, m.seats.map((s) => ({ name: s.name, look: s.look, bot: s.bot })), this.touch.enabled);
+    this.intro.show(m, this.variantInfo(), c.roundSlot, m.seats.map((s) => ({ name: s.name, look: s.look, bot: s.bot })), this.touch.enabled, ms, m.gameId);
     sfx.play('whoosh');
     this.hud.setPillText(m.modifier ? m.modifier.name : 'MINI-GAME', m.gameName.toUpperCase());
   }
@@ -565,11 +607,15 @@ export class App {
     if (m.final) return; // the final ceremony takes over
     const delay = this.stage.gameVisible ? 800 : 0;
     if (delay) { this.hud.banner('FINISH!', '', 'info', 700); sfx.play('whoosh'); }
+    const lastGame = this.client?.round?.gameId ?? '', lastLevel = this.variantInfo()?.id ?? null;
     clearTimeout(this.resultsTimer);
     this.resultsTimer = window.setTimeout(() => {
       if (this.phase !== 'results') return;
       this.enterBetween(w);
-      this.results.show(m, this.seats, this.mySlot(), this.streaks);
+      // wide screens: the winner's own model cheers beside the board (the showcase shows through)
+      const champ = innerWidth / Math.max(1, innerHeight) > 1.25 && w != null && !!this.seats[w];
+      if (champ) { this.showcase.setChamp(w); this.setChamp(true); }
+      this.results.show(m, this.seats, this.mySlot(), this.streaks, lastGame ? thumb(lastGame, lastLevel) : undefined, champ);
       document.body.classList.add('lb');
     }, delay);
   }
@@ -579,16 +625,25 @@ export class App {
     const m = this.lastResults ?? this.client?.results;
     if (!m || !m.final) return;
     const introMs = Math.min(3600, ms * 0.14);
+    // the podium is a level of its own: the LOADING vortex covers the switch, as in the game
     this.finalTimer = window.setTimeout(() => {
-      this.results.hide();
-      this.stage.unloadGame();
-      this.hud.setPillText('FINAL', 'RESULTS');
-      void this.final.run(m, this.seats, ms, {
-        podium: this.podium, hud: this.hud, confetti: this.confetti,
-        showPodium: () => this.stage.show(this.podium),
-        onRematch: () => this.client?.rematch(),
-        onLobby: () => this.leaveToLobby(),
-      }, introMs);
+      this.loading.show();
+      this.finalTimer = window.setTimeout(() => this.startFinal(m, ms, introMs), LOADING_MIN_MS);
+    }, Math.max(0, introMs - LOADING_MIN_MS));
+  }
+
+  private startFinal(m: ResultsMsg, ms: number, introMs: number) {
+    if (this.phase !== 'final') { this.loading.cancel(); return; }
+    void this.loading.hide();
+    this.setChamp(false);
+    this.results.hide();
+    this.stage.unloadGame();
+    this.hud.setPillText('FINAL', 'RESULTS');
+    void this.final.run(m, this.seats, ms, {
+      podium: this.podium, hud: this.hud, confetti: this.confetti,
+      showPodium: () => this.stage.show(this.podium),
+      onRematch: () => this.client?.rematch(),
+      onLobby: () => this.leaveToLobby(),
     }, introMs);
   }
 
@@ -630,17 +685,31 @@ export class App {
       // in play: real-game style HUD (big faces + per-game status), clock in the middle like the original
       const playing = !!world;
       document.body.classList.toggle('playing', playing);
+      // the real game's own HUD when the game has one (replaces the party cards and clock while playing)
+      const real = !!(world && g?.ps1Hud);
+      // the podium's own score strip (faces + points) replaces the party cards once it slides up
+      const strip = !real && this.phase === 'final' ? this.podium.stripHud() : null;
+      document.body.classList.toggle('realhud', real || (this.phase === 'final' && this.podium.stripShown));
+      // once the strip has been up the winner line stays at the top and the cards stay away
+      document.body.classList.toggle('podstrip', !real && this.phase === 'final' && this.podium.stripShown);
+      this.ps1hud.show(real || !!strip);
+      if (real) { try { this.ps1hud.draw(g!.ps1Hud!(world!, this.stage.ctx)); } catch { /* keep last frame */ } }
+      else if (strip) this.ps1hud.draw(strip);
       if (world && c?.round) {
         const mg = getGame(c.round.gameId);
         if (mg) this.hud.setClock(Math.max(0, mg.maxTime - world.time));
       }
+    } else {
+      this.ps1hud.show(false);
+      document.body.classList.remove('realhud', 'podstrip');
     }
 
     // countdown text
     if (c && this.phase === 'countdown') {
       const n = Math.max(1, Math.ceil((c.phaseEnds - t) / 1000));
       const txt = String(n);
-      if (txt !== this.lastCount) { this.lastCount = txt; sfx.play('beep', 1); }
+      // the game's menu cursor blip, a step higher each second (3 / 2 / 1)
+      if (txt !== this.lastCount) { this.lastCount = txt; if (!sfx.playFile('sfx/0272/7.mp3', 0.9, false, [1.26, 1.12, 1][Math.min(2, n - 1)] ?? 1)) sfx.play('beep', 1); }
       this.count.set(txt);
     } else if (this.phase === 'play') {
       this.lastCount = '';

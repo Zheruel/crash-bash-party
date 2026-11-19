@@ -26,7 +26,7 @@ export interface Timing {
   /** how long a dropped player's seat is held (ms) */
   grace: number;
 }
-export const NORMAL_TIMING: Timing = { intro: 3000, countdown: 2400, results: 5000, wheel: 4200, final: 30000, playCap: Infinity, grace: 60000 };
+export const NORMAL_TIMING: Timing = { intro: 4200, countdown: 2400, results: 5000, wheel: 4200, final: 40000, playCap: Infinity, grace: 60000 };
 export const FAST_TIMING: Timing = { intro: 200, countdown: 200, results: 200, wheel: 200, final: 600, playCap: 3, grace: 20000 };
 
 export interface PartyOptions {
@@ -34,6 +34,8 @@ export interface PartyOptions {
   rounds?: number;
   /** restrict the game pool (tests) */
   games?: MiniGame[];
+  /** force a variant per game id (dev: ?game=tilePainter:agogo) */
+  variants?: Record<string, string>;
 }
 
 interface Member {
@@ -68,6 +70,7 @@ export class Party {
   private byConn = new Map<number, Member>();
   private seats: (number | null)[] = [null, null, null, null]; // member ids
   private pool: MiniGame[];
+  private forcedVariants: Record<string, string>;
 
   phase: Phase = 'lobby';
   private phaseEnds = 0;
@@ -100,6 +103,7 @@ export class Party {
     this.timing = opts.timing ?? NORMAL_TIMING;
     this.totalRounds = opts.rounds ?? 8;
     this.pool = opts.games ?? GAMES;
+    this.forcedVariants = opts.variants ?? {};
   }
 
   // ---- connections ----
@@ -213,7 +217,7 @@ export class Party {
         const seq = Math.floor(num(m.seq, 0, 1e9));
         if (seq <= c.lastRecv) return;
         c.lastRecv = seq;
-        c.queue.push({ seq, x: num(m.x, -1, 1), y: num(m.y, -1, 1), a: !!m.a, b: !!m.b });
+        c.queue.push({ seq, x: num(m.x, -1, 1), y: num(m.y, -1, 1), a: !!m.a, b: !!m.b, ...(m.c ? { c: true } : {}) });
         if (c.queue.length > 8) c.queue.splice(0, c.queue.length - 4);
         return;
       }
@@ -412,7 +416,8 @@ export class Party {
     const mod = mods.length && Math.random() < 0.65 ? mods[Math.floor(Math.random() * mods.length)] : null;
     const showdown = this.round >= this.totalRounds;
     const vs = game.variants ?? [];
-    const variant = vs.length ? vs[Math.floor(Math.random() * vs.length)] : null;
+    const forced = this.forcedVariants[game.id];
+    const variant = vs.find((v) => v.id === forced) ?? (vs.length ? vs[Math.floor(Math.random() * vs.length)] : null);
     this.next = { game, mod, showdown, variant: variant ? { id: variant.id, name: variant.name } : null };
     this.lastWheel = {
       t: 'wheel', round: this.round, total: this.totalRounds, showdown,
@@ -435,7 +440,7 @@ export class Party {
     });
     this.game = game;
     this.brain = new BotBrain(this.botLevel);
-    this.world = createWorld(game, this.frozen.map((f, slot) => ({ slot, name: f.name, bot: f.bot })), mod ? [mod] : [], (Math.random() * 2 ** 32) >>> 0, variant?.id);
+    this.world = createWorld(game, this.frozen.map((f, slot) => ({ slot, name: f.name, bot: f.bot, char: f.look.char, level: this.botLevel })), mod ? [mod] : [], (Math.random() * 2 ** 32) >>> 0, variant?.id);
     this.lastEv = 0;
     for (const m of this.members.values()) { m.queue = []; m.cur = IDLE; m.lastRecv = 0; m.applied = 0; m.idleTicks = 0; }
     this.lastRound = {

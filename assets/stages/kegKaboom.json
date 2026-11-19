@@ -1,5 +1,5 @@
 {
- "_notes": "Keg Kaboom = level 30 (cheat id 0x1E). Stage 0609: dirt ring, stone wall, windmill village on hills. Arena is recentred on the floor (extra_5aec centre (-0.272,0.169), top y 0.07) in raw units x3.398. Props from pack 0738 (barrels by value, explosion bits); per-character barrel carriers 864-878.",
+ "_notes": "Keg Kaboom = level 30 (cheat id 0x1E). Stage 0609: dirt ring, stone wall, windmill village on hills. Arena is recentred on the floor (extra_5aec centre (-0.272,0.169), top y 0.07) in raw units x3.398. Props from pack 0738 (barrels by value, explosion bits); per-character barrel carriers 864-878. Effects (re/notes/kegKaboom.md): pack 0738 effect scripts 0 (keg blast: ring part7, flash 8, smoke 9/10, sparks 11) and 3 (shock ring part20); powder part14 falling / part1 lying, spark part13, rim flame part23 (20-frame clip); shock pickup = shared pack 0736 part11; floating scores = HUD pack 0732 parts 13-22.",
  "arenas": {
   "kegKaboom": {
    "model": 609,
@@ -294,6 +294,28 @@
    "yaw": 0
   },
   "kkCarry_tiny": {
+   "model": 872,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "jump": 2,
+    "hit": 3,
+    "action": 4,
+    "win": 2,
+    "lose": 3
+   },
+   "parts": [
+    "part0"
+   ]
+  },
+  "kkCarry_koala": {
    "model": 864,
    "scale": 3.398,
    "offset": [
@@ -315,7 +337,7 @@
     "part1"
    ]
   },
-  "kkCarry_koala": {
+  "kkCarry_rilla": {
    "model": 866,
    "scale": 3.398,
    "offset": [
@@ -335,28 +357,6 @@
    },
    "parts": [
     "part1"
-   ]
-  },
-  "kkCarry_rilla": {
-   "model": 868,
-   "scale": 3.398,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0,
-   "anims": {
-    "idle": 1,
-    "run": 0,
-    "action": 2,
-    "hit": 3,
-    "jump": 4,
-    "win": 4,
-    "lose": 3
-   },
-   "parts": [
-    "part0"
    ]
   },
   "kkCarry_brio": {
@@ -382,7 +382,7 @@
    ]
   },
   "kkCarry_dingodile": {
-   "model": 872,
+   "model": 868,
    "scale": 3.398,
    "offset": [
     0,
@@ -391,12 +391,12 @@
    ],
    "yaw": 0,
    "anims": {
-    "idle": 0,
-    "run": 1,
-    "jump": 2,
+    "idle": 1,
+    "run": 0,
+    "action": 2,
     "hit": 3,
-    "action": 4,
-    "win": 2,
+    "jump": 4,
+    "win": 4,
     "lose": 3
    },
    "parts": [
@@ -487,6 +487,48 @@
    "model": 609,
    "parts": [
     "extra_2000"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkSpark": {
+   "model": 738,
+   "parts": [
+    "part13"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "kkFlame": {
+   "model": 738,
+   "parts": [
+    "part23"
+   ],
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0
+   }
+  },
+  "kkPickup": {
+   "model": 736,
+   "parts": [
+    "part11"
    ],
    "scale": 3.398,
    "offset": [

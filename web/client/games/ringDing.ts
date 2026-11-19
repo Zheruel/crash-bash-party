@@ -2,100 +2,142 @@
 // circling outside the wall, archery-range props, tent and castle backdrop; riders are the per-character dino models.
 import * as THREE from 'three';
 import { CHARACTERS } from '../../shared/look';
-import { RD_CHARGE, RD_MAX_JEWELS, RD_STARTS, RD_TARGET_PERIOD, rdBand, rdRange, rdSolve, rdTargetAngle, rdTargetPos, type RingDingData } from '../../shared/games/ringDing';
+import { RD_S, RD_TARGET_Y, type RingDingData } from '../../shared/games/ringDing';
 import type { Body } from '../../shared/types';
 import type { BlobShadow } from '../fx';
 import { getCatalog } from '../crash';
 import { sfx } from '../shell/sound';
+import { hitVoice } from '../shell/voice';
 import { Actor, Kit, catalogInstance, preloadCatalogFor } from './kit';
+import { preloadFx } from './realFx';
 import { makeJewel } from './partyBits';
+import { applyPose, levelStage, loadPlacements, Ps1Follow, TRACK_CAMS, type Placements, type Tracked } from './ps1cam';
+import { scoreHud } from '../ui/ps1hud';
+import { getGame } from '../../shared/registry';
 import type { ClientMiniGame } from './types';
 
-const SKY = new THREE.Color(0x8fd4ff);
+/** clear colour = the hills' base colour (only seen in seams under the horizon, like the PS1 frame) */
+const SKY = new THREE.Color(0x3a5929);
+/** Stage scale; level model 0621 carries the one effect script (0: jewel-appear burst), smoke frames are shared pack 0619 parts 3-18. */
+const S = 3.4, LEVEL = 621, SMOKE = 619;
+const SMOKE_FRAMES = Array.from({ length: 16 }, (_, i) => 3 + i);
+/** sky backdrop wall: the PS1 draws it first, behind everything (no z-buffer) */
+const BACKDROP = ['extra_3b94'];
 const JEWEL_COLORS = [0x4fe35a, 0xb060ff, 0xffe14a, 0x4fb8ff];
 const PIECES = ['rdStand', 'rdFace', 'rdArrow', 'rdSpireB'];
 /** Coplanar floor layers, drawn bottom to top (the game relies on draw order; we use polygon offset). */
 const LAYERS = ['extra_132c', 'extra_4c04', 'extra_4948', 'extra_4ac8', 'extra_4d90', 'extra_4f50', 'extra_5148'];
 /** Archery-range targets ringed outside the wall (x, z): they face the pit. */
-const RANGE: [number, number][] = [[-16, -11], [-17.5, -2], [-15.5, 6], [-9, 15.5], [15, 11]];
 const RIDERS = CHARACTERS.map((c) => 'rdRider_' + c.id);
 
 /** Camera: fixed high view from the south rim, looking across the pit (fitted against the real game, see docs/reference/ringDing). */
 export const RD_CAM = { pos: [0, 9, 21] as [number, number, number], look: [-1.5, 2.8, 0] as [number, number, number], fov: 48 };
 
-/** Level sound bank 0180 (guessed from duration): short blips for pickup/shoot/score. */
-const BANK = (n: number) => `sfx/0180/${n}.mp3`;
+/** Ring Ding sound id -> [file, rate]: the level's VAB 0179 (the bank in the L28 RAM dump; every id resolves through table
+ *  0x80064508 to these tones), rate = the tone's own pitch (tools/sfx_pitch.py). 0x6b2 and 0x6c8-0x6cb are silent. */
+const RD_SFX: Record<number, [string, number]> = {
+  0x6a4: ['sfx/0179/0.mp3', 1.0],
+  0x6a5: ['sfx/0179/0.mp3', 0.903],
+  0x6a6: ['sfx/0179/1.mp3', 1.0],
+  0x6a7: ['sfx/0179/1.mp3', 0.883],
+  0x6a8: ['sfx/0179/2.mp3', 1.0],
+  0x6a9: ['sfx/0179/2.mp3', 0.875],
+  0x6aa: ['sfx/0179/3.mp3', 1.0],
+  0x6ab: ['sfx/0179/3.mp3', 0.891],
+  0x6ac: ['sfx/0179/4.mp3', 1.0],
+  0x6ad: ['sfx/0179/5.mp3', 1.0],
+  0x6ae: ['sfx/0179/6.mp3', 1.0],
+  0x6af: ['sfx/0179/7.mp3', 1.0],
+  0x6b0: ['sfx/0179/8.mp3', 1.0],
+  0x6b1: ['sfx/0179/9.mp3', 1.0],
+  0x6b3: ['sfx/0179/11.mp3', 1.0],
+  0x6b4: ['sfx/0179/12.mp3', 1.0],
+  0x6b5: ['sfx/0179/13.mp3', 1.0],
+  0x6b6: ['sfx/0179/14.mp3', 1.0],
+  0x6b7: ['sfx/0179/15.mp3', 1.0],
+  0x6b8: ['sfx/0179/16.mp3', 1.0],
+  0x6b9: ['sfx/0179/15.mp3', 0.96],
+  0x6ba: ['sfx/0179/16.mp3', 0.96],
+  0x6bb: ['sfx/0179/17.mp3', 1.0],
+  0x6bc: ['sfx/0179/18.mp3', 1.0],
+  0x6bd: ['sfx/0179/19.mp3', 1.0],
+  0x6be: ['sfx/0179/20.mp3', 1.0],
+  0x6bf: ['sfx/0179/21.mp3', 1.0],
+  0x6c0: ['sfx/0179/22.mp3', 1.0],
+  0x6c1: ['sfx/0179/23.mp3', 1.0],
+  0x6c2: ['sfx/0179/22.mp3', 0.956],
+  0x6c3: ['sfx/0179/23.mp3', 0.956],
+  0x6c4: ['sfx/0179/24.mp3', 1.0],
+  0x6c5: ['sfx/0179/25.mp3', 1.0],
+  0x6c6: ['sfx/0179/26.mp3', 1.0],
+  0x6c7: ['sfx/0179/27.mp3', 1.0],
+  0x6cc: ['sfx/0179/28.mp3', 1.0],
+  0x6cd: ['sfx/0179/29.mp3', 1.0],
+  0x6ce: ['sfx/0179/30.mp3', 1.0],
+  0x6cf: ['sfx/0179/31.mp3', 1.0],
+  0x6d0: ['sfx/0164/32.mp3', 1.0],
+  0x6d1: ['sfx/0164/33.mp3', 1.0],
+  0x6d2: ['sfx/0164/32.mp3', 0.935],
+  0x6d3: ['sfx/0164/33.mp3', 0.935],
+};
+const SND = {
+  gong: 0x6bf,
+  score: 0x6b1, // on every target hit
+  mult: { 1: 0x6bb, 2: 0x6bc, 3: 0x6bd, 5: 0x6be } as Record<number, number>, // (x5 also 0x6b2: silent)
+  step: [[0x6a4, 0x6a5], [0x6a6, 0x6a7], [0x6a8, 0x6a9], [0x6aa, 0x6ab]], // 0x6a4+2*slot (tick 6) and +1 (tick 0x13)
+  barge: [0x6c4, 0x6c5, 0x6c6, 0x6c7], // 0x6c4+slot
+  bargeHit: [0x6ac, 0x6ad, 0x6ae, 0x6af], // 0x6ac+slot (anim frame 14)
+  throw: [0x6b3, 0x6b4, 0x6b5, 0x6b6], // 0x6b3+slot
+  bump: [0x6d0, 0x6d1, 0x6d2, 0x6d3], // player bump, barge into the wall (rand 4)
+  bounce: [0x6b7, 0x6b8, 0x6b9, 0x6ba], // jewel bounce (rand 4)
+  drop: [0x6c0, 0x6c1, 0x6c2, 0x6c3], // jewel knocked loose / clash (rand 4)
+  pick: 0x6cd,
+  spawn: 0x6ce,
+  wall: 0x6cc,
+};
 
 export function createRingDingView(): ClientMiniGame {
   let kit: Kit;
   let loaded = false;
   let target: THREE.Group;
-  const floor = new Map<number, { obj: THREE.Object3D; shadow: BlobShadow }>();
-  const shots = new Map<number, { obj: THREE.Object3D; shadow: BlobShadow }>();
-  const carried: THREE.Object3D[][] = [[], [], [], []];
-  const aims: { group: THREE.Group; ring: THREE.Mesh; dots: THREE.Mesh[] }[] = [];
+  const jewels = new Map<number, { obj: THREE.Object3D; shadow: BlobShadow }>();
   let tgtPulse = 0;
-  let camPos = new THREE.Vector3(...RD_CAM.pos);
+  // camera mode 1: keeps every rider and the swinging target in frame (engine fit, 30 Hz)
+  let follow: Ps1Follow | null = null;
+  const cam = () => (follow ??= new Ps1Follow(TRACK_CAMS[28], getCatalog().arenas.ringDing));
 
   const jewelObj = (ci: number, size: number) => makeJewel(JEWEL_COLORS[ci % JEWEL_COLORS.length], size);
+  const play = (id: number, vol = 0.5) => { const t = RD_SFX[id]; if (t) sfx.playFile(t[0], vol, false, t[1]); };
 
   function piece(name: string): THREE.Object3D | null {
     const inst = catalogInstance(getCatalog().props[name]);
     return inst ? inst.root : null;
   }
 
+  let placements: Placements | null = null;
+
   function build() {
     const R = kit.root;
-    const arena = catalogInstance(getCatalog().arenas.ringDing);
-    if (arena) {
-      R.add(arena.root);
-      arena.root.traverse((o) => {
+    const ref = getCatalog().arenas.ringDing;
+    // the level exactly as the real game builds it (native mesh table + RAM object list of level 0x1c); the target is ours
+    const lvl = ref ? levelStage(ref, placements, (r) => catalogInstance(r)?.root ?? null, { skip: ['extra_18b8'], backdrop: BACKDROP }) : null;
+    if (lvl) {
+      R.add(lvl);
+      lvl.traverse((o) => {
         const m = o as THREE.Mesh;
         const k = LAYERS.indexOf(m.name.replace(/_\d+$/, '')) >= 0 ? LAYERS.indexOf(m.name.replace(/_\d+$/, '')) : LAYERS.indexOf(m.parent?.name ?? '');
         if (!m.isMesh || k < 0) return;
         const mat = m.material as THREE.Material;
         mat.polygonOffset = true; mat.polygonOffsetFactor = -k * 2; mat.polygonOffsetUnits = -k * 2;
       });
+    } else {
+      const arena = catalogInstance(ref);
+      if (arena) R.add(arena.root);
     }
-    // archery stands: stand + face + arrow
-    for (const [x, z] of RANGE) {
-      const g = new THREE.Group();
-      for (const n of ['rdStand', 'rdFace', 'rdArrow']) { const o = piece(n); if (o) g.add(o); }
-      g.position.set(x, 2.3 * 1.0 - 0.4, z);
-      g.rotation.y = Math.atan2(-x, -z);
-      R.add(g);
-    }
-    const tw = piece('rdSpireB');
-    if (tw) { tw.scale.setScalar(2.1); tw.position.set(-1, -9, -55); R.add(tw); }
     target = new THREE.Group();
     const t = piece('rdTarget');
     if (t) target.add(t);
     R.add(target);
-
-    for (let s = 0; s < 4; s++) {
-      const col = new THREE.Color(kit.hex(s));
-      const group = new THREE.Group();
-      const ring = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.62, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false }));
-      ring.renderOrder = 6;
-      const dots: THREE.Mesh[] = [];
-      for (let i = 0; i < 6; i++) { const d = new THREE.Mesh(new THREE.CircleGeometry(0.1, 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, depthTest: false })); d.renderOrder = 6; dots.push(d); group.add(d); }
-      group.add(ring);
-      group.visible = false;
-      R.add(group);
-      aims.push({ group, ring, dots });
-    }
-  }
-
-  function carriedJewels(slot: number, n: number, b: Body | undefined, t: number) {
-    const list = carried[slot];
-    while (list.length < n) { const o = jewelObj(slot, 0.3); kit.root.add(o); list.push(o); }
-    while (list.length > n) { const o = list.pop()!; kit.root.remove(o); }
-    list.forEach((o, i) => {
-      if (!b || !b.alive) { o.visible = false; return; }
-      o.visible = true;
-      o.position.set(b.x, b.y + 2.3 + i * 0.75 + Math.sin(t * 3 + i) * 0.08, b.z);
-      o.rotation.y = t * 3;
-    });
   }
 
   function rider(b: Body): Actor {
@@ -108,136 +150,143 @@ export function createRingDingView(): ClientMiniGame {
 
   return {
     id: 'ringDing',
-    async preload() { await preloadCatalogFor('ringDing', [...PIECES, 'rdTarget', ...RIDERS]); loaded = true; },
+    async preload() { [placements] = await Promise.all([loadPlacements('L28'), preloadCatalogFor('ringDing', [...PIECES, 'rdTarget', ...RIDERS]), preloadFx([LEVEL, SMOKE])]); loaded = true; },
 
     init(ctx, world) {
       kit = new Kit(ctx, 'ringDing', { bg: 0x6a9ad8, hemi: [0xffffff, 0xb0b0b0, 1.6], sun: [4, 18, 8] });
       build();
-      ctx.camera.fov = RD_CAM.fov; ctx.camera.updateProjectionMatrix();
-      ctx.camera.position.set(...RD_CAM.pos); ctx.camera.lookAt(...RD_CAM.look);
+      follow = null;
+      applyPose(ctx.camera, cam().step(0, []));
       void world;
-      if (!loaded) this.preload!().then(() => { if (kit) { kit.reset(); kit.root.clear(); build(); } });
+      kit.realFx(S);
+      if (!loaded) this.preload!().then(() => { if (kit) { kit.reset(); kit.root.clear(); kit.realFx(S); build(); } });
     },
 
     render(ctx, w, dt) {
       kit.checkOver(w);
       const d = w.data as RingDingData;
       const t = ctx.time;
-      const seen = new Set<number>(), seenF = new Set<number>(), seenS = new Set<number>();
-      const pl: (Body | undefined)[] = [];
+      const seen = new Set<number>(), seenJ = new Set<number>();
       for (const b of w.bodies) {
         if (b.kind === 'player') {
           seen.add(b.id);
-          pl[b.slot] = b;
-          rider(b).update(b, dt, { role: d.stun?.[b.slot] > 0 ? 'hit' : undefined, freeze: d.charge?.[b.slot] > 0 });
+          // states: 99 idle, 100 run, 101 throw, 102 barge (action via body.dash), 103 recoil
+          const st = d.st?.[b.slot] ?? 99;
+          const role = st === 101 ? 'throw' : st === 103 ? 'hit' : st === 100 ? 'run' : st === 99 ? 'idle' : undefined;
+          rider(b).update(b, dt, { role, freeze: true });
         } else if (b.kind === 'jewel') {
-          seenF.add(b.id);
-          let v = floor.get(b.id);
-          if (!v) { v = { obj: jewelObj(b.m, 0.45), shadow: kit.fx.shadow(0.4, 0.4) }; kit.root.add(v.obj); floor.set(b.id, v); }
-          const air = b.y > 0.02;
-          v.obj.position.set(b.x, b.y + (air ? 0 : 0.15 + Math.sin(t * 3 + b.id) * 0.08), b.z);
-          v.obj.rotation.y = t * 1.8 + b.id;
-          v.shadow.set(b.x, b.z, b.y);
-        } else if (b.kind === 'shot') {
-          seenS.add(b.id);
-          let v = shots.get(b.id);
-          if (!v) { v = { obj: jewelObj(b.m, 0.5), shadow: kit.fx.shadow(0.45, 0.45) }; kit.root.add(v.obj); shots.set(b.id, v); }
-          v.obj.position.set(b.x, Math.max(b.y, 0.2), b.z);
-          v.obj.rotation.y = t * 9; v.obj.rotation.z = t * 5;
+          seenJ.add(b.id);
+          let v = jewels.get(b.id);
+          if (!v) { v = { obj: jewelObj(b.slot, 0.45), shadow: kit.fx.shadow(0.4, 0.4) }; kit.root.add(v.obj); jewels.set(b.id, v); }
+          const hidden = b.m === 6; // the third jewel stays hidden until tick 1350
+          v.obj.visible = !hidden;
+          v.shadow.visible = !hidden;
+          v.obj.position.set(b.x, b.y + 0.3, b.z);
+          v.obj.rotation.y = b.face;
           v.shadow.set(b.x, b.z, Math.max(0, b.y));
-          kit.fx.trail(b.x, b.y, b.z, new THREE.Color(JEWEL_COLORS[b.m % 4]), 0.38, 0.3);
         }
       }
       kit.prune(seen);
-      for (const [id, v] of floor) if (!seenF.has(id)) { kit.root.remove(v.obj); kit.fx.removeShadow(v.shadow); floor.delete(id); }
-      for (const [id, v] of shots) if (!seenS.has(id)) { kit.root.remove(v.obj); kit.fx.removeShadow(v.shadow); shots.delete(id); }
+      for (const [id, v] of jewels) if (!seenJ.has(id)) { kit.root.remove(v.obj); kit.fx.removeShadow(v.shadow); jewels.delete(id); }
 
-      for (let s = 0; s < 4; s++) {
-        const b = pl[s];
-        carriedJewels(s, Math.min(RD_MAX_JEWELS, d.jewels?.[s] ?? 0), b, t);
-        const a = aims[s];
-        const ch = d.charge?.[s] ?? 0;
-        if (b && ch > 0) {
-          const range = rdRange(ch / RD_CHARGE);
-          const sx = Math.sin(b.face), sz = Math.cos(b.face);
-          const lx = b.x + sx * range, lz = b.z + sz * range;
-          a.group.visible = true;
-          a.ring.position.set(lx, 0.05, lz);
-          a.ring.scale.setScalar(1 + Math.sin(t * 14) * 0.12);
-          a.dots.forEach((dot, i) => { const f = (i + 1) / (a.dots.length + 1); dot.position.set(b.x + sx * range * f, 0.05, b.z + sz * range * f); });
-        } else a.group.visible = false;
-      }
-
-      // target circling outside the wall, face toward the pit
-      const [tx, tz] = rdTargetPos(w.time);
-      target.position.set(tx, 2.6, tz);
-      target.rotation.y = Math.atan2(-tx, -tz);
+      // target: swings on the rim (placed by the sim), faces the pit, rolls with the swing
+      target.position.set(d.tx * RD_S, -RD_TARGET_Y * RD_S, -d.tz * RD_S);
+      target.rotation.set(0, (-d.tyaw * Math.PI * 2) / 4096, (-d.troll * Math.PI * 2) / 4096);
       tgtPulse = Math.max(0, tgtPulse - dt * 2.5);
-      target.scale.setScalar(1 + tgtPulse * 0.12);
+      target.scale.setScalar(1 + tgtPulse * 0.08);
 
       // camera
       ctx.scene.background = SKY;
-      const dv = RD_CAM;
-      ctx.camera.position.copy(camPos.set(...dv.pos));
-      ctx.camera.lookAt(...dv.look);
-      if (ctx.camera.fov !== dv.fov) { ctx.camera.fov = dv.fov; ctx.camera.updateProjectionMatrix(); }
+      const tracked: Tracked[] = [{ pos: target.position, face: target.rotation.y, r: 512, h: 512, f: 512 }];
+      for (const a of kit.actors.values()) tracked.push({ pos: a.holder.position, face: a.yaw.rotation.y });
+      applyPose(ctx.camera, cam().step(dt, tracked));
+      kit.real.update(dt, ctx.camera);
       kit.fx.update(dt);
     },
 
     onEvent(ctx, e) {
       if (!kit) return;
-      const fx = kit.fx;
-      if (kit.baseEvent(e)) return;
+      const s = e.s >= 0 ? e.s % 4 : 0;
       switch (e.k) {
-        case 'shoot':
-          kit.actorForSlot(e.s)?.squash.kick(-0.3);
-          fx.sparks(e.x, 1.0, e.z, [0xffffff, new THREE.Color(kit.hex(e.s)).getHex()], 6, 4);
-          sfx.play('whoosh', 1.1 + e.v * 0.4);
-          sfx.playFile(BANK(9 + (Math.floor(e.v * 7) % 8)), 0.35);
+        case 'gong':
+          play(SND.gong, 0.5);
+          tgtPulse = 0.6;
           break;
         case 'score': {
-          const col = new THREE.Color(kit.hex(e.s));
-          const big = e.v >= 3;
-          fx.burst(e.x, 2.5, e.z, { shape: 'star', color: [0xffe14a, 0xffffff, col], count: big ? 22 : 10, speed: big ? 7 : 5, size: big ? 0.55 : 0.4, life: 0.9, up: 4, gravity: 8 });
-          fx.text(e.x, 5, e.z, `+${e.v}`, { color: big ? '#ffe14a' : '#ffffff', size: big ? 2 : 1.4, life: 1.2 });
-          kit.shake(big ? 0.25 : 0.1);
+          kit.shake(e.v >= 3 ? 0.2 : 0.08);
           tgtPulse = 1;
-          sfx.play(big ? 'coin' : 'pop', big ? 1.3 : 1.1);
-          sfx.playFile(BANK(big ? 22 : 21), 0.45);
+          play(SND.score, 0.6);
+          play(SND.mult[e.v] ?? 0x6bb, 0.6);
+          if (e.v >= 5) play(0x6b2, 0.6); // silent in the game's table
           break;
         }
-        case 'miss':
-          fx.dust(e.x, e.z, 0.5, 0xd8c8a0);
+        case 'throw':
+          kit.actorForSlot(e.s)?.squash.kick(-0.3);
+          play(SND.throw[s], 0.45);
           break;
-        case 'pickup':
-          fx.sparks(e.x, 0.8, e.z, JEWEL_COLORS, 8, 4);
-          sfx.play('pop', 1.6);
-          sfx.playFile(BANK(13 + (e.v % 3)), 0.3);
+        case 'barge':
+          kit.actorForSlot(e.s)?.action();
+          { // barge state 102 (FUN_800ba724): smoke puff object 0x1903 trails the rider 420 u up, 16 frames at one per tick
+            const who = e.s, at = () => { const a = kit.actorForSlot(who); return a ? { x: a.holder.position.x, y: a.holder.position.y + 420 * RD_S, z: a.holder.position.z } : null; };
+            kit.real.sprite(SMOKE, SMOKE_FRAMES, e.x, 420 * RD_S, e.z, { life: 16 / 30, follow: at });
+          }
+          play(SND.barge[s], 0.5);
+          setTimeout(() => play(SND.bargeHit[s], 0.4), 470);
           break;
-        case 'slam':
-          fx.stars(e.x, 1.2, e.z, 8);
+        case 'bargehit':
           kit.actorForSlot(e.s)?.hit();
-          kit.actorForSlot(e.o)?.action();
-          kit.shake(0.3);
-          sfx.play('thud');
+          kit.shake(0.2);
+          break;
+        case 'recoil': // recoil enter (anim 0x4d): hit voice rand(4) of the 0x8009e080 ids
+          kit.actorForSlot(e.s)?.hit();
+          hitVoice('b', ctx.seats[e.s]?.look.char);
+          break;
+        case 'bump':
+          play(SND.bump[e.v & 3], 0.45);
+          break;
+        case 'wallbump':
+          kit.shake(0.1);
+          play(SND.bump[e.v & 3], 0.45);
+          break;
+        case 'step':
+          play(SND.step[s][e.v & 1], 0.25);
+          break;
+        case 'jpick':
+          play(SND.pick, 0.45);
+          break;
+        case 'jbounce':
+          play(SND.bounce[e.v & 3], 0.4);
+          break;
+        case 'jclash':
+        case 'jdrop':
+          play(SND.drop[e.v & 3], 0.4);
+          break;
+        case 'jspawn':
+          kit.real.play(LEVEL, 0, e.x, -192 * RD_S, e.z); // jewel state 7: level script 0 at the jewel, 256 u lower (entity y -64)
+          play(SND.spawn, 0.5);
+          break;
+        case 'jwall':
+          play(SND.wall, 0.35);
           break;
       }
       void ctx;
     },
 
+    /** Real HUD: faces, three-digit scores, clock. */
+    ps1Hud(w, ctx) {
+      return scoreHud(ctx.seats, (s) => (w.data as RingDingData).score?.[s] ?? 0, (getGame('ringDing')?.maxTime ?? 90) - w.time, w.time);
+    },
+
     hud(w, slot) {
       const d = w.data as RingDingData;
-      return `${String(d.score?.[slot] ?? 0).padStart(3, '0')}  ◆${d.jewels?.[slot] ?? 0}`;
+      return `${String(d.score?.[slot] ?? 0).padStart(3, '0')}${(d.carry?.[slot] ?? -1) >= 0 ? '  \u25c6' : ''}`;
     },
 
     dispose(ctx) {
-      for (const v of floor.values()) kit.fx.removeShadow(v.shadow);
-      for (const v of shots.values()) kit.fx.removeShadow(v.shadow);
-      floor.clear(); shots.clear();
-      carried.forEach((c) => (c.length = 0));
-      aims.length = 0;
+      for (const v of jewels.values()) kit.fx.removeShadow(v.shadow);
+      jewels.clear();
       kit.dispose();
-      void ctx; void RD_STARTS; void rdBand; void rdSolve; void rdTargetAngle; void RD_TARGET_PERIOD;
+      void ctx;
     },
   };
 }

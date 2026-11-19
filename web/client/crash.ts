@@ -50,7 +50,7 @@ const cache = new Map<number, Promise<{ scene: THREE.Object3D; anims: THREE.Anim
 const loader = new GLTFLoader();
 
 /** One stage file per mini-game, owned by whoever tunes that game. Missing files are fine. */
-const STAGE_FILES = ['ballDefence', 'pushOff', 'tilePainter', 'tankArena', 'crateToss', 'dashRace', 'ringDing', 'dragonDrop', 'malletMash', 'kegKaboom'];
+const STAGE_FILES = ['ballDefence', 'pushOff', 'tilePainter', 'tankArena', 'crateToss', 'dashRace', 'ringDing', 'dragonDrop', 'malletMash', 'kegKaboom', 'podium'];
 
 export function loadCatalog(): Promise<Catalog> {
   catalogP ??= fetch(ASSET_BASE + 'catalog.json')
@@ -90,6 +90,8 @@ export function ps1Material(src: THREE.Material): THREE.Material {
     s.map.magFilter = THREE.NearestFilter;
     s.map.minFilter = THREE.NearestFilter;
     s.map.generateMipmaps = false;
+    // PS1 UVs never wrap: a UV on the far edge must not sample the opposite edge (seams along quad borders)
+    s.map.wrapS = s.map.wrapT = THREE.ClampToEdgeWrapping;
   }
   const m = new THREE.MeshBasicMaterial({ map: s.map ?? null, vertexColors: true, side: THREE.DoubleSide, alphaTest: s.map ? 0.5 : 0 });
   m.name = src.name;
@@ -177,6 +179,22 @@ export class ModelInstance {
     this.action?.fadeOut(fade);
     this.action = next;
   }
+
+  /** Show one frame of a clip by index (30 fps frames, may be fractional): the real game's own anim scripts drive this. */
+  pose(clip: number, frame: number) {
+    const c = this.clips[clip];
+    if (!this.mixer || !c) return;
+    if (this.posed !== clip || !this.action) {
+      this.action?.stop();
+      this.action = this.mixer.clipAction(c);
+      this.action.reset().play();
+      this.posed = clip;
+      this.role = '';
+    }
+    this.action.time = Math.max(0, Math.min(frame / 30, c.duration - 1e-4));
+    this.mixer.update(0);
+  }
+  private posed = -1;
 
   update(dt: number) {
     this.mixer?.update(dt);

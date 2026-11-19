@@ -1,12 +1,13 @@
 // Shared machinery for the 3D mini-game views: scene setup, player actors, catalog helpers,
 // procedural textures/props. Games compose these; they do not subclass.
 import * as THREE from 'three';
-import { colorHex, type Look } from '../../shared/look';
+import { CHARACTERS, colorHex, type Look } from '../../shared/look';
 import { getGame } from '../../shared/registry';
 import { SLOT_COLORS, type Body, type GameEvent, type MiniGame } from '../../shared/types';
 import { characterRefs, createCharacter, isProcedural } from '../characters';
 import { getCatalog, loadCatalog, ModelInstance, ready, type ModelRef } from '../crash';
 import { Fx, lerpAngle, Squash, type BlobShadow } from '../fx';
+import { RealFx } from './realFx';
 import type { RenderContext, RenderWorld } from './types';
 
 // ---------------------------------------------------------------- disposal
@@ -35,6 +36,17 @@ export async function preloadCatalogFor(arenaId: string, props: string[], extra:
   const cat = getCatalog();
   const arenas = Object.entries(cat.arenas).filter(([k]) => k === arenaId || k.startsWith(arenaId + ':')).map(([, v]) => v);
   await ready([...characterRefs(), ...arenas, ...arenas.flatMap((a) => a.extra ?? []), ...props.map((p) => cat.props[p]), ...extra]);
+}
+
+/**
+ * Actor scale that draws a character at the real game's size on a stage of `stageScale` (catalog characters are
+ * normalised to a common height; the game draws every model in raw units, so all share the stage's units / 1024).
+ */
+export function nativeCharScale(look: Look, stageScale: number): number {
+  const refs = getCatalog().characters as { id: string; scale?: number }[];
+  const id = CHARACTERS[look.char % CHARACTERS.length]?.id;
+  const sc = refs.find((c) => c.id === id)?.scale;
+  return sc ? stageScale / sc : 1;
 }
 
 /** Built catalog instance, or null when the ref is missing / not preloaded. */
@@ -210,6 +222,8 @@ export class Over { done = false; winners = new Set<number>(); }
 export class Kit {
   readonly root = new THREE.Group();
   readonly fx: Fx;
+  /** the real game's effect sprites; a view that uses them calls realFx(stage scale) once and real.update() per frame */
+  real!: RealFx;
   readonly actors = new Map<number, Actor>();
   readonly game: MiniGame | undefined;
   readonly over = new Over();
@@ -233,6 +247,9 @@ export class Kit {
     ctx.scene.add(this.root);
     this.fx = new Fx(this.root);
   }
+
+  /** Create the real-effects player for a stage drawn at `scale` world units per model unit. */
+  realFx(scale: number): RealFx { this.real?.dispose(); return (this.real = new RealFx(this.root, scale)); }
 
   /** Add the real Crash Bash arena (per-variant if the catalog has it) as the environment; false if unavailable. */
   addArena(variant?: string, y = 0): THREE.Group | null {
@@ -299,10 +316,11 @@ export class Kit {
       case 'goal': this.actorForSlot(e.s)?.hit(); break;
     }
     switch (e.k) {
-      case 'jump': this.actorForSlot(e.s)?.jump(); this.fx.dust(e.x, e.z, 0.4); return true;
-      case 'land': this.fx.dust(e.x, e.z, e.v); this.shake(0.05 * e.v); return true;
-      case 'dash': this.fx.ring(e.x, e.z, { color: 0xffffff, radius: 1.4, life: 0.3 }); this.fx.dust(e.x, e.z, 0.8); return true;
-      case 'bump': this.fx.sparks(e.x, 0.6, e.z, 0xffffff, 5, 3); this.fx.dust(e.x, e.z, 0.4); this.shake(0.06 + e.v * 0.1); return true;
+      // the engine has no generic jump / land / run dust or bump sparks (re/notes/engine.md "Effect scripts"): poses and shake only
+      // not consumed: games still play their own sounds / voices / effects for these (Dash bumps, Crate Crush jumps, Tank crate landings)
+      case 'jump': this.actorForSlot(e.s)?.jump(); break;
+      case 'land': this.shake(0.05 * e.v); break;
+      case 'bump': this.shake(0.06 + e.v * 0.1); break;
     }
     return false;
   }
@@ -322,6 +340,7 @@ export class Kit {
 
   dispose() {
     this.reset();
+    this.real?.dispose();
     this.fx.dispose();
     this.ctx.scene.remove(this.root);
     disposeTree(this.root);
@@ -375,12 +394,11 @@ export class Actor {
   face: number;
   private fx: Fx;
   private px: number; private pz: number; private py: number;
-  private dustT = 0;
   private speed = 0;
   private proc: boolean;
   private steady: boolean;
   private tumbleA = 0;
-  private extra?: THREE.Object3D;
+  readonly extra?: THREE.Object3D;
   private t = Math.random() * 6;
 
   constructor(private kit: Kit, b: Body, parts: ActorParts) {
@@ -439,16 +457,17 @@ export class Actor {
     let role = st.role ?? (!grounded ? 'jump' : this.speed > 0.7 ? 'run' : 'idle');
     if (over.done) role = over.winners.has(b.slot) ? 'win' : 'lose';
     else if (this.hitT > 0 || role === 'hit') role = 'hit';
-    else if ((role === 'idle' || role === 'run' || role === 'jump') && this.inst.ref?.anims?.action != null
+    else if (!this.steady && (role === 'idle' || role === 'run' || role === 'jump') && this.inst.ref?.anims?.action != null
       && (this.actionT > 0 || b.dash > 0 || role === 'jump')) role = 'action';
     this.hitT = Math.max(0, this.hitT - dt);
     this.actionT = Math.max(0, this.actionT - dt);
     this.inst.play(role);
-    this.inst.update(dt * (role === 'run' ? Math.min(1.6, Math.max(0.7, this.speed / 5)) : 1));
+    // vehicles play their clips at the game's fixed rate; walkers scale the run cycle with speed
+    this.inst.update(dt * (role === 'run' && !this.steady ? Math.min(1.6, Math.max(0.7, this.speed / 5)) : 1));
 
     // squash & stretch
     if (!grounded && b.vy > 0.5 && this.py <= 0.06) { this.squash.kick(-0.45); }
-    if (grounded && this.py > 0.12) { this.squash.kick(0.55); this.fx.dust(b.x, b.z, 0.6); }
+    if (grounded && this.py > 0.12) this.squash.kick(0.55);
     if (b.dash > 0) this.squash.set(-0.12);
     this.squash.update(dt);
 
@@ -460,13 +479,6 @@ export class Actor {
       this.pivot.rotation.x = this.tumbleA;
       this.pivot.rotation.z = Math.sin(this.tumbleA * 0.7) * 0.6;
     } else { this.pivot.rotation.z *= Math.exp(-10 * dt); this.tumbleA = 0; }
-
-    // dust + dash streaks
-    if (grounded) {
-      this.dustT -= dt;
-      if (this.speed > 2.5 && this.dustT <= 0) { this.dustT = 0.14; this.fx.dust(b.x - Math.sin(b.face) * 0.2, b.z - Math.cos(b.face) * 0.2, 0.3); }
-      if (b.dash > 0) this.fx.trail(b.x - mvx * 0.05, 0.5, b.z - mvz * 0.05, 0xffffff, 0.55, 0.25);
-    }
 
     if (st.blink) this.pivot.visible = Math.floor(this.t * 14) % 2 === 0;
     else this.pivot.visible = true;
