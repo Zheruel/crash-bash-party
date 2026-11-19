@@ -21,3 +21,10 @@ npm run build        # static site in web/dist (copies ../assets)
 ```
 
 Assets in `assets/` were extracted from our own disc with the tools in `tools/` (see `docs/`).
+
+
+## Multiplayer connectivity
+
+GitHub Pages serves the game. PeerJS introduces the browsers, and the host runs the match. Players whose routers allow a direct WebRTC connection can play without a game server. If joining times out, trying a mobile hotspot on one device can change the available route.
+
+For networks that require a TURN relay, set the GitHub Actions repository variable `ICE_SERVERS_URL` and rebuild Pages. For local development use `VITE_ICE_SERVERS_URL`. The HTTPS endpoint must allow requests from the game’s origin and return a JSON array of WebRTC ICE servers with short-lived TURN credentials. The endpoint URL is public in the client build. Keep provider secrets on the credential issuer. The browsers prefer direct connections and can use the relay when needed.

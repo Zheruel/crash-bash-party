@@ -23,6 +23,8 @@ jobs:
       - run: npm ci
         working-directory: web
       - run: npm run build
+        env:
+          VITE_ICE_SERVERS_URL: ${{ vars.ICE_SERVERS_URL }}
         working-directory: web
       - uses: actions/upload-pages-artifact@v3
         with:

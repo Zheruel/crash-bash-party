@@ -1,5 +1,5 @@
 // WebRTC transport via PeerJS (pinned in package.json). The free public PeerJS cloud broker is used
-// for signalling only; game traffic flows peer-to-peer over data channels:
+// for signalling. Game traffic uses WebRTC data channels:
 //   - a reliable+ordered channel for lobby events, and
 //   - an unordered channel for inputs and snapshots (PeerJS cannot request maxRetransmits, so it is
 //     "unordered" rather than lossy, which is what avoids head-of-line blocking).
@@ -12,15 +12,47 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const newRoomCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 const rid = () => Math.random().toString(36).slice(2, 10);
 
-const peerOpts = { debug: 0 } as const;
+// Direct ICE candidates are always available. PeerJS discontinued its bundled
+// TURN service; a deployment can supply short-lived relay credentials separately.
+async function peerOptions() {
+  const iceServers: RTCIceServer[] = [
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.l.google.com:19302' },
+  ];
+  const url = import.meta.env.VITE_ICE_SERVERS_URL;
+  if (url) {
+    try {
+      const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(3500) });
+      if (response.ok) {
+        const servers: RTCIceServer[] = await response.json();
+        for (const s of servers) {
+          if (!s || typeof s.username !== 'string' || typeof s.credential !== 'string') continue;
+          const urls = [s.urls].flat().filter(u => typeof u === 'string' && /^turns?:[^\s]+$/i.test(u));
+          if (urls.length) iceServers.push({ urls, username: s.username, credential: s.credential });
+        }
+      }
+    } catch { /* Direct connections also work when the relay provider is offline. */ }
+  }
+  return { debug: 0, config: { iceServers } } as const;
+}
 
 function waitOpen(c: DataConnection, ms: number): Promise<void> {
   return new Promise((resolve, reject) => {
     if (c.open) return resolve();
-    const t = setTimeout(() => reject(new TransportError('failed', 'Connection timed out')), ms);
-    c.on('open', () => { clearTimeout(t); resolve(); });
-    c.on('error', (e) => { clearTimeout(t); reject(new TransportError('failed', String(e))); });
-    c.on('close', () => { clearTimeout(t); reject(new TransportError('failed', 'Connection closed')); });
+    const done = (err?: TransportError) => {
+      clearTimeout(t);
+      c.off('open', opened);
+      c.off('close', closed);
+      c.off('error', failed);
+      if (err) reject(err); else resolve();
+    };
+    const opened = () => done();
+    const closed = () => done(new TransportError('failed', 'Connection closed'));
+    const failed = (e: Error) => done(new TransportError('failed', e.message));
+    const t = setTimeout(() => done(new TransportError('failed', 'The room could not establish a connection. Try a different Wi-Fi network or a mobile hotspot.')), ms);
+    c.on('open', opened);
+    c.on('error', failed);
+    c.on('close', closed);
   });
 }
 
@@ -37,7 +69,7 @@ export class PeerTransport implements ClientTransport {
   constructor(private code: string) {}
 
   async connect(): Promise<void> {
-    const peer = new Peer(peerOpts);
+    const peer = new Peer(await peerOptions());
     this.peer = peer;
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(() => reject(new TransportError('unreachable', 'Could not reach the matchmaking server')), 10000);
@@ -55,20 +87,18 @@ export class PeerTransport implements ClientTransport {
     });
     const rel = peer.connect(target, { reliable: true, serialization: 'raw', metadata: { link, ch: 'r' } });
     this.rel = rel;
-    await Promise.race([waitOpen(rel, 12000), unavailable]);
+    await Promise.race([waitOpen(rel, 20000), unavailable]);
     rel.on('data', (d) => this.onMessage(d as string));
     rel.on('close', () => { if (!this.closedByUs) this.onClose(); });
     rel.on('error', () => {});
     // optional unordered channel for inputs/snapshots; fine to run without it
     const fast = peer.connect(target, { reliable: false, serialization: 'raw', metadata: { link, ch: 'f' } });
-    try {
-      await waitOpen(fast, 5000);
+    void waitOpen(fast, 5000).then(() => {
+      if (this.closedByUs) return;
       this.fast = fast;
       fast.on('data', (d) => this.onMessage(d as string));
       fast.on('close', () => { if (this.fast === fast) this.fast = null; });
-    } catch {
-      this.fast = null;
-    }
+    }, () => fast.close());
   }
 
   send(msg: C2S, fast = false) {
@@ -108,25 +138,31 @@ export class PeerHost {
     throw new TransportError('failed', 'Could not allocate a room code');
   }
 
-  private register(): Promise<void> {
+  private async register(): Promise<void> {
+    const opts = await peerOptions();
     return new Promise((resolve, reject) => {
-      const peer = new Peer(PEER_PREFIX + this.code, peerOpts);
+      const peer = new Peer(PEER_PREFIX + this.code, opts);
       const t = setTimeout(() => { peer.destroy(); reject(new TransportError('unreachable', 'Could not reach the matchmaking server')); }, 10000);
-      peer.on('open', () => {
+      const registrationFailed = (e: { type?: string }) => {
         clearTimeout(t);
+        peer.destroy();
+        reject(e.type === 'unavailable-id' ? new TransportError('failed', 'taken') : new TransportError('unreachable', 'Could not reach the matchmaking server' + (e.type ? ` (${e.type})` : '')));
+      };
+      peer.once('error', registrationFailed);
+      peer.once('open', () => {
+        clearTimeout(t);
+        peer.off('error', registrationFailed);
         this.peer = peer;
         peer.on('connection', (c) => this.onConnection(c));
-        peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
+        // PeerJS also emits disconnected during destroy(), before setting destroyed.
+        peer.on('disconnected', () => queueMicrotask(() => {
+          if (!peer.destroyed && peer.disconnected) peer.reconnect();
+        }));
         peer.on('error', (e: { type?: string; message?: string }) => {
           if (e.type === 'peer-unavailable' || e.type === 'webrtc' || e.type === 'network') return; // a joiner's problem
           this.onFatal(e.message ?? String(e.type));
         });
         resolve();
-      });
-      peer.on('error', (e: { type?: string }) => {
-        clearTimeout(t);
-        peer.destroy();
-        reject(e.type === 'unavailable-id' ? new TransportError('failed', 'taken') : new TransportError('unreachable', 'Could not reach the matchmaking server' + (e.type ? ` (${e.type})` : '')));
       });
     });
   }
