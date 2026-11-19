@@ -117,15 +117,6 @@ outline=[(502,20),(613,38),(655,90),(737,112),(770,232),(797,273),(780,378),
  (792,390),(802,451),(790,496),(746,521),(738,630),(724,746),(708,773),(608,817),
  (553,798),(475,709),(436,624),(407,625),(371,610),(340,540),(359,496),
  (276,453),(233,376),(260,303),(235,253),(274,139),(349,96),(367,54)]
-# Cut the HUD head from the same silhouette as the face mesh.
-hud_dir = ROOT / 'assets/hud'
-hud_dir.mkdir(parents=True, exist_ok=True)
-subprocess.run(['magick', str(portrait), '(', '+clone', '-alpha', 'off', '-fill', 'black',
-    '-colorize', '100', '-fill', 'white', '-draw',
-    'polygon ' + ' '.join(f'{x},{y}' for x,y in outline), ')',
-    '-compose', 'CopyOpacity', '-composite', '-trim', '+repage', '-resize', '43x29!',
-    '-gravity', 'center', '-background', 'none', '-extent', '64x32', '-strip',
-    str(hud_dir / 'big-stein.png')], check=True)
 depths=[-.015,-.015,.006,.003,-.015,.003,-.008,.004,.015,.005,.014,.033,.053,.079,.107,
  .100,.068,.042,.003,-.002,.002,-.011,-.005,.004,-.008,.012,.007,-.015,-.025]
 landmarks=[(435,203,.115),(562,136,.088),(319,251,.060),(635,235,.063),(385,331,.108),

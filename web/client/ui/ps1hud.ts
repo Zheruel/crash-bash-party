@@ -20,7 +20,7 @@ export const hudTex = (i: number) => `${ASSET_BASE}textures/0731/tex${String(i).
 
 export function hudFace(char: number): string {
   const character = CHARACTERS[char % CHARACTERS.length];
-  return character?.id === 'big-stein' ? ASSET_BASE + 'hud/big-stein.png' : hudTex(HUD.face[character?.id] ?? 3);
+  return character?.id === 'big-stein' ? ASSET_BASE + 'hud/big-stein.png?v=2' : hudTex(HUD.face[character?.id] ?? 3);
 }
 
 /** the picture starts 8 lines down on screen (see PS1_OFY): HUD sprites move with it */

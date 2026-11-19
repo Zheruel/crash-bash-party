@@ -4,6 +4,7 @@ import { CHARACTERS, type Look } from '../../shared/look';
 import { createCharacter } from '../characters';
 import { getCatalog, ModelInstance } from '../crash';
 import { ASSET_BASE } from '../crash';
+import { hudFace } from '../ui/ps1hud';
 
 let renderer: THREE.WebGLRenderer | null = null;
 const cache = new Map<number, string>();
@@ -38,7 +39,7 @@ const faceCache = new Map<number, string>();
 export function faceShot(char: number): string {
   const key = ((char % CHARACTERS.length) + CHARACTERS.length) % CHARACTERS.length;
   const character = CHARACTERS[key];
-  if ('portrait' in character) return ASSET_BASE + character.portrait;
+  if ('portrait' in character) return hudFace(key);
   const hit = faceCache.get(key);
   if (hit != null) return hit;
   let url = '';
