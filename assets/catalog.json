@@ -1304,7 +1304,7 @@
   },
   "podiumChar_big-stein": {
    "model": 9012,
-   "scale": 3
+   "scale": 0.9
   }
  }
 }

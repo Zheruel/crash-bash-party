@@ -92,7 +92,7 @@ frame (tap / key skips the hold like cross); the party's buttons come in after i
 - Start fade from black (the engine's generic level fade, not in the overlay), measured on the emulator at 4x slow motion:
   black, then 19 / 37 / 58 / 74 / 93 / 100 % brightness, one step per 30 Hz frame (the LOADING screen fades in the same
   way). Ported as a black cover over the 3D canvas (`PodiumScene.fade`). Firework sound pitch: ids 0x355-0x360 are keyed at note 60 (pitch arg 0x1e00 >> 7); SPU rate = 44100 * 2^((60 - centre + fine/128) / 12) (fine tune raises pitch: the crackle tones then land exactly on their VAGs' own rates 13011 / 12493). Bangs: three samples at 1 and 0.927; crackles 1 / 0.96 / 1 / 0.919 / 1 / 0.956. Checked on a 25 s emulator recording of the podium (OpenAL gain node -> MediaRecorder): matched filtering finds the bang samples at x1.00 and x0.93 and nowhere else (`bangRate` / `crackleRate`). The strip shows the party points (two digits).
-  Big Stein has no podium model: he uses his own win / lose clips.
+  Big Stein uses podium model 9012 with a victory salute, a losing shrug and a breathing idle, keyed to the frame ranges of Cortex’s podium scripts.
 - Name plates at the feet are ours. The winner line moved under the podium; the confetti is gone (the fireworks are real).
 - (Resolved: the bodies were right; the HUD face table had Koala and Rilla swapped - Koala Kong is the ape in striped trunks, face tex022.) Original note: catalog ids `koala` and `rilla` carry each other's body: the game shows engine 8 (base 978, podium 744, strip face 0731
   tex022) as the ape in striped shorts = Rilla Roo, and engine 6 (976 / 748) as the grey koala in red = Koala Kong. Our

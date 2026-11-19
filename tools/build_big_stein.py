@@ -21,7 +21,7 @@ geometry = defaultdict(list)
 
 def view(data, target=None):
     blob.extend(b'\0' * (-len(blob) % 4))
-    d = dict(buffer=0, byteOffset=len(blob), byteLength=len(data))
+    d = dict(buffer=len(g.get('buffers', [])), byteOffset=len(blob), byteLength=len(data))
     if target:
         d['target'] = target
     blob.extend(data)
@@ -255,6 +255,8 @@ def clip(name,times,poses):
         assert len(values)==len(times)
         anim['channels'].append(dict(sampler=len(anim['samplers']),target=dict(node=hips if pos else n,path='translation' if pos else 'rotation')))
         anim['samplers'].append(dict(input=time,output=accessor(values,3 if pos else 4),interpolation='LINEAR'))
+geometry_views = len(g['bufferViews'])
+geometry_accessors = len(g['accessors'])
 Z=(0,0,0)
 clip('idle',[0,.65,1.3,1.95,2.6],{chest:[Z,(-2,0,1),Z,(1,0,-1),Z],head:[(0,-4,3),(0,0,3),(-2,5,2),(0,0,2),(0,-4,3)],
     elbows[0]:[(-12,0,0),(-15,0,0),(-12,0,0),(-9,0,0),(-12,0,0)]})
@@ -294,3 +296,42 @@ g['buffers']=[dict(uri='9001.bin',byteLength=len(blob))]
 OUT.mkdir(parents=True,exist_ok=True)
 (OUT/'9001.bin').write_bytes(blob)
 (OUT/'9001.gltf').write_text(json.dumps(g,separators=(',',':'),allow_nan=False)+'\n')
+
+# The podium has its own performance on Stein's hinged rig. Reuse his mesh
+# buffer so his jacket, face and proportions stay identical to the lobby model.
+del g['bufferViews'][geometry_views:]
+del g['accessors'][geometry_accessors:]
+g['animations'] = []
+blob = bytearray()
+
+def podium_clip(name, frames, poses):
+    clip(name, [frame/30 for frame in frames], poses)
+
+# The podium VM plays 0..31, loops back to 9, then reverses 9..0.
+# Match the raised-fist poses at both ends of that cut.
+salute = (-24, 2, 127)
+podium_clip('Victory salute', [0, 4, 9, 14, 20, 25, 30, 31], {
+    chest: [Z,(5,-8,-3),(-5,8,4),(-7,13,5),(-3,4,2),(-7,10,4),(-5,8,4),(-5,8,4)],
+    head: [Z,(5,-9,-2),(-8,7,-5),(-12,14,-6),(0,1,-3),(-9,8,-5),(-8,7,-5),(-8,7,-5)],
+    arms[1]: [Z,(-31,0,32),salute,(-27,4,151),(-24,0,109),(-28,3,148),salute,salute],
+    elbows[1]: [Z,(-74,0,0),(-34,0,0),(-14,0,0),(-53,0,0),(-19,0,0),(-34,0,0),(-34,0,0)],
+    arms[0]: [Z,(-8,0,-12),(-12,0,-20),(-16,0,-21),(-10,0,-18),(-14,0,-21),(-12,0,-20),(-12,0,-20)],
+})
+# On defeat he lifts his open arms, looks toward the winner, and lets
+# them drop. Frames 15 and 46 meet at the held shrug in the native script.
+podium_clip('Disbelieving shrug', [0, 7, 15, 24, 34, 45, 46, 53], {
+    chest: [Z,(-5,0,0),(7,-6,0),(10,-9,-2),(9,6,1),(7,-6,0),(7,-6,0),Z],
+    head: [Z,(-12,4,-3),(8,-14,5),(3,-25,7),(10,17,-5),(8,-14,5),(8,-14,5),Z],
+    arms[0]: [Z,(3,0,-12),(-9,8,-60),(-14,6,-69),(-8,4,-54),(-9,8,-60),(-9,8,-60),Z],
+    arms[1]: [Z,(3,0,10),(-8,-6,57),(-9,-6,61),(-12,-5,67),(-8,-6,57),(-8,-6,57),Z],
+    elbows[0]: [Z,(-18,0,0),(-78,0,-14),(-91,0,-10),(-70,0,-12),(-78,0,-14),(-78,0,-14),Z],
+    elbows[1]: [Z,(-18,0,0),(-74,0,14),(-80,0,12),(-89,0,10),(-74,0,14),(-74,0,14),Z],
+})
+podium_clip('Podium idle', [0, 8, 16, 24, 31], {
+    chest: [Z,(-1,0,0),(-2,0,0),(-1,0,0),Z],
+    head: [Z,(-1,-3,1),(-2,-5,1),(-1,-2,0),Z],
+    elbows[0]: [Z,(-3,0,0),(-5,0,0),(-3,0,0),Z],
+})
+g['buffers'].append(dict(uri='9012.bin',byteLength=len(blob)))
+(OUT/'9012.bin').write_bytes(blob)
+(OUT/'9012.gltf').write_text(json.dumps(g,separators=(',',':'),allow_nan=False)+'\n')

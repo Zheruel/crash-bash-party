@@ -10,7 +10,7 @@ from scipy.spatial.transform import Rotation
 
 MODELS = Path(__file__).resolve().parents[1] / 'assets/models'
 # Cortex is the animation and equipment donor for Big Stein.
-DONORS = [970, 954, 890, 828, 812, 844, 938, 858, 874, 906, 754]
+DONORS = [970, 954, 890, 828, 812, 844, 938, 858, 874, 906]
 
 
 def load(number):
@@ -169,7 +169,7 @@ def build(donor, number, body):
         if a['channels'][0]['target']['node'] != 0: continue
         sampler = a['samplers'][0]
         weights = read(source,data,sampler['output']).reshape(-1,len(deltas))
-        pose = poses({k:weights@v for k,v in tracks.items()}, 'HipR' in parts, donor in (858,874,754))
+        pose = poses({k:weights@v for k,v in tracks.items()}, 'HipR' in parts, donor in (858,874))
         anim = dict(name=a['name'],channels=[],samplers=[])
         if equipment:
             anim['samplers'].append(sampler)
