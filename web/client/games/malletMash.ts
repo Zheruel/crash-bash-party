@@ -20,7 +20,7 @@ const S = 3.398;
 /** Object pack 0343: effect scripts 0 mushroom blast, 1 smoke + stars, 2 crate shards, 3 gold sparkle (re/notes/malletMash.md). */
 const PACK = 343;
 /** Held-item height per look (table 0x800b9594 by engine char: crash coco tiny dingodile cortex brio koala rilla), game units. */
-const HEAD = [576, 640, 768, 704, 512, 608, 640, 832];
+const HEAD = [576, 640, 768, 704, 512, 608, 640, 832, 608];
 
 /** Camera fitted to the real frame (image-difference search on the disc's own intro frame), in sim units (raw x 3.398). */
 export const MM_CAM = { pos: [0.325, 8.477, 17.894] as [number, number, number], look: [0.339, 1.173, -0.106] as [number, number, number], fov: 43.2, aspect: 4 / 3 };

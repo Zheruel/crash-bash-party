@@ -52,7 +52,7 @@ const END_G = 2813;
 export const KK_MAX_TIME = (END_G + 1 - INTRO_END) / 30;
 
 const START: [number, number, number][] = [[-933, -1176, 3584], [-1141, 1343, 512], [1059, 1295, 1536], [1038, -1145, 2560]];
-/** engine character id (1..8) per look.ts CHARACTERS index: crash coco tiny dingodile cortex brio koala rilla */
+/** engine character id (1..8) per look.ts CHARACTERS index: crash coco tiny dingodile cortex brio koala rilla big-stein (Cortex) */
 export const KK_CHAR = DISC_CHARACTER;
 /** player collision radius: 0x78 for every character (pair distance histogram of an all-CPU game: density starts at 2 x 120) */
 const RADIUS = [0, 120, 120, 120, 120, 120, 120, 120, 120];

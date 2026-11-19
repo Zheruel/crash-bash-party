@@ -12,7 +12,7 @@ import { sfx } from '../shell/sound';
 import type { Mode, Stage } from '../view';
 import { PodiumCam, type CamData, type CamOut } from './podiumCam';
 import { clamp01, ease, labelSprite } from './util';
-import { HUD, hudTex, type HudSprite } from '../ui/ps1hud';
+import { hudFace, type HudSprite } from '../ui/ps1hud';
 
 interface Script { seg: number[][]; loop: boolean }
 interface PodChar {
@@ -344,8 +344,8 @@ export class PodiumScene implements Mode {
       const [x, z, ped, lose] = d.layouts[L][rank];
       const look = looks[slot] ?? { char: 0, color: 0 };
       const id = CHARACTERS[look.char % CHARACTERS.length].id;
-      // the podium model of the same disc character (none for a character that is not on the disc)
-      const pc = chars.find((c) => c.base === charEntry(id)?.model);
+      const custom = cat.props[`podiumChar_${id}`];
+      const pc = custom ? chars.find((c) => c.engine === DISC_CHARACTER[look.char]) : chars.find((c) => c.base === charEntry(id)?.model);
       const h = d.pedestalHeight[Math.min(4, Math.max(1, ped)) - 1] * k;
       const holder = new THREE.Group();
       holder.position.set(x * k, 0, -z * k);
@@ -354,7 +354,7 @@ export class PodiumScene implements Mode {
         const p = new ModelInstance(cat.props[`podiumPed${Math.min(4, ped)}`] ?? null);
         if (p.build()) holder.add(p.root);
       }
-      let mi = new ModelInstance(pc ? cat.props[`podiumChar_${pc.engine}`] ?? null : null);
+      let mi = new ModelInstance(custom ?? (pc ? cat.props[`podiumChar_${pc.engine}`] : null) ?? null);
       let actor: Actor | null = null;
       if (pc && mi.build()) actor = new Actor(pc);
       else { mi = createCharacter(look, { ring: false }); mi.play('idle'); }
@@ -561,8 +561,7 @@ export class PodiumScene implements Mode {
     for (let i = 0; i < 4; i++) {
       const look = this.stripLooks[i];
       if (!look) continue;
-      const id = CHARACTERS[look.char % CHARACTERS.length]?.id ?? 'crash';
-      out.push({ tex: hudTex(HUD.face[id] ?? 3), x: FACE_X[i], y: 179 + dy, w: 64, h: 40 });
+      out.push({ tex: hudFace(look.char), x: FACE_X[i], y: 179 + dy, w: 64, h: 40 });
       const n = String(Math.max(0, Math.min(99, Math.floor(this.stripPts[i] ?? 0)))).padStart(2, '0');
       [...n].forEach((c, j) => out.push({ tex: `${ASSET_BASE}hud/sm${c}.png`, x: NUM_X[i] + j * 12, y: 201 + dy, w: 20, h: 13 }));
     }

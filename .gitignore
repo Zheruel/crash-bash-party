@@ -6,9 +6,9 @@ node_modules/
 dist/
 __pycache__/
 .DS_Store
-assets/portraits/
+assets/portraits/*
+!assets/portraits/big-stein.png
 web/test-results/
-tools/build_big_stein.py
 local-backup/
 tools/emu/*.png
 assets/hd-raw/

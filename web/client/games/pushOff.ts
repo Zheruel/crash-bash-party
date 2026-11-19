@@ -10,7 +10,7 @@ import { createCharacter } from '../characters';
 import { ASSET_BASE, getCatalog, ModelInstance, type ModelRef } from '../crash';
 import { sfx, sfxRate } from '../shell/sound';
 import { charVoice, hitVoice } from '../shell/voice';
-import { bigClock, HUD, hudTex, SLOT_X, type HudSprite } from '../ui/ps1hud';
+import { bigClock, hudFace, hudTex, SLOT_X, type HudSprite } from '../ui/ps1hud';
 import type { ActorParts } from './kit';
 import { catalogInstance, Kit, nativeCharScale, preloadCatalogFor } from './kit';
 import { applyPose, levelStage, loadPlacements, Ps1Follow, TRACK_CAMS, type Placements, type Tracked } from './ps1cam';
@@ -89,7 +89,7 @@ function propClone(name: string): THREE.Object3D {
 }
 
 /** frame of the dash voice in each character's dash script (L18 RAM), per CHARACTERS index */
-const DASH_VOICE_FRAME = [16, 15, 24, 17, 31, 31, 17, 13];
+const DASH_VOICE_FRAME = [16, 15, 24, 17, 31, 31, 17, 13, 31];
 
 export function createPushOffView(): ClientMiniGame {
   let kit: Kit;
@@ -262,7 +262,7 @@ export function createPushOffView(): ClientMiniGame {
           });
           // FUN_800bcc9c: a CPU's idle fidget, the level's own scripts (L18 RAM 0x800d3bb4 ...): pose 0x4000 + clip<<7 + frame
           if (d.fid?.[b.slot] && !onFoot) {
-            const eng = DISC_CHARACTER[(ctx.seats[b.slot]?.look.char ?? 0) % 8];
+            const eng = DISC_CHARACTER[(ctx.seats[b.slot]?.look.char ?? 0) % DISC_CHARACTER.length];
             const f = FIDGET[eng];
             if (f) {
               const st = (fidT[b.slot] ??= ctx.time);
@@ -389,8 +389,7 @@ export function createPushOffView(): ClientMiniGame {
       SLOT_X.forEach((x, slot) => {
         const seat = ctx.seats[slot];
         if (!seat) return;
-        const id = CHARACTERS[seat.look.char % CHARACTERS.length].id;
-        out.push({ tex: hudTex(HUD.face[id] ?? 3), x, y: 10, w: 64, h: 40 });
+        out.push({ tex: hudFace(seat.look.char), x, y: 10, w: 64, h: 40 });
         const m = Math.max(0, Math.min(1, w.data.meter?.[slot] ?? 0));
         const g = Math.round(52 * m);
         out.push({ tex: `${ASSET_BASE}hud/barR.png`, x: x + 16, y: 39, w: 52, h: 6 });

@@ -39,7 +39,7 @@ export const MM_END = CLOCK_START + CLOCK_STEPS - 1 - INTRO_END;
 export const MM_MAX_TIME = (MM_END + 1) / 30;
 
 const START: [number, number, number][] = [[-1485, -1485, 3584], [-1618, 1539, 512], [1572, 1606, 1536], [1467, -1509, 2560]];
-/** engine character id (1..8) per look.ts CHARACTERS index: crash coco tiny dingodile cortex brio koala rilla */
+/** engine character id (1..8) per look.ts CHARACTERS index: crash coco tiny dingodile cortex brio koala rilla big-stein (Cortex) */
 export const MM_CHAR = DISC_CHARACTER;
 /** collision radius per engine char (measured: coco 199, brio 184, koala 328, tiny 333; the rest inferred from their class) */
 const RADIUS = [0, 199, 199, 184, 184, 328, 328, 333, 333];

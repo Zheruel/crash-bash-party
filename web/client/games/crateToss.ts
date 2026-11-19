@@ -10,8 +10,7 @@ import { catalogInstance, Kit, nativeCharScale, preloadCatalogFor } from './kit'
 import type { ClientMiniGame } from './types';
 import { applyPose, levelStage, loadPlacements, Ps1Follow, TRACK_CAMS, type Placements, type Tracked } from './ps1cam';
 import type { ModelRef } from '../crash';
-import { bigClock, HUD, hudTex, SLOT_X, type HudSprite } from '../ui/ps1hud';
-import { CHARACTERS } from '../../shared/look';
+import { bigClock, hudFace, SLOT_X, type HudSprite } from '../ui/ps1hud';
 import { getGame } from '../../shared/registry';
 
 const H = CT_HALF;
@@ -389,8 +388,7 @@ export function createCrateTossView(): ClientMiniGame {
       SLOT_X.forEach((x, slot) => {
         const seat = ctx.seats[slot];
         if (!seat) return;
-        const id = CHARACTERS[seat.look.char % CHARACTERS.length].id;
-        out.push({ tex: hudTex(HUD.face[id] ?? 3), x, y: 10, w: 64, h: 40 });
+        out.push({ tex: hudFace(seat.look.char), x, y: 10, w: 64, h: 40 });
         const hp = Math.max(0, Math.min(CT_HP, w.data.hp?.[slot] ?? 0));
         const g = Math.round((52 * hp) / CT_HP);
         out.push({ tex: `${ASSET_BASE}hud/barR.png`, x: x + 16, y: 47 - 8, w: 52, h: 6 });

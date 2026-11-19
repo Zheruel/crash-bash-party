@@ -615,6 +615,71 @@
      }
     }
    }
+  },
+  {
+   "id": "big-stein",
+   "name": "Big Stein",
+   "model": 9001,
+   "portrait": "portraits/big-stein.png",
+   "height": 1.92,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "hit": 3,
+    "win": 4,
+    "lose": 5,
+    "carry": 6,
+    "carryRun": 7,
+    "lift": 8,
+    "throw": 9,
+    "jump": 10
+   },
+   "variants": {
+    "pogo": {
+     "model": 9002,
+     "scale": 3.048,
+     "offset": [
+      0,
+      -0.119,
+      0
+     ],
+     "yaw": 0,
+     "anims": {
+      "idle": 2,
+      "hop": 2,
+      "jump": 3,
+      "action": 3
+     }
+    },
+    "polarBear": {
+     "model": 9003,
+     "scale": 3.048,
+     "offset": [
+      0,
+      0.0,
+      0
+     ],
+     "yaw": 0,
+     "anims": {
+      "idle": 0,
+      "push": 0
+     }
+    },
+    "tank": {
+     "model": 9004,
+     "scale": 2.6,
+     "offset": [
+      0,
+      0.472,
+      0
+     ],
+     "yaw": 0,
+     "anims": {
+      "idle": 4
+     }
+    }
+   }
   }
  ],
  "arenas": {
@@ -1089,6 +1154,157 @@
     0.229
    ],
    "yaw": 0
+  },
+  "dashRace.kart.big-stein": {
+   "model": 9005,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.sea.big-stein": {
+   "model": 9006,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "rdRider_big-stein": {
+   "model": 9007,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 1,
+    "run": 0,
+    "action": 2,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
+    "lose": 4
+   }
+  },
+  "ddChar_big-stein": {
+   "model": 9008,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 2,
+    "hit": 3,
+    "win": 4,
+    "lose": 4
+   }
+  },
+  "mmMallet_big-stein": {
+   "model": 9009,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "hit": 2,
+    "action": 3,
+    "win": 4,
+    "charge": 5,
+    "lose": 2,
+    "jump": 3
+   }
+  },
+  "kkCarry_big-stein": {
+   "model": 9010,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 3,
+    "hit": 2,
+    "jump": 1,
+    "action": 4,
+    "win": 1,
+    "lose": 2
+   }
+  },
+  "mmAura_big-stein": {
+   "model": 862,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part1"
+   ]
+  },
+  "bdPilot.big-stein": {
+   "model": 9011,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 4,
+    "hit": 3,
+    "action": 2,
+    "lose": 5,
+    "win": 1
+   }
+  },
+  "podiumChar_big-stein": {
+   "model": 9012,
+   "scale": 3
   }
  }
 }

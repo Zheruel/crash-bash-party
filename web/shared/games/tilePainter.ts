@@ -22,6 +22,7 @@
  * Events: sfx (v = original sound id), paint, cash, capture, pickup, crate, power, arrow, missile, beam, hit, stun, steal,
  *   wipe, mine, boom, cross, line, lock, unlock, border, spawn, shield.
  */
+import { CHARACTERS, DISC_CHARACTER } from '../look';
 import { addBody, emit, rand } from '../physics';
 import { IDLE, MAX_SEATS, type Body, type InputState, type MiniGame, type World } from '../types';
 import { pickVariant } from './common';
@@ -763,6 +764,7 @@ export const tilePainter: MiniGame = {
     const forcedFamilies = Array.isArray(w.data?.fam);
     w.data = d;
     for (const s of slots) {
+      if (!forcedFamilies && s.char != null && CHARACTERS[s.char]?.id === 'big-stein') d.fam[s.slot] = DISC_CHARACTER[s.char];
       const b = addBody(w, 'player', s.slot, 0, 0, 0.6, 3);
       d.on[s.slot] = true;
       const rx = START_RX[s.slot], rz = START_RZ[s.slot];

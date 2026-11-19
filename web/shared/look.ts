@@ -15,10 +15,11 @@ export const CHARACTERS = [
   { id: 'brio', name: 'N. Brio', blurb: 'Bubbling with bad ideas' },
   { id: 'koala', name: 'Koala Kong', blurb: 'Muscles first, questions later' },
   { id: 'rilla', name: 'Rilla Roo', blurb: 'Bouncy, bonkers, unstoppable' },
+  { id: 'big-stein', name: 'Big Stein', blurb: 'Silver hair, crooked grin', portrait: 'portraits/big-stein.png' },
 ] as const;
 
-/** Roster index to disc character for movement tables and sounds. */
-export const DISC_CHARACTER = [1, 2, 5, 7, 3, 4, 8, 6] as const;
+/** Roster index to disc character for movement tables and sounds. Big Stein uses Cortex. */
+export const DISC_CHARACTER = [1, 2, 5, 7, 3, 4, 8, 6, 3] as const;
 
 export const COLORS = [
   { name: 'Tomato', hex: '#ff5a4f' },

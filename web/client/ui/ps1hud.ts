@@ -18,6 +18,11 @@ export const HUD = {
 
 export const hudTex = (i: number) => `${ASSET_BASE}textures/0731/tex${String(i).padStart(3, '0')}.png`;
 
+export function hudFace(char: number): string {
+  const character = CHARACTERS[char % CHARACTERS.length];
+  return character?.id === 'big-stein' ? ASSET_BASE + 'hud/big-stein.png' : hudTex(HUD.face[character?.id] ?? 3);
+}
+
 /** the picture starts 8 lines down on screen (see PS1_OFY): HUD sprites move with it */
 const PIC_Y = 8;
 
@@ -92,8 +97,7 @@ export function bigClock(sec: number, blink: boolean): HudSprite[] {
 export function faceSprite(seats: ({ look: { char: number } } | null | undefined)[], slot: number): HudSprite | null {
   const seat = seats[slot];
   if (!seat) return null;
-  const id = CHARACTERS[seat.look.char % CHARACTERS.length].id;
-  return { tex: hudTex(HUD.face[id] ?? 3), x: SLOT_X[slot], y: 10, w: 64, h: 40 };
+  return { tex: hudFace(seat.look.char), x: SLOT_X[slot], y: 10, w: 64, h: 40 };
 }
 
 /**
