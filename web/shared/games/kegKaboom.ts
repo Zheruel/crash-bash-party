@@ -753,7 +753,7 @@ export const kegKaboom: MiniGame = {
   id: 'kegKaboom',
   name: 'Keg Kaboom',
   description: 'Lay gunpowder trails to the powder kegs and let the flames light them. Gold and silver kegs are worth the most!',
-  controls: 'Hold B: lay gunpowder. A: jump (or shock wave when charged).',
+  controls: '{move} run. Hold {b} to lay gunpowder. {a} jump (shock wave when charged).',
   maxTime: KK_MAX_TIME,
 
   setup(w: World, slots: SlotInfo[]) {

@@ -21,8 +21,10 @@ names, rules, controls and level variants follow the disc (text files 0141-0152,
   (`pickVariant` in `games/common.ts`). Variant display names are in the exported `*_VARIANTS` arrays
   (`BD_`, `PO_`, `TP_`, `TA_`, `CT_`, `DR_`).
 * Deterministic: only `world.rng` (via `rand`) is used. Bots (`bot()`) are pure functions of the world.
-* Buttons: `a` = Space, `b` = Shift. Each game's `controls` string says what they do. Both are used as edge-triggered
-  "presses" by the sims (hold-to-fire only where noted).
+* Buttons: `a` = Space (or J), `b` = Shift (or K), `c` = F (or L; Crate Crush jump, Tank Wars taunt), `l` / `r` = Q / E
+  (Tank Wars turret). Each game's `controls` string says what they do, with `{move}` `{lr}` `{up}` `{a}` `{b}` `{c}` `{l}`
+  `{r}` tokens that the intro card renders as key caps (`controlsHtml`, touch glyphs on phones). Buttons are used as
+  edge-triggered "presses" by the sims (hold-to-fire only where noted).
 * Elimination games keep dead players' bodies in `world.bodies` with `alive = false` (and `fall = true` while falling).
 * Events: `GameEvent {k, x, z, s, o, v}`; `s` = affected slot, `o` = other/attacker slot, `v` = magnitude. `hit` with `s,o >= 0`
   and `ko` with `s,o >= 0` feed party stats (damage dealt / knockouts), so only emit those with real attackers.

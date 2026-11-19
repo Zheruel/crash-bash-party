@@ -613,7 +613,7 @@ export const malletMash: MiniGame = {
   id: 'malletMash',
   name: 'Mallet Mash',
   description: 'Mushrooms pop out of the ground. Whack them with your mallet! The more they shake, the more they are worth.',
-  controls: 'A: swing mallet (hold + release: shock wave).',
+  controls: '{move} run. {a} swing the mallet (hold and release: shock wave).',
   maxTime: MM_MAX_TIME,
 
   setup(w: World, slots: SlotInfo[]) {

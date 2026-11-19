@@ -9,7 +9,7 @@ Timeout `FUN_800b6f0c`: highest HP alive wins, all other alive players are kille
 
 ## Pad (digital, 8-way)
 Circle 0x2000 pick up / throw; Cross 0x4000 jump; Square 0x8000 spin attack; Triangle 0x1000.
-Web has only A / B: A = Circle, B = spin if a crate / rival is in reach, else jump (documented deviation).
+Web: A (Space) = Circle, B (Shift) = Square spin (always, also with nothing in reach), C (F / gamepad Y / touch triangle) = Cross jump; the jump cut tests C held.
 
 ## Movement (`FUN_800859d4`, `80085d2c`)
 - Velocity set directly per tick (no accel): walk 45, holding crate 30, boots +20 (chars 5-8 hold at 40). Table 0x8009d318.

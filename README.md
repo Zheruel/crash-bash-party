@@ -8,7 +8,7 @@ Crash Bash online with friends, in the browser. Pick a character, make a room, s
 - Up to 4 players + spectators, peer-to-peer (WebRTC via PeerJS); the host's browser runs the game
 - Points per round (4/3/2/1, double on the last round), trophies, comeback bonus, podium
 
-Controls: WASD / arrows to move, Space = action, Shift = secondary. Gamepad and touch supported.
+Controls: WASD / arrows to move, Space (or J) = action, Shift (or K) = secondary, F (or L) = third button, Q / E = Tank Wars turret. Each game's intro card shows its keys. Gamepad and touch supported.
 
 ## Develop
 

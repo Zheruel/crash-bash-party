@@ -545,7 +545,7 @@ export const dragonDrop: MiniGame = {
   id: 'dragonDrop',
   name: 'Dragon Drop',
   description: 'Jump to burst the balloons in YOUR colour on the spinning clock-tower ring. Black balloons shake things up!',
-  controls: 'A: jump (burst balloons). B: spin attack (hits rivals, opens crates).',
+  controls: '{move} run. {a} jump (bursts balloons). {b} spin attack (hits rivals, opens crates).',
   maxTime: 90,
 
   setup(w, slots) {

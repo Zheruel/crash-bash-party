@@ -160,7 +160,7 @@ export const ballDefence: MiniGame = {
   id: 'ballDefence',
   name: 'Ballistix',
   description: 'Deflect the balls away from your goal! Every ball that gets in costs you a point. Last ship in play wins.',
-  controls: 'Move your ship. Space: kick. Hold Shift: speed boost (Beach Ball: hold to catch a ball, release to fire it).',
+  controls: '{move} move your ship. {a} kick. Hold {b} for a speed boost (Beach Ball: hold {b} to catch a ball, let go to fire it).',
   variants: BD_VARIANTS,
   maxTime: 240,
 

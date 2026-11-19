@@ -740,7 +740,7 @@ export const tilePainter: MiniGame = {
   id: 'tilePainter',
   name: 'Pogo Painter',
   description: 'Hop around the arena on a pogo stick, painting squares your colour. Cash them in at the special crates. Highest score in 90 seconds wins.',
-  controls: 'Move: hop to the next square. Space / Shift: fire your item.',
+  controls: '{move} hop to the next square. {a} fire your item.',
   variants: TP_VARIANTS,
   maxTime: TP_FRAMES / 30,
 

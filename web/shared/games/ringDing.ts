@@ -835,7 +835,7 @@ export const ringDing: MiniGame = {
   id: 'ringDing',
   name: 'Ring Ding',
   description: 'Ride the dinos, grab jewels and throw them at the swinging target. Throw from the far side for 5x. Square without a jewel is a barge!',
-  controls: 'Move: stick. A/B (square): throw the carried jewel (hold it for a higher arc), or barge when empty-handed.',
+  controls: '{move} run. {a} throw the jewel you carry (hold for a higher arc), or barge when empty-handed.',
   maxTime: 90,
 
   setup(w, slots) {

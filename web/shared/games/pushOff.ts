@@ -1649,7 +1649,7 @@ export const pushOff: MiniGame = {
   id: 'pushOff',
   name: 'Polar Push',
   description: 'Slide into the other bears to knock them off the ice. Last bear standing wins.',
-  controls: 'Move. Space/Shift: dash (needs gauge); mash it to climb back from the edge. Manic Panic: Shift throws the bolt you carry.',
+  controls: '{move} skate. {a} dash (needs gauge); mash {a} to climb back from the edge. Manic Panic: {b} throws the bolt you carry.',
   variants: PO_VARIANTS,
   maxTime: 90, // FUN_800bafa0: FUN_8007b7fc(0x130) = 1:30 clock
 

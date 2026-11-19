@@ -885,7 +885,7 @@ export const dashRace: MiniGame = {
   id: 'dashRace',
   name: 'Crash Dash',
   description: `Race ${DR_LAPS} laps round the track. Fruit fuels the boost; crates hold a missile (shield on Toxic Dash). First across the line - or the leader at 1:30 - wins.`,
-  controls: 'Left/Right: steer. Up: run (hold). Space: boost (uses fuel). Shift: use item (Splash Dash: hop).',
+  controls: '{lr} steer. Hold {up} to run. {a} boost (uses fuel). {b} use your item (Splash Dash: hop).',
   variants: DR_VARIANTS,
   maxTime: 90,
   setup,

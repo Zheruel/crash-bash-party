@@ -6,9 +6,10 @@
  *
  * Levels (variant -> level id): swamp = 5 (SWAMP FOX, open pen, hover boats), desert = 6 (4x4 crates, grid driving),
  * jungle = 7 (centre pedestal, free driving), metal = 8 (4x3 raised crates, grid driving).
- *   Stick = d-pad (L5: left/right turn, up thrust), A = fire (square, tap), B = lay a mine (circle).
- * Deviation from the disc: the real turret turns with L1/R1; here it slews towards the stick direction at the real
- * speed (0x40 per frame). CPU tanks run the original AI inside step() (skill from SlotInfo.level).
+ *   Stick = d-pad (L5: left/right turn, up thrust), A = fire (square, tap), B = lay a mine (circle), C = taunt (triangle),
+ *   L / R (keyboard Q / E) = L1 / R1: turn the turret 0x40 per frame like the disc (R1 also thrusts on L5).
+ * Until a player first touches L / R the turret slews towards the stick direction at the same speed (for pads and
+ * touch screens without shoulder buttons); after that it is manual for the rest of the round, as on the disc. CPU tanks run the original AI inside step() (skill from SlotInfo.level).
  *
  * world.data (see Data): lv, f, tk (per tank), shells, mines, flames, bombs, pickups, dropper, spawner, over.
  * Bodies (world units): 'tank' (face = turret yaw, y = hop), 'bullet', 'mine', 'flame', 'bomb', 'pickup' (cd = type),
@@ -83,6 +84,8 @@ interface Tk {
   mines: number; mcd: number; hp: number; cpu: boolean; skill: number; char: number; speed: number; pad: number; prev: number;
   aim: number; inv: number; shieldCd: number; dodge: boolean; taunt: number; hy: number; hvy: number; kills: number;
   elim: number; hpAt: number; ai: Ai; body: number; bot: number;
+  /** the player has used L1 / R1: turret is manual (no auto-slew) */
+  man?: boolean;
 }
 interface Sh { id: number; o: number; x: number; z: number; y: number; vx: number; vz: number; vy: number; life: number; flag: number; w: number; spin: number }
 interface Mn { id: number; o: number; x: number; z: number; n: number }
@@ -551,6 +554,8 @@ function humanPad(inp: InputState, lv: number): number {
   if (inp.a) pad |= 0x8000;
   if (inp.b) pad |= 0x2000;
   if (inp.c) pad |= 0x1000;
+  if (inp.l) pad |= 0x400;
+  if (inp.r) pad |= 0x800;
   return pad;
 }
 
@@ -591,7 +596,12 @@ function tankStep(w: World, d: Data, p: number, t: Tk, inp: InputState) {
   // turret
   if (lv !== 5) {
     if (!drv) {
-      if (pad & 0xf0) {
+      if (pad & 0xc00) t.man = true;
+      if (t.man) {
+        // L1 turns the turret anticlockwise on screen, R1 clockwise
+        if (pad & 0x400) t.yaw = (t.yaw - 0x40) & 0xfff;
+        if (pad & 0x800) t.yaw = (t.yaw + 0x40) & 0xfff;
+      } else if (pad & 0xf0) {
         const dx = ((pad & 0x20) ? 1 : 0) - ((pad & 0x80) ? 1 : 0), dz = ((pad & 0x10) ? 1 : 0) - ((pad & 0x40) ? 1 : 0);
         const tgt = ang(-dx, -dz), df = sext(tgt - t.yaw);
         t.yaw = (t.yaw + Math.max(-0x40, Math.min(0x40, df))) & 0xfff;
@@ -760,7 +770,7 @@ export const tankArena: MiniGame = {
   id: 'tankArena',
   name: 'Tank Wars',
   description: "Destroy all of your opponents' tanks. Fire shells, lay mines, collect pickups. Last tank standing, or most health when time runs out, wins.",
-  controls: 'Stick: drive (swamp: left/right turn, up thrust). A: fire (tap). B: lay a mine. E / gamepad Y: taunt.',
+  controls: '{move} drive (Swamp Fox: {lr} turn, {up} thrust). {l} / {r} turn the turret. {a} fire (tap). {b} lay a mine. {c} taunt.',
   variants: TA_VARIANTS,
   maxTime: 90,
 

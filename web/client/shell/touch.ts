@@ -1,4 +1,4 @@
-// On-screen controls for phones/tablets: a virtual stick (left half), two buttons (A, B) and a Triangle (taunt) where a game has one.
+// On-screen controls for phones/tablets: a virtual stick (left half), two buttons (A, B) and a Triangle (Tank Wars taunt, Crate Crush jump) where a game uses one.
 import type { InputState } from '../../shared/types';
 
 export class TouchControls {
@@ -18,7 +18,7 @@ export class TouchControls {
     this.el.id = 'touch';
     this.el.className = 'hidden';
     this.el.innerHTML = `<div class="tstick"><div class="tbase"><div class="tknob"></div></div></div>
-      <div class="tbtns"><button class="tbtn tc hidden" data-b="c" aria-label="Taunt"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.2L19 17.6H5z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg></button><button class="tbtn tb" data-b="b" aria-label="Button B"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="3.4"/></svg></button><button class="tbtn ta" data-b="a" aria-label="Button A"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.500 5.500l13 13M18.500 5.500l-13 13" stroke="currentColor" stroke-width="3.600" stroke-linecap="round"/></svg></button></div>`;
+      <div class="tbtns"><button class="tbtn tc hidden" data-b="c" aria-label="Button C"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.2L19 17.6H5z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg></button><button class="tbtn tb" data-b="b" aria-label="Button B"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="3.4"/></svg></button><button class="tbtn ta" data-b="a" aria-label="Button A"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.500 5.500l13 13M18.500 5.500l-13 13" stroke="currentColor" stroke-width="3.600" stroke-linecap="round"/></svg></button></div>`;
     parent.appendChild(this.el);
     this.base = this.el.querySelector('.tbase')!;
     this.knob = this.el.querySelector('.tknob')!;

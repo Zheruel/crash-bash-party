@@ -4,6 +4,7 @@ import { sfx } from '../shell/sound';
 import { ASSET_BASE } from '../crash';
 import { div, esc, face, icon, pop } from './dom';
 import type { SeatView } from './hud';
+import { KEYS } from '../input';
 
 const UKA = `${ASSET_BASE}ui/uka.png`;
 /** the level each mini-game's reel card shows before the pick (its first real level) */
@@ -13,6 +14,23 @@ export const thumb = (game: string, variant?: string | null) => {
   const v = variant ?? FIRST[game];
   return `${ASSET_BASE}ui/thumbs/${game}${v ? '_' + v : ''}.jpg`;
 };
+const kbd = (k: string, alt?: string) => `<kbd${alt ? ` title="or ${alt}"` : ''}>${k}</kbd>`;
+/** how-to-play key tokens: keyboard caps, or the touch stick / face buttons */
+const KEY_HTML: Record<string, [string, string]> = {
+  move: [`${kbd('W')}${kbd('A')}${kbd('S')}${kbd('D')}<i>/</i>${kbd('&larr;')}${kbd('&uarr;')}${kbd('&darr;')}${kbd('&rarr;')}`, '<kbd class="pad">STICK</kbd>'],
+  lr: [`${kbd('A')}${kbd('D')}<i>/</i>${kbd('&larr;')}${kbd('&rarr;')}`, '<kbd class="pad">STICK &harr;</kbd>'],
+  up: [`${kbd('W')}<i>/</i>${kbd('&uarr;')}`, '<kbd class="pad">STICK &uarr;</kbd>'],
+  a: [kbd(KEYS.a[0], KEYS.a[1]), '<kbd class="pad x">&#x2715;</kbd>'],
+  b: [kbd(KEYS.b[0], KEYS.b[1]), '<kbd class="pad o">&#x25CB;</kbd>'],
+  c: [kbd(KEYS.c[0], KEYS.c[1]), '<kbd class="pad t">&#x25B3;</kbd>'],
+  l: [kbd(KEYS.l[0]), ''],
+  r: [kbd(KEYS.r[0]), ''],
+};
+/** a game's controls text ('{a} jump. Hold {b} to ...') as one line per sentence with key caps */
+export function controlsHtml(text: string, touch: boolean): string {
+  return text.split(/(?<=\.)\s+(?=[{A-Z])/).filter((s) => !(touch && /\{[lr]\}/.test(s))).map((s) =>
+    `<li>${esc(s).replace(/\{(\w+)\}/g, (_, k: string) => `<span class="keys">${KEY_HTML[k]?.[touch ? 1 : 0] ?? k}</span>`)}</li>`).join('');
+}
 const MENU_MOVE = 'sfx/0272/7.mp3', MENU_SELECT = 'sfx/0272/9.mp3';
 
 /**
@@ -112,7 +130,7 @@ export class IntroOverlay {
         <div class="vs">${players.slice(0, 2).join('')}<span class="vsx gt or">VS</span>${players.slice(2).join('')}</div>
         <div class="rules pnl">
           <p><b class="gt wh">GOAL</b> <span class="sm">${esc(m.desc)}</span></p>
-          <p><b class="gt wh">CONTROLS</b> <span class="sm">${esc(m.controls)}${touch ? ' &middot; TOUCH: STICK + A / B' : ''}</span></p>
+          <div class="ctl"><b class="gt wh">CONTROLS</b><ul class="sm">${controlsHtml(m.controls, touch)}</ul></div>
           ${m.modifier ? `<p class="twist"><img src="${UKA}" alt=""><b class="gt red">${esc(m.modifier.name.toUpperCase())}</b> <span class="sm">${esc(m.modifier.desc)}</span></p>` : ''}
         </div>
         <div class="fuse"><i style="animation-duration:${Math.max(500, ms)}ms"></i><span class="sm">GET READY!</span></div>

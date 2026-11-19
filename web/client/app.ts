@@ -487,7 +487,7 @@ export class App {
         if (!sfx.playFile('sfx/0272/9.mp3', 1)) sfx.play('go');
         this.playAt = performance.now();
         this.input.capture = true;
-        this.touch.setTaunt(this.client?.round?.gameId === 'tankArena');
+        this.touch.setTaunt(['tankArena', 'crateToss'].includes(this.client?.round?.gameId ?? ''));
         this.touch.show(this.mySlot() != null);
         {
           const m = this.client?.round;

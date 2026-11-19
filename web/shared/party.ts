@@ -217,7 +217,7 @@ export class Party {
         const seq = Math.floor(num(m.seq, 0, 1e9));
         if (seq <= c.lastRecv) return;
         c.lastRecv = seq;
-        c.queue.push({ seq, x: num(m.x, -1, 1), y: num(m.y, -1, 1), a: !!m.a, b: !!m.b, ...(m.c ? { c: true } : {}) });
+        c.queue.push({ seq, x: num(m.x, -1, 1), y: num(m.y, -1, 1), a: !!m.a, b: !!m.b, ...(m.c ? { c: true } : {}), ...(m.l ? { l: true } : {}), ...(m.r ? { r: true } : {}) });
         if (c.queue.length > 8) c.queue.splice(0, c.queue.length - 4);
         return;
       }

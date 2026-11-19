@@ -17,8 +17,11 @@ export interface InputState {
   a: boolean;
   /** secondary button: dash / bump */
   b: boolean;
-  /** third button (Triangle): taunt where the game has one */
+  /** third button (keyboard F, Triangle): taunt in Tank Wars, jump in Crate Crush */
   c?: boolean;
+  /** shoulder buttons (keyboard Q / E, L1 / R1): turn the turret in Tank Wars */
+  l?: boolean;
+  r?: boolean;
 }
 export interface Input extends InputState {
   seq: number;

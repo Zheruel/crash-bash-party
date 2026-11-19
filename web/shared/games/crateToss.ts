@@ -98,6 +98,8 @@ interface Data {
   eff: number[]; effT: number[]; pass: number[];
   weight: number; weightT: number;
   f8: number[]; vx: number[]; vz: number[]; vy: number[]; air: boolean[]; jh: boolean[]; prevA: boolean[]; prevB: boolean[];
+  /** Cross (jump) held last tick */
+  prevC?: boolean[];
   pend: { dmg: number; cls: number; by: number; kx: number; kz: number; kv: number }[];
   weapon: number[]; ammo: number[]; wcd: number[];
   floor: number[];
@@ -282,7 +284,7 @@ export const crateToss: MiniGame = {
   id: 'crateToss',
   name: 'Crate Crush',
   description: 'Pick up and throw crates at your opponents. TNT counts down, nitro explodes on touch. Last one standing - or most health - wins.',
-  controls: 'Space: pick up / throw a crate. Shift: spin-kick (crates fly, rivals take 1 HP); with nothing in reach it jumps.',
+  controls: '{move} walk. {a} pick up / throw a crate. {b} spin attack (kicks crates, rivals lose 1 HP; fires a weapon you picked up). {c} jump.',
   variants: CT_VARIANTS,
   maxTime: 90,
 
@@ -514,6 +516,9 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
   const aDown = inp.a, aNew = aDown && !d.prevA[slot];
   const bNew = inp.b && !d.prevB[slot];
   d.prevA[slot] = aDown; d.prevB[slot] = inp.b;
+  const pc = (d.prevC ??= [false, false, false, false]);
+  const cNew = !!inp.c && !pc[slot];
+  pc[slot] = !!inp.c;
   const held = holdingCrate(w, slot);
   const ice = d.variant === 'snow' || w.params.friction < 0.5;
   const sx = inp.x, sz = inp.y, sl = Math.hypot(sx, sz);
@@ -550,9 +555,8 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
         d.st[slot] = ST_THROW; d.stT[slot] = THROW_TICKS; d.act[slot] = 2;
       } else if (bNew) {
         if (d.weapon[slot] > 0 && d.ammo[slot] > 0 && d.wcd[slot] <= 0 && !held) fireWeapon(w, d, p);
-        else if (!held && !d.air[slot] && spinTargets(w, d, p)) { d.st[slot] = ST_SPIN; d.stT[slot] = SPIN_TICKS; d.act[slot] = 3; emit(w, 'kick', p.x, p.z, slot, 1); }
-        else if (!d.air[slot]) wantJump = true;
-      }
+        else if (!held && !d.air[slot]) { d.st[slot] = ST_SPIN; d.stT[slot] = SPIN_TICKS; d.act[slot] = 3; emit(w, 'kick', p.x, p.z, slot, 1); }
+      } else if (cNew && !d.air[slot]) wantJump = true;
     }
   }
   const free = d.st[slot] === ST_MOVE;
@@ -589,7 +593,7 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
   if (d.air[slot]) {
     if (d.vy[slot] > 0 || d.jh[slot]) {
       if (d.jh[slot]) {
-        const dec = !inp.b && d.vy[slot] > 0x40 ? JUMP_CUT : JUMP_DEC;
+        const dec = !inp.c && d.vy[slot] > 0x40 ? JUMP_CUT : JUMP_DEC;
         d.vy[slot] -= dec * grav;
         if (d.vy[slot] < 0) { d.vy[slot] = 0; d.jh[slot] = false; } else p.y += d.vy[slot] * U;
       }
@@ -744,12 +748,6 @@ function throwCrate(w: World, d: Data, p: Body, c: Body) {
   s.s = C_THROWN; s.own = p.slot; s.hv = THROW_V0; s.vv = THROW_VY0; s.up = true; s.dx = Math.sin(f); s.dz = Math.cos(f); s.t = 0;
   c.x = p.x + s.dx * 0.3; c.z = p.z + s.dz * 0.3;
   emit(w, 'throw', p.x, p.z, p.slot, 1);
-}
-
-function spinTargets(w: World, d: Data, p: Body): boolean {
-  for (const c of crates(w)) if (c.cd === 0 && dist2(c.x, c.z, p.x, p.z) < (SPIN_R + CRATE_R) * U + 0.3) return true;
-  for (const o of players(w)) if (o !== p && o.alive && dist2(o.x, o.z, p.x, p.z) < (SPIN_R + PLAYER_R) * U) return true;
-  return false;
 }
 
 /** the spin attack, each tick (FUN_80088794): a player in reach takes 1 HP and is knocked back 48/tick, crates in reach are kicked away */

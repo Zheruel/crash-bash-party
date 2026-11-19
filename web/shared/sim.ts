@@ -18,7 +18,7 @@ export function createWorld(game: MiniGame, players: SlotInfo[], modifiers: Modi
  * pre-flipped by the caller when `params.mirror` is set.
  */
 export function stepWorld(world: World, game: MiniGame, inputs: (InputState | null | undefined)[], dt = DT): void {
-  const inp = world.params.mirror ? inputs.map((i) => (i ? { ...i, x: -i.x, y: -i.y } : i)) : inputs;
+  const inp = world.params.mirror ? inputs.map((i) => (i ? { ...i, x: -i.x, y: -i.y, l: i.r, r: i.l } : i)) : inputs;
   game.step(world, inp, dt);
   world.tick++;
   world.time += dt;

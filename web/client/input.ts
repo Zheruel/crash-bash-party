@@ -1,11 +1,15 @@
 import type { InputState } from '../shared/types';
 
-const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyE']);
+const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyJ', 'KeyK', 'KeyF', 'KeyL', 'KeyQ', 'KeyE']);
 
 /**
- * Keyboard (WASD/arrows, Space = A, Shift = B), Gamepad (stick/dpad, A/B) and an optional touch source.
+ * Keyboard (WASD/arrows; Space or J = A, Shift or K = B, F or L = C, Q / E = shoulders), Gamepad (stick/dpad, A/B, Y, LB/RB)
+ * and an optional touch source. KEYS is what the how-to-play text shows.
  * `consumeAction()` reports a fresh press of Space / Enter / gamepad A.
  */
+/** keyboard keys per button, as shown in the how-to-play cards (first = main key) */
+export const KEYS = { a: ['Space', 'J'], b: ['Shift', 'K'], c: ['F', 'L'], l: ['Q'], r: ['E'] } as const;
+
 export class InputManager {
   private keys = new Set<string>();
   private action = false;
@@ -51,9 +55,10 @@ export class InputManager {
     const k = this.keys;
     let x = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
     let y = (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) - (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0);
-    let a = k.has('Space');
-    let b = k.has('ShiftLeft') || k.has('ShiftRight');
-    let c = k.has('KeyE');
+    let a = k.has('Space') || k.has('KeyJ');
+    let b = k.has('ShiftLeft') || k.has('ShiftRight') || k.has('KeyK');
+    let c = k.has('KeyF') || k.has('KeyL');
+    let tl = k.has('KeyQ'), tr = k.has('KeyE');
     const l = Math.hypot(x, y);
     if (l > 1) { x /= l; y /= l; }
 
@@ -68,8 +73,10 @@ export class InputManager {
       if (bt(13)) py += 1;
       if (Math.hypot(px, py) > Math.hypot(x, y)) { x = px; y = py; }
       a = a || bt(0);
-      b = b || bt(1) || bt(2) || bt(5) || bt(7);
+      b = b || bt(1) || bt(2) || bt(7);
       c = c || bt(3);
+      tl = tl || bt(4);
+      tr = tr || bt(5);
     }
     const t = this.touch?.();
     if (t) {
@@ -80,6 +87,6 @@ export class InputManager {
     }
     const m = Math.hypot(x, y);
     if (m > 1) { x /= m; y /= m; }
-    return c ? { x, y, a, b, c } : { x, y, a, b };
+    return { x, y, a, b, ...(c ? { c } : {}), ...(tl ? { l: true } : {}), ...(tr ? { r: true } : {}) };
   }
 }
