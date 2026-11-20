@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { ballDefence, skyOpeningFrame, stepBallistixResultArena, type BallistixData } from '../shared/games/ballDefence';
+import { ballDefence, ballistixOpeningFrame, stepBallistixResultArena, type BallistixData } from '../shared/games/ballDefence';
 import { cloneWorld, createWorld, stepWorld } from '../shared/sim';
 import { IDLE } from '../shared/types';
 import { GameClient } from '../client/session';
@@ -128,11 +128,12 @@ for (const [x, expectedZ, state] of [[3050, 1664, 4], [4096, 1664, 4], [4097, 17
 
 // USA countdown with the engine clock aligned to the web round.
 for (const [left, tilt, poses] of [
-  [97, [19, 1, 4], [[-55, 3], [-190, 0], [-124, -2], [-134, -5]]],
-  [47, [-15, 3, -65], [[-216, 61], [-111, 62], [-155, 62], [-177, 62]]],
-  [0, [0, 11, 96], [[-32, -20], [-30, -14], [11, -8], [-63, -2]]],
+  [98, [19, 1, 4], [[-55, 3], [-190, 0], [-124, -2], [-134, -5]]],
+  [48, [-15, 3, -65], [[-216, 61], [-111, 62], [-155, 62], [-177, 62]]],
+  [1, [0, 11, 96], [[-32, -20], [-30, -14], [11, -8], [-63, -2]]],
 ] as const) {
-  const frame = skyOpeningFrame(left);
+  const frame = ballistixOpeningFrame(left);
+  assert.equal(frame.pose, 100 - left);
   assert.deepEqual(frame.tilt, tilt);
   assert.deepEqual(frame.ships.map(p => [p.y + p.skyFloor, p.roll]), poses);
 }

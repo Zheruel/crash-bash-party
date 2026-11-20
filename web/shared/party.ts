@@ -2,6 +2,7 @@
 // it only needs "connections" that can send strings. It runs inside a Web Worker in the
 // host's browser (PeerJS mode) or inside the Node ws server (LAN mode).
 import { getGame, GAMES } from './registry';
+import { BALLISTIX_OPENING_TICKS } from './games/ballDefence';
 import { POLAR_WIN_TALLY_TICKS } from './games/pushOff';
 import { modifiersFor } from './modifiers';
 import { createWorld, roundOver, stepWorld } from './sim';
@@ -516,7 +517,8 @@ export class Party {
     this.lastRound = {
       t: 'round', round: this.round, total: this.totalRounds, cupsToWin: this.cupTarget, showdown, gameId: game.id, gameName: game.name, variant,
       // Individual-versus Dash exposes the arena at stage update 4 and draws 3 on update 29.
-      countdownLeadTicks: game.id === 'dashRace' ? 25 : ['ringDing', 'dragonDrop', 'malletMash', 'kegKaboom'].includes(game.id) ? 11 : undefined,
+      countdownLeadTicks: game.id === 'ballDefence' ? BALLISTIX_OPENING_TICKS - NUMBERED_COUNTDOWN_TICKS
+        : game.id === 'dashRace' ? 25 : ['ringDing', 'dragonDrop', 'malletMash', 'kegKaboom'].includes(game.id) ? 11 : undefined,
       desc: game.variantDescriptions?.[variant?.id ?? ''] ?? game.description,
       controls: game.variantControls?.[variant?.id ?? ''] ?? game.controls, modifier: mod ? { id: mod.id, name: mod.name, desc: mod.desc } : null, seats: this.frozen.map((f) => ({ ...f })),
     };

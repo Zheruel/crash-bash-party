@@ -88,6 +88,25 @@ for (const stage of stages) {
   assert.equal(human.beachCpu?.nextPad, undefined);
   assert.ok(human.vel < 0);
 }
+// USA L17 played from setup with seed 17654, one human and three Normal CPUs.
+{
+  const seats = [2, 4, 7, 6].map((char, slot) => ({ slot, char, name: String(slot), bot: slot > 0, level: 1 }));
+  const w = createWorld(game, seats, [], 17654, 'sky');
+  const d = w.data as BallistixData;
+  assert.deepEqual(d.random, [1784469146, 3455223666]);
+  assert.deepEqual(d.pl.map(p => p.idleT), [155, 172, 148, 113]);
+  assert.ok(d.pl.every(p => p.stateAt === -99));
+  for (const [tick, expected] of [
+    [27, [0, 8192, 8192, 8192, 0]],
+    [28, [12, 2048, -2048, -2048, 0]],
+    [44, [6, 2048, -2048, -2048, 1536]],
+    [70, [8, 832, -266, -371, 1704]],
+  ] as const) {
+    while (w.tick < tick) stepWorld(w, game, [IDLE, game.bot!(w, 1), game.bot!(w, 2), game.bot!(w, 3)]);
+    const b = d.balls[0];
+    assert.deepEqual([b.st, b.x, b.y, b.z, b.h], expected);
+  }
+}
 // USA L17. The hull enters its knockout on 4871 and the burst and both sounds start on 4932.
 {
   const { w, pl, d } = fixture('sky', 1);

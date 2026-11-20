@@ -2,7 +2,7 @@
 // seen through the real play and result cameras. Stage pieces come from the disc models listed in assets/stages/ballDefence.json;
 // floors and walls that the disc stores elsewhere are rebuilt here from the same level textures.
 import * as THREE from 'three';
-import { ballistixFloor, BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_POST_AT, BD_U, skyOpeningFrame, type BallistixData } from '../../shared/games/ballDefence';
+import { BALLISTIX_OPENING_TICKS, ballistixFloor, BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_POST_AT, BD_U, ballistixOpeningFrame, type BallistixData } from '../../shared/games/ballDefence';
 import type { Body, GameEvent } from '../../shared/types';
 import type { BlobShadow } from '../fx';
 import { ASSET_BASE, getCatalog, type ModelRef } from '../crash';
@@ -822,10 +822,10 @@ export function createBallDefenceView(): ClientMiniGame {
         const frame = marker.serve ? serveFrame : (lit >> marker.corner) & 1;
         marker.frames.forEach((meshes, i) => { for (const mesh of meshes) mesh.visible = i === frame; });
       }
-      const skyCountdown = variant === 'sky' && w.tick === 0 ? ctx.countdownTicksLeft : undefined;
-      const opening = skyCountdown === undefined ? undefined : skyOpeningFrame(skyCountdown);
-      const tilt = opening?.tilt ?? stageData.tilt;
-      if (tilt) skyTilt(tilt, skyCountdown === undefined ? 99 + stageData.f : Math.max(0, 99 - skyCountdown));
+      const remaining = w.tick === 0 ? ctx.countdownTicksLeft : undefined;
+      const opening = remaining === undefined ? undefined : ballistixOpeningFrame(remaining);
+      const tilt = variant === 'sky' ? opening?.tilt ?? stageData.tilt : undefined;
+      if (tilt) skyTilt(tilt, opening?.pose ?? BALLISTIX_OPENING_TICKS + stageData.f);
       for (const [slot, e] of pendingKnockouts) {
         if (stageData.f - d.pl[slot].stateAt < KNOCKOUT_FRAMES) continue;
         playSound(1414);
@@ -834,8 +834,7 @@ export function createBallDefenceView(): ClientMiniGame {
       }
       kit.root.getWorldQuaternion(billboard).invert().multiply(ctx.camera.quaternion);
       if (variant === 'crashball') {
-        const tick = w.tick === 0 && ctx.countdownTicksLeft !== undefined
-          ? -ctx.countdownTicksLeft : markers?.tick ?? stageData.f;
+        const tick = opening ? opening.pose - BALLISTIX_OPENING_TICKS : markers?.tick ?? stageData.f;
         let used = 0;
         for (const flash of markers?.flashes ?? stageData.flashes ?? []) {
           const scale = FLASH_SCALE[tick - flash.tick];
@@ -911,7 +910,7 @@ export function createBallDefenceView(): ClientMiniGame {
             hidden: gone,
             // The catch and kick enter handlers both start script 0x1d (the seated idle pose).
             script: dying ? 0x20 : seatedLoser ? 0x19 : catching || kicking ? 0x1d : pl.st === 0x1e ? 0x1c : pl.st === 0x1d ? 0x1a : idleGesture ? 0x1b : 0x19,
-            scriptFrame: seatedLoser ? result!.age : idleGesture ? player.f - pl.idleAt : age,
+            scriptFrame: opening?.pose ?? (seatedLoser ? result!.age : idleGesture ? player.f - pl.idleAt : age),
             renderWord: winner?.pose,
             hop: -hover / BD_U,
             role: dying ? 'lose' : pl?.st === 0x1e ? 'hit' : pl?.st === 0x1d ? 'run' : 'idle',

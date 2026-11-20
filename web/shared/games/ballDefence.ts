@@ -72,7 +72,7 @@ const LINES: number[][] = [[-2048, -1952, 2048, -1952], [-2048, 1952, 2048, 1952
 const WIN = [0x100, 0x140, 0x180, 0x1c0, 0x280, 0x240, 0x280, 0x2c0, 0x300, 0x340, 0x380, 0x3c0, 0x480, 0x440, 0x480, 0x4c0,
   0x500, 0x540, 0x580, 0x5c0, 0x680, 0x640, 0x680, 0x6c0, 0x700, 0x740, 0x780, 0x7c0, 0x880, 0x840, 0x880, 0x8c0,
   0x271c]; // skill 0 with five balls reads the low half of the following pointer.
-const CNT_OFF = [16, 8, 4, 2, 1, 0, 0, 0, 0, 0]; // 0x800c1328, indexed by ball count
+const CNT_OFF = [10, 8, 4, 2, 1, 0, 0, 0, 0, 0]; // 0x800c1328, indexed by ball count
 /** Party-mode CPU skills (the EASY/MEDIUM/HARD tables pointed to by 0x8009d900). */
 const BOT_SKILLS: Record<string, number[]> = {
   crashball: [2, 10, 18], beach: [2, 11, 19], nballism: [2, 11, 18], sky: [6, 14, 20],
@@ -219,10 +219,12 @@ function skyBaseTilt(frame: number): [number, number, number] {
 
 // All seats are idle for the 99 controller updates before input unlocks.
 // Index by time remaining so reconnects can start at the current numbered frame.
-const skyOpening = (() => {
+export const BALLISTIX_OPENING_TICKS = 99;
+const openingFrames = (() => {
   const roll = [0, 0, 0, 0];
-  return Array.from({ length: 99 }, (_, index) => {
-    const tick = index - 98;
+  return Array.from({ length: BALLISTIX_OPENING_TICKS }, (_, index) => {
+    const pose = index + 1;
+    const tick = pose - BALLISTIX_OPENING_TICKS;
     const tilt = skyBaseTilt(tick);
     const ships = FACE.map((angle, slot) => {
       const x = (sinq(angle) * RING) >> 12, z = (cosq(angle) * RING) >> 12;
@@ -230,12 +232,13 @@ const skyOpening = (() => {
       roll[slot] += adiff(roll[slot], (bob * 17) >> 10) >> 2;
       return { x, z, y: -128 + ((bob * 15) >> 11), skyFloor: ballistixFloor(tilt, x, z), roll: roll[slot] };
     });
-    return { tilt, ships };
+    return { pose, tilt, ships };
   });
 })();
 
-export function skyOpeningFrame(ticksLeft: number) {
-  return skyOpening[98 - Math.max(0, Math.min(98, Math.floor(ticksLeft)))];
+export function ballistixOpeningFrame(ticksLeft: number) {
+  const index = BALLISTIX_OPENING_TICKS - Math.max(1, Math.ceil(ticksLeft));
+  return openingFrames[Math.max(0, index)];
 }
 
 const V = (w: World) => (w.data as Data).variant;
@@ -315,26 +318,31 @@ export const ballDefence: MiniGame = {
     };
     w.data = d;
     d.random = discRandomState(w.rng);
-    // The engine allocates all four AI records before shuffling, even for human seats.
-    for (let i = 0; i < MAX_SEATS; i++) rnd(w, 60);
+    // Creating each seat enters its idle script, then initializes its CPU record.
+    const idleTimers = Array.from({ length: MAX_SEATS }, () => {
+      const idle = rnd(w, 150) + 180;
+      rnd(w, 60);
+      return idle - BALLISTIX_OPENING_TICKS;
+    });
     d.shipOrder = ballistixShipOrder(w);
     d.postSeq = rnd(w, 15);
     rnd(w, 18); // First event table at 0x800c1c74.
     const skyIndex = rnd(w, 18); // Second event table at 0x800c1c7c.
     if (variant === 'nballism') d.mach = { st: 0, t: 291, c: 0, yaw: 0, spin: 0 };
+    const opening = ballistixOpeningFrame(0);
     if (variant === 'sky') { // The 270-tick tilt timer has counted down to 171 at GO.
-      d.sky = { ev: [0, 1, 2, 3].map(() => ({ pos: 0, vel: 0, max: 0, ap: 0, an: 0, dir: 0, st: 0, tm: 0 })), t: 171, i: skyIndex };
-      d.tilt = [...skyOpeningFrame(0).tilt];
+      d.sky = { ev: [0, 1, 2, 3].map(() => ({ pos: 0, vel: 0, max: 0x60, ap: 0, an: 0, dir: 0, st: 0, tm: 0 })), t: 171, i: skyIndex };
+      d.tilt = [...opening.tilt];
     }
     for (let i = 0; i < MAX_SEATS; i++) {
       const seat = slots.find((s) => s.slot === i);
       d.pl.push({
-        x: START[i][0], z: START[i][1], y: -128, roll: 0,
-        ...(variant === 'sky' ? skyOpeningFrame(0).ships[i] : {}),
+        x: START[i][0], z: START[i][1], y: opening.ships[i].y, roll: opening.ships[i].roll,
+        ...(variant === 'sky' ? opening.ships[i] : {}),
         vel: 0, face: FACE[i], ang: FACE[i],
-        score: start, kcd: 0, kpen: 0, kfr: 0, st: 0x1c, stateAt: 0, hold: 0, arm: 0, cpu: !!seat?.bot,
+        score: start, kcd: 0, kpen: 0, kfr: 0, st: 0x1c, stateAt: -BALLISTIX_OPENING_TICKS, hold: 0, arm: 0, cpu: !!seat?.bot,
         skill: BOT_SKILLS[variant][seat?.level ?? 2] ?? BOT_SKILLS[variant][2],
-        character: DISC_CHARACTER[seat?.char ?? 0] ?? 1, idleT: rnd(w, 150) + 180, idleAt: -1,
+        character: DISC_CHARACTER[seat?.char ?? 0] ?? 1, idleT: idleTimers[i], idleAt: -1,
         pa: false, pb: false, pc: false, shield: 0, dead: 0, dieT: 0, pushed: false, last: 0, boost: false,
       });
     }
@@ -349,13 +357,12 @@ export const ballDefence: MiniGame = {
     first.x = first.y = first.z = 8192;
     first.firstServeAt = 28;
     d.balls.push(first);
-    if (variant === 'crashball') {
-      // The first snapshot also supplies the full countdown to a late guest.
-      for (let tick = -98; tick <= 0; tick++) {
-        rnd(w, 2);
-        crashballFlash(w, d, tick);
-        rnd(w, 16);
-      }
+    // Logic runs during the countdown with CPU and human pads locked. Each
+    // tick advances the engine RNG, the arena controller and the shuffled seat pass.
+    for (let tick = 1 - BALLISTIX_OPENING_TICKS; tick <= 0; tick++) {
+      rnd(w, 2);
+      if (variant === 'crashball') crashballFlash(w, d, tick);
+      rnd(w, 16);
     }
     mirror(w, d);
   },
@@ -563,7 +570,7 @@ function controller(w: World, d: Data) {
       d.efc = 30;
     }
   } else d.efc--;
-  d.off = d.variant === 'beach' && d.efa === 0 ? 10 : CNT_OFF[Math.min(d.efa, 9)];
+  d.off = CNT_OFF[Math.min(d.efa, 9)];
   if (d.sky) skyPlatform(w, d, d.sky);
 }
 
