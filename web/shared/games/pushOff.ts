@@ -1921,8 +1921,8 @@ export const pushOff: MiniGame = {
     melt: 'Knock rivals off as Uka Uka melts the rim. Last standing wins.',
     manic: 'Knock rivals off the ice. Bolts unseat riders and eliminate players on foot. Last standing wins.',
   },
-  controls: '{move} skate. {a} dash (uses meter). Tap {a} repeatedly to climb if hanging.',
-  variantControls: { manic: '{move} move. {a} dash (uses meter). Tap {a} repeatedly to climb if hanging. {b} throw a bolt.' },
+  controls: '{move} skate. {a} dash (uses meter). Tap {a} five times to climb from a ledge.',
+  variantControls: { manic: '{move} move. {a} dash (uses meter). On a bear, tap {a} five times to climb from a ledge. {b} throw a bolt.' },
   variants: PO_VARIANTS,
   settlesAfterTimeout: true,
   maxTime: 90, // FUN_800bafa0: FUN_8007b7fc(0x130) = 1:30 clock

@@ -4,11 +4,11 @@
 import { isDeepStrictEqual } from 'node:util';
 import { InlineHostCore, pickGames, pickVariants } from '../client/net/hostCore';
 import { LoopbackTransport } from '../client/net/loopback';
-import { TransportError } from '../client/net/transport';
+import { TransportError, type ClientTransport } from '../client/net/transport';
 import { GameClient } from '../client/session';
 import { FAST_TIMING, Party } from '../shared/party';
 import { DEFAULT_CUPS_TO_WIN, MAX_CUPS_TO_WIN, MIN_CUPS_TO_WIN, isCupsToWin } from '../shared/protocol';
-import type { ResultsMsg, S2C } from '../shared/protocol';
+import type { C2S, ResultsMsg, S2C } from '../shared/protocol';
 import { POINTS } from '../shared/types';
 import { GAMES, getGame } from '../shared/registry';
 import { CHARACTERS } from '../shared/look';
@@ -199,6 +199,55 @@ for (const [id, finish] of drawFamilies) {
     && isDeepStrictEqual(draw.gained, [0, 0, 0, 0]) && isDeepStrictEqual(draw.bonus, [0, 0, 0, 0])
     && isDeepStrictEqual(draw.prev, win.scores) && isDeepStrictEqual(draw.scores, win.scores)
     && isDeepStrictEqual(draw.stars, win.stars) && isDeepStrictEqual(draw.winners, [1]));
+}
+
+// Send a hop and its release over an unordered connection, then deliver the release first.
+{
+  const splash = getGame('dashRace')!;
+  const applied: boolean[] = [];
+  const game: MiniGame = { ...splash, step(w, inputs, dt) {
+    applied.push(!!inputs[0]?.b);
+    splash.step(w, inputs, dt);
+  } };
+  const host = new InlineHostCore('HOPS', { auto: false, games: [game], variants: { dashRace: 'splash' }, timing: FAST_TIMING });
+  const wire: Extract<C2S, { t: 'input' }>[] = [];
+  const peer: ClientTransport = {
+    kind: 'peer', onMessage() {}, onClose() {},
+    async connect() { host.open(1, msg => queueMicrotask(() => peer.onMessage(msg))); },
+    send(m) {
+      if (m.t === 'input') wire.push(m);
+      else host.message(1, JSON.stringify(m));
+    },
+    close() { host.close(1); },
+  };
+  const driver = new GameClient(() => peer, { name: 'Racer', look: { char: 8, color: 0 } });
+  let now = 1000;
+  const advance = async () => { host.step(now += 34); await tick(); };
+  const deliver = (n: number) => host.message(1, JSON.stringify(wire[n]));
+  const pad = (b: boolean) => driver.sendInput({ x: 0, y: 0, a: false, b });
+  try {
+    await driver.start(); await tick(); driver.ready(true);
+    for (let i = 0; i < 80 && driver.phase !== 'play'; i++) await advance();
+    ok('Splash packet-order fixture reached play', driver.phase === 'play');
+    const start = applied.length;
+    pad(false); pad(true); pad(false);
+    deliver(2); deliver(0); deliver(1); deliver(2);
+    await advance(); await advance(); await advance();
+    ok('Splash receives the tap between two neutral samples exactly once after reordering',
+      isDeepStrictEqual(applied.slice(start, start + 3), [false, true, false]));
+    ok('Recovered Splash tap starts a hop on the authority',
+      driver.snaps.at(-1)?.w.data.state[0] === 94);
+    const burst = applied.length;
+    pad(true); pad(false); pad(true); pad(false); pad(false);
+    deliver(5); deliver(7);
+    for (let i = 0; i < 4; i++) await advance();
+    ok('A bunched release still separates two presses, including when two packets are missing',
+      isDeepStrictEqual(applied.slice(burst, burst + 4), [true, false, true, false]));
+    for (let i = 0; i < 3 && driver.lastAck !== wire[7].seq; i++) await advance();
+    ok('Skipping a duplicate hold acknowledges the latest sample', driver.lastAck === wire[7].seq);
+  } finally {
+    driver.leave(); host.destroy();
+  }
 }
 
 // Held controls cross the Dash countdown once, even if old unreliable inputs arrive at GO.

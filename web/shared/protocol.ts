@@ -1,4 +1,4 @@
-import type { ModifierInfo, World } from './types';
+import type { Input, ModifierInfo, World } from './types';
 import type { Look } from './look';
 
 export type Phase = 'lobby' | 'wheel' | 'intro' | 'countdown' | 'play' | 'results' | 'final';
@@ -8,6 +8,8 @@ export type WinCondition = 'rounds' | 'cups';
 export const MIN_CUPS_TO_WIN = 2;
 export const MAX_CUPS_TO_WIN = 7;
 export const DEFAULT_CUPS_TO_WIN = 3;
+/** Repeat up to two recent live pad samples on the unordered channel. */
+export const INPUT_HISTORY = 2;
 
 export function isCupsToWin(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= MIN_CUPS_TO_WIN && value <= MAX_CUPS_TO_WIN;
@@ -64,7 +66,7 @@ export type C2S =
   | { t: 'emote'; id: number }
   | { t: 'rematch' }
   | { t: 'skip' } // host: skip the current waiting screen (wheel/intro/results)
-  | { t: 'input'; round?: number; opening?: true; seq: number; x: number; y: number; a: boolean; b: boolean; c?: boolean; d?: boolean; l?: boolean; r?: boolean };
+  | ({ t: 'input'; round?: number; opening?: true; recent?: Input[] } & Input);
 
 export interface SeatInfo {
   name: string;

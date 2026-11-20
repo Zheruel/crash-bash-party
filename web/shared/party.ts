@@ -9,7 +9,7 @@ import { modifiersFor } from './modifiers';
 import { createWorld, roundOver, stepWorld } from './sim';
 import { botInput } from './bots';
 import { COLORS, CHARACTERS, EMOTES, sanitizeLook, winnerCheerFrame, type Look } from './look';
-import { DEFAULT_CUPS_TO_WIN, NUMBERED_COUNTDOWN_TICKS, isCupsToWin } from './protocol';
+import { DEFAULT_CUPS_TO_WIN, INPUT_HISTORY, NUMBERED_COUNTDOWN_TICKS, isCupsToWin } from './protocol';
 import type { Award, C2S, Phase, ResultsMsg, RoomState, RoundMsg, S2C, Seat, SeatInfo, StageOption, WheelMsg, WinCondition } from './protocol';
 import { DT, IDLE, MAX_SEATS, POINTS, type Input, type InputState, type MiniGame, type Modifier, type World } from './types';
 
@@ -63,6 +63,12 @@ interface Stats { kos: number; dealt: number; taken: number; wins: number; emote
 const newStats = (): Stats => ({ kos: 0, dealt: 0, taken: 0, wins: 0, emotes: 0, comebacks: 0 });
 
 const num = (v: unknown, lo: number, hi: number) => (typeof v === 'number' && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : 0);
+const readPad = (m: Input, seq: number): Input => ({
+  seq, x: num(m.x, -1, 1), y: num(m.y, -1, 1), a: !!m.a, b: !!m.b,
+  ...(m.c ? { c: true } : {}), ...(m.d ? { d: true } : {}), ...(m.l ? { l: true } : {}), ...(m.r ? { r: true } : {}),
+});
+const samePad = (a: InputState, b: InputState) => a.x === b.x && a.y === b.y && a.a === b.a && a.b === b.b
+  && a.c === b.c && a.d === b.d && a.l === b.l && a.r === b.r;
 const roundJson = (_k: string, v: unknown) => (typeof v === 'number' && !Number.isInteger(v) ? Math.round(v * 1e4) / 1e4 : v);
 const shuffle = <T>(a: T[]): T[] => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const token = () => Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
@@ -242,18 +248,26 @@ export class Party {
         if (this.phase !== (opening ? 'countdown' : 'play')) return;
         const seq = Math.floor(num(m.seq, 0, 1e9));
         if (seq <= c.lastRecv) return;
-        c.lastRecv = seq;
-        const blockHop = opening && this.world?.data.variant === 'splash';
-        const input = { seq, x: num(m.x, -1, 1), y: num(m.y, -1, 1), a: !!m.a, b: !!m.b && !blockHop, ...(m.c ? { c: true } : {}), ...(m.d ? { d: true } : {}), ...(m.l ? { l: true } : {}), ...(m.r ? { r: true } : {}) };
+        const input = readPad(m, seq);
         // Seed the held pad for GO. A live packet can still replace it on the first tick.
         if (opening) {
+          if (this.world?.data.variant === 'splash') input.b = false;
           c.cur = input;
-          c.applied = seq;
+          c.applied = c.lastRecv = seq;
           c.idleTicks = 0;
           return;
         }
+        if (seq > c.lastRecv + 1 && m.round === this.round && Array.isArray(m.recent)) {
+          const recent = m.recent;
+          for (let i = Math.max(0, recent.length - INPUT_HISTORY); i < recent.length; i++) {
+            const prior = recent[i];
+            const expected = seq - (recent.length - i);
+            if (expected > c.lastRecv && prior?.seq === expected) c.queue.push(readPad(prior, expected));
+          }
+        }
+        c.lastRecv = seq;
         c.queue.push(input);
-        if (c.queue.length > 8) c.queue.splice(0, c.queue.length - 4);
+        if (c.queue.length > 8) c.queue.splice(0, c.queue.length - 8);
         return;
       }
       case 'ready':
@@ -536,7 +550,16 @@ export class Party {
       const id = this.seats[slot];
       const m = id != null ? this.members.get(id) : undefined;
       if (m && m.conn && !this.frozen[slot].bot) {
-        if (m.queue.length > 3) m.queue.splice(0, m.queue.length - 2);
+        // Catch up after jitter by skipping repeated holds. A release between
+        // taps has to reach the game for the second press to register.
+        if (m.queue.length > 3) {
+          while (m.queue.length > 2) {
+            const repeat = m.queue.findIndex((pad, i) => i < m.queue.length - 1
+              && (samePad(pad, m.queue[i + 1]) || (i === 0 && samePad(pad, m.cur))));
+            if (repeat < 0) break;
+            m.queue.splice(repeat, 1);
+          }
+        }
         const next = m.queue.shift();
         if (next) { m.cur = next; m.applied = next.seq; m.idleTicks = 0; }
         else if (++m.idleTicks > 6) m.cur = IDLE;
