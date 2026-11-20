@@ -9,19 +9,20 @@ Timeout `FUN_800b6f0c`: highest HP alive wins, all other alive players are kille
 
 ## Pad (digital, 8-way)
 Circle 0x2000 pick up / throw; Cross 0x4000 jump; Square 0x8000 spin attack; Triangle 0x1000.
-Web: A (Space) = Circle, B (Shift) = Square spin (always, also with nothing in reach), C (F / gamepad Cross / touch Cross) = Cross jump; the jump cut tests C held. Triangle (H) plays script 2 while stationary. Movement or an action interrupts it.
+On the default arrow-key layout, Z picks up or throws, X attacks, C jumps empty-handed and V taunts while stationary. Square takes priority over Circle, then Cross. A failed pickup can still lead to a jump on the same update. A button held through GO supplies no fresh press.
 
 ## Movement (`FUN_800859d4`, `80085d2c`)
 - Velocity set directly per tick (no accel): walk 45, holding crate 30, boots +20 (chars 5-8 hold at 40). Table 0x8009d318.
 - Facing `[0x18]` quantised to 8 directions; changes only when stick > 0x110 off. Throw / kick use it. Visual yaw turns diff/4 per tick.
-- Snow (ice, `800bb2bc`): velocity approaches target (walk 180, hold 120, boots +80; table 0x800c3984) by 8 per tick, decel 4. (180 looks fast - unverified.)
+- Snow uses quarter-unit velocity. The walk target is 180, or 45 raw units per update. Ground acceleration is 2 raw units, coasting deceleration is 1, and either rate becomes 32 above the floor. The L2 callback `800b44b0` shifts each signed native axis right by two before adding it to the position. Both velocity components matched 182 consecutive USA updates including a reversal, diagonal steering and a jump.
 - Arena clamp radius `[+0x8a]` = 128/122/132/127/179/119/122/153 in engine character order, from each base model's part 0 shape 0x40. Player-player push moves only the mover. Player vs crate radius 0x78 = 120.
-- Jump (`800860d4`, `87fc0`), table 0x8009d354: ids 0-4 v0 108, max fall 114, fall accel 8, decel 10; ids 5-8 72/114/10/6.
-  Rising: v -= 10 (40 if Cross released and v > 64); falling: v += 8 capped 114. Peak ~530 raw (1.86 wu), ~22 ticks airtime. Air steering allowed.
+- Jump (`800860d4`, `80087fc0`): human characters 1–4 start at 108 and decelerate by 10. Characters 5–8 start at 72 and decelerate by 6. Releasing jump above velocity 64 subtracts 40. CPUs use the first row and run the full rise. A held jump peaks at 530 or 396 raw units. Fall entry (`800880e0`) resets speed to 8, adds 10 per update and caps at 112. Coco finishes her rise animation one update earlier. Touchdown tests the previous height and starts landing script 8 at frame 1.
+- Across all eight stock characters, tap and hold traces matched the original height, script and render word on 431 samples. The custom characters use Cortex movement with their own jump animations.
 
 ## Actions
 - Spin (Square, `FUN_80088794`): yaw -0x155/tick, clip 9 ~26 ticks, event at ~tick 11. Player hit: 1 HP (`0x8001`), knock 0x30/tick, only if victim not hurt / invulnerable. Crates in hull get flag 2 + owner and are kicked. Clip state by char: 1-2 -> 8, 3-4 -> 10, 7-8 -> 9, else 0xb.
-- Pick up (Circle, `FUN_80086fcc` -> `c1848`): centre 256 raw in front of quantised facing, radius 256, angle +-0x280; crate needs flag 1 and no rider. Circle pressed within 5 ticks of release with nothing found still plays the animation (clip 15, ~11 ticks -> state 0xf hold idle). Picking up TNT lights it.
+- Pick up (Circle, `FUN_80086fcc` -> `c1848`): centre 256 raw in front of quantised facing, radius 256, angle +-0x280; crate needs flag 1 and no rider. On an empty reach, the handler clears the previous Circle bit. A held button retries on the next update without entering the lift animation. In L0–L3 recordings, Circle was held for 21 updates before a wooden crate moved within reach. Each pickup started on the first eligible update. Picking up TNT lights it.
+- Cross leaves a carrier grounded in carry idle and carry walk. A stationary human needs a fresh Circle press to throw. The carry-walk handler tests the held bit, so moving with Circle held enters the throw on the next update.
 - Throw (clip 18, ~16 ticks; event 0x12 ~tick 2, release 0x13 ~tick 9). Table 0x8009e3b4 char 1: horizontal v0 113, max 128, decel 6; vertical 32 rising, max 80, rise decel 9 then fall accel 9. Integrator `FUN_8007a26c`: v += accel - decel, clamp [0,max]. Ground contact: wood breaks, TNT / nitro explode.
 - Kick (crate state 0xb): table 0x8009e3dc char 1: speed 112, max 128, decel 4 (~28 ticks, ~1568 raw). 8-way direction `(angle+0x100)&0xe00`. Hits a player after 2-tick grace -> break / explode. Wall: kinds 3/4 break, others stop. Kicked TNT is lit (90 ticks); kicked nitro explodes at once (mode 0: hurts everyone incl. kicker).
 
@@ -92,7 +93,7 @@ Power-ups (Space and Snow only): when nobody has an effect, kind 0x12 + rand(4),
 - Verification used controlled MIPS replays against the US disc's L0–L3 RAM snapshots with all three Party skill rows and mixed and all-CPU seat masks. The replays held actor positions fixed while stepping the native controller, seeded the native RNG for branch coverage, and isolated contact and rendering calls. Web regressions replay the resulting decisions through `web/scripts/test-crate-cpu.ts`. The port uses deterministic per-decision draws and web hazard, steering and collision geometry. Whole-match shared RNG parity remains unverified.
 
 ## Not decoded / assumptions
-Crate hull height (256 raw) and per-pose spin cylinders come from the model shapes. Ice speed and crate kind 1 still need verification.
+Crate hull height (256 raw) and per-pose spin cylinders come from the model shapes. Crate kind 1 still needs verification.
 Full-match frame agreement is still unverified.
 
 ## Presentation (verified against native frames)

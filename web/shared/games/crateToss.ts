@@ -50,7 +50,7 @@ const TAU = Math.PI * 2;
 // ---------- constants decoded from the game (raw units, per tick) ----------
 // Movement rows 0x8009d318 / 0x8009d354. Characters 5..8 have a lower jump and carry faster.
 const WALK = 45, BOOT_BONUS = 20, ICE_ACC = 8, ICE_DEC = 4;
-const JUMP_CUT = 40, JUMP_FALL_MAX = 114;
+const JUMP_CUT = 40, JUMP_FALL_MAX = 112;
 const PLAYER_R = 153, CRATE_R = 120, ARENA = 2048;
 const SPACE_KO_DEPTH = 0x180, SPACE_OBJECT_CULL = ARENA;
 const CRATE_H = 256, PLAYER_H = 700;
@@ -102,7 +102,7 @@ const W_MISSILE = 0x19, W_ORB = 0x1b, W_RING = 0x1c;
 
 /** crate sub state */
 const C_GROW = 0, C_IDLE = 1, C_HELD = 2, C_THROWN = 3, C_SLIDE = 4, C_DELAY = 5, C_OPEN = 6, C_FALL = 7, C_DROP = 8;
-interface CS { gripScript?: number; gripFrame?: number; pitch?: number; s: number; t: number; hv: number; vv: number; up: boolean; dx: number; dz: number; own: number; fuse: number; kt: number; item: number }
+interface CS { gripScript?: number; gripFrame?: number; walking?: boolean; pitch?: number; s: number; t: number; hv: number; vv: number; up: boolean; dx: number; dz: number; own: number; fuse: number; kt: number; item: number }
 
 interface Data {
   char: number[];
@@ -117,6 +117,8 @@ interface Data {
   eff: number[]; effT: number[]; pass: number[];
   weight: number; weightT: number;
   f8: number[]; vx: number[]; vz: number[]; vy: number[]; air: boolean[]; jh: boolean[]; prevA: boolean[]; prevB: boolean[];
+  jumpFrame?: number[]; landedAt?: number[];
+  iceTargets?: { x: number; z: number }[];
   /** Cross (jump) held last tick */
   prevC?: boolean[];
   pend: { dmg: number; cls: number; by: number; kx: number; kz: number; kv: number }[];
@@ -306,10 +308,17 @@ export const crateToss: MiniGame = {
     snow: 'Throw crates at rivals on slippery ice. Avoid waking the penguin. Last standing or most health at the buzzer wins.',
     drain: 'Throw crates at rivals. Break open special crates for weapons. Last standing or most health at the buzzer wins.',
   },
-  controls: '{move} walk. {a} pick up or throw. {b} spin to kick crates. {c} jump / {d} taunt.',
-  variantControls: { drain: '{move} walk. {a} pick up or throw. {b} spin or fire held weapon. {c} jump / {d} taunt.' },
+  controls: '{move} walk. {a} pick up or throw. {b} spin to kick crates. {c} jump empty-handed / {d} taunt.',
+  variantControls: { drain: '{move} walk. {a} pick up or throw. {b} spin or fire held weapon. {c} jump empty-handed / {d} taunt.' },
   variants: CT_VARIANTS,
   maxTime: 90,
+
+  primeCountdownPad(w, slot, pad) {
+    const d = D(w);
+    d.prevA[slot] = pad.a;
+    d.prevB[slot] = pad.b;
+    (d.prevC ??= [false, false, false, false])[slot] = !!pad.c;
+  },
 
   setup(w, slots) {
     const variant = pickVariant(w, CT_VARIANTS);
@@ -542,7 +551,7 @@ export function createCrateCrushResult(terminal: World, winner: number | undefin
       const initialRise = char >= 5 ? 72 : 108;
       const dec = char >= 5 ? 6 : 10;
       const elapsed = d.jh[s] ? (initialRise - d.vy[s]) / dec - 1 : (d.vy[s] - 8) / 10;
-      return [s, { state: d.jh[s] ? 'rise' : 'fall', script: d.jh[s] ? 6 : 7, elapsed: Math.max(0, Math.round(elapsed)), outAge: 0 }];
+      return [s, { state: d.jh[s] ? 'rise' : 'fall', script: d.jh[s] ? 6 : 7, elapsed: d.jumpFrame?.[s] ?? Math.max(0, Math.round(elapsed)), outAge: 0 }];
     }
     const action = d.st[s], held = holdingCrate(world, s);
     const moving = Math.hypot(p.vx, p.vz) > 0.7;
@@ -762,6 +771,7 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
   const sx = inp.x, sz = inp.y, sl = Math.hypot(sx, sz);
   const moving = sl > 0.3;
   const sang = Math.atan2(sx, sz);
+  const wasFree = d.st[slot] === ST_MOVE;
   const hurt = d.st[slot] === ST_HURT;
   let wantJump = false;
 
@@ -785,20 +795,33 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
       if (d.stT[slot] <= 0) { d.st[slot] = ST_MOVE; d.act[slot] = 0; }
       break;
     default: {
-      if (!held && aNew && !d.air[slot]) {
-        const c = findPick(w, d, p);
-        if (c) pickUp(w, d, p, c);
-        else { d.st[slot] = ST_PICK; d.stT[slot] = ctActionTicks(char, 1); d.act[slot] = 1; }
-      } else if (held && aNew) {
-        d.st[slot] = ST_THROW; d.stT[slot] = ctActionTicks(char, 2); d.act[slot] = 2;
-      } else if (inp.b && d.ammo[slot] > 0 && !held && d.wcd[slot] <= 0) {
+      if (held) {
+        if (aDown && (aNew || d.cs[held.id]?.gripScript === 17)) {
+          d.st[slot] = ST_THROW; d.stT[slot] = ctActionTicks(char, 2); d.act[slot] = 2;
+        }
+        break;
+      }
+      if (inp.b && d.ammo[slot] > 0 && d.wcd[slot] <= 0) {
         fireWeapon(w, d, p);
-      } else if (bNew && !d.ammo[slot]) {
-        if (!held && !d.air[slot] && d.wcd[slot] <= 0) { d.st[slot] = ST_SPIN; d.stT[slot] = ctActionTicks(char, 3); d.act[slot] = 3; emit(w, 'kick', p.x, p.z, slot, 1); }
-      } else if (cNew && !d.air[slot]) wantJump = true;
+        break;
+      }
+      if (d.air[slot]) break;
+      if (bNew && !d.ammo[slot] && d.wcd[slot] <= 0) {
+        d.st[slot] = ST_SPIN; d.stT[slot] = ctActionTicks(char, 3); d.act[slot] = 3; emit(w, 'kick', p.x, p.z, slot, 1);
+        break;
+      }
+      if (aNew) {
+        const c = findPick(w, d, p);
+        if (c) { pickUp(w, d, p, c); break; }
+        // FUN_80086fcc clears the old Circle bit so a held pickup can retry next tick.
+        d.prevA[slot] = false;
+      }
+      wantJump = cNew;
     }
   }
   const free = d.st[slot] === ST_MOVE;
+  if (held) csOf(d, held).walking = wasFree && free && moving;
+  const drive = free || (wasFree && (d.st[slot] === ST_PICK || d.st[slot] === ST_THROW));
   const taunt = (d.tauntAt ??= [-1, -1, -1, -1]);
   if (!free || held || moving || wantJump || d.air[slot]) taunt[slot] = -1;
   else {
@@ -813,6 +836,46 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
   if (free && moving) p.face += angDiff(p.face, sang) / 4;
   else if (!moving && free) p.face += angDiff(p.face, d.f8[slot]) / 8;
 
+  // The character callback updates height before Snow Bash reads it for ice steering.
+  const g = groundAt(w, d, p.x, p.z);
+  const human = d.humanSlots === undefined || !!(d.humanSlots & (1 << slot));
+  const riseDec = heavy && human ? 6 : 10;
+  const grav = w.params.gravity;
+  const jumpFrame = d.jumpFrame ??= [-1, -1, -1, -1];
+  const landedAt = d.landedAt ??= [-1, -1, -1, -1];
+  if (!free || moving || wantJump || taunt[slot] >= 0) landedAt[slot] = -1;
+  if (wantJump && free) {
+    d.air[slot] = true;
+    d.jh[slot] = true;
+    d.vy[slot] = heavy && human ? 72 : 108;
+    jumpFrame[slot] = 0;
+    emit(w, 'jump', p.x, p.z, slot, 1);
+  } else if (d.air[slot]) jumpFrame[slot]++;
+  if (d.air[slot]) {
+    // Coco's ten-pose rise track ends before the vertical integrator changes state.
+    if (d.jh[slot] && char === 2 && jumpFrame[slot] >= 10) {
+      d.jh[slot] = false; d.vy[slot] = 8; jumpFrame[slot] = 0;
+    }
+    if (d.jh[slot]) {
+      const dec = human && !inp.c && d.vy[slot] > 0x40 ? JUMP_CUT : riseDec;
+      d.vy[slot] -= dec * grav;
+      if (d.vy[slot] < 0) {
+        d.jh[slot] = false; d.vy[slot] = 8; jumpFrame[slot] = 0;
+      } else p.y += d.vy[slot] * U;
+    } else if (p.y <= g + 1e-9) {
+      p.y = g;
+      d.air[slot] = false; d.vy[slot] = 0;
+      landedAt[slot] = w.tick + 1;
+      emit(w, 'land', p.x, p.z, slot, 0.4);
+      landedOn(w, d, p);
+    } else {
+      d.vy[slot] = Math.min(JUMP_FALL_MAX, d.vy[slot] + 10 * grav);
+      p.y -= d.vy[slot] * U;
+    }
+  } else if (p.y > g + 1e-6) {
+    d.air[slot] = true; d.jh[slot] = false; d.vy[slot] = 8; jumpFrame[slot] = 0;
+  } else p.y = Math.max(0, g);
+
   // ---- horizontal velocity (raw/tick) ----
   const sp = w.params.speed;
   const hasHold = !!held || d.st[slot] === ST_THROW;
@@ -821,43 +884,32 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
     // knock-back: speed decays 4 per tick (ice: per axis)
     const k = Math.hypot(d.vx[slot], d.vz[slot]);
     if (k > 0) { const n = Math.max(0, k - 4) / k; d.vx[slot] *= n; d.vz[slot] *= n; }
+  } else if (d.variant === 'snow') {
+    const targets = d.iceTargets ??= Array.from({ length: 4 }, () => ({ x: 0, z: 0 }));
+    const target = targets[slot];
+    if (!moving) { target.x = 0; target.z = 0; }
+    else if (drive) {
+      const speed = 4 * ((hasHold ? carrySpeed : WALK) + (d.eff[slot] === EFF_BOOTS ? BOOT_BONUS : 0));
+      target.x = ((Math.round(Math.sin(sang) * 4096) * speed) >> 12) / 4;
+      target.z = -((Math.round(-Math.cos(sang) * 4096) * speed) >> 12) / 4;
+    }
+    const airborne = p.y > Math.max(0, g) + 1e-9;
+    d.vx[slot] = approach(d.vx[slot], target.x, airborne ? 32 : target.x ? ICE_ACC / 4 : ICE_DEC / 4);
+    d.vz[slot] = approach(d.vz[slot], target.z, airborne ? 32 : target.z ? ICE_ACC / 4 : ICE_DEC / 4);
   } else if (ice) {
     const walk = 4 * ((hasHold ? carrySpeed : WALK) + (d.eff[slot] === EFF_BOOTS ? BOOT_BONUS : 0));
-    const tx = free && moving ? Math.sin(sang) * walk : 0, tz = free && moving ? Math.cos(sang) * walk : 0;
+    const tx = drive && moving ? Math.sin(sang) * walk : 0, tz = drive && moving ? Math.cos(sang) * walk : 0;
     d.vx[slot] = approach(d.vx[slot], tx, tx === 0 ? ICE_DEC : ICE_ACC);
     d.vz[slot] = approach(d.vz[slot], tz, tz === 0 ? ICE_DEC : ICE_ACC);
-  } else if (free) {
+  } else if (drive) {
     const spd = (hasHold ? carrySpeed : WALK) + (d.eff[slot] === EFF_BOOTS ? BOOT_BONUS : 0);
     d.vx[slot] = moving ? Math.sin(sang) * spd : 0;
     d.vz[slot] = moving ? Math.cos(sang) * spd : 0;
   } else { d.vx[slot] = 0; d.vz[slot] = 0; }
-  p.x += d.vx[slot] * sp * U;
-  p.z += d.vz[slot] * sp * U;
+  const snow = d.variant === 'snow' && !hurt;
+  p.x += (snow ? Math.floor(d.vx[slot]) : d.vx[slot]) * sp * U;
+  p.z += (snow ? Math.ceil(d.vz[slot]) : d.vz[slot]) * sp * U;
 
-  // ---- vertical (jump physics of FUN_800860d4) ----
-  const grav = w.params.gravity;
-  const g = groundAt(w, d, p.x, p.z);
-  const fallAccel = heavy ? 10 : 8;
-  if (wantJump && !d.air[slot] && free) { d.air[slot] = true; d.vy[slot] = heavy ? 72 : 108; d.jh[slot] = true; emit(w, 'jump', p.x, p.z, slot, 1); }
-  if (d.air[slot]) {
-    if (d.jh[slot]) {
-      const dec = !inp.c && d.vy[slot] > 0x40 ? JUMP_CUT : heavy ? 6 : 10;
-      d.vy[slot] -= dec * grav;
-      if (d.vy[slot] < 0) { d.vy[slot] = 0; d.jh[slot] = false; }
-      else p.y += d.vy[slot] * U;
-    } else {
-      d.vy[slot] = Math.min(JUMP_FALL_MAX, d.vy[slot] + fallAccel * grav);
-      p.y -= d.vy[slot] * U;
-    }
-    if (!d.jh[slot] && p.y <= g) { // landed
-      p.y = Math.max(0, g);
-      d.air[slot] = false; d.vy[slot] = 0;
-      emit(w, 'land', p.x, p.z, slot, 0.4);
-      landedOn(w, d, p);
-    }
-  } else if (p.y > g + 1e-6) { // walked off a crate
-    d.air[slot] = true; d.jh[slot] = false; d.vy[slot] = 0;
-  } else p.y = Math.max(0, g);
   syncBody(p, d);
 }
 
@@ -1098,7 +1150,8 @@ function stepCrate(w: World, d: Data, c: Body) {
       if (!p || !p.alive) { c.cd = 0; s.s = C_IDLE; c.y = p ? p.y : 0; return; }
       const slot = p.slot, char = d.char?.[slot] ?? 1;
       const action = d.act[slot];
-      const script = action === 1 ? 15 : action === 2 ? 18 : Math.hypot(p.vx, p.vz) > 0.7 ? 17 : 16;
+      const walking = s.walking ?? Math.hypot(p.vx, p.vz) > 0.7;
+      const script = action === 1 ? 15 : action === 2 ? 18 : walking ? 17 : 16;
       const track = CRATE_GRIPS[char-1][script-15];
       let frame = action === 1 || action === 2 ? ctActionTicks(char, action) - d.stT[slot]
         : s.gripScript === script ? (s.gripFrame ?? 0) + 1 : 0;

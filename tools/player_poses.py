@@ -6,7 +6,7 @@ import struct
 ROOT = Path(__file__).resolve().parents[1]
 # Script numbers are engine-wide. Base character scripts come from Jungle Bash.
 LEVEL_SCRIPTS = {
-    0: [1, 2, 5, 6, 7, 9, 10, 12, 15, 16, 17, 18, 19],
+    0: [1, 2, 5, 6, 7, 8, 9, 10, 12, 15, 16, 17, 18, 19],
     5: [0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d],
     10: list(range(0x2e, 0x33)),
     14: [0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1f, 0x20],

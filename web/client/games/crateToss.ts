@@ -458,6 +458,11 @@ export function createCrateTossView(): ClientMiniGame {
             continue;
           }
           const held = !!carriedBody;
+          const character = d.char?.[b.slot] ?? 1;
+          const touchdown = d.landedAt?.[b.slot] ?? -1;
+          const landingFrame = touchdown < 0 ? 0 : playerWorld.tick - touchdown + 1;
+          const landing = landingFrame > 0 && landingFrame < poseTicks(8, character);
+          const jumpFrame = d.jumpFrame?.[b.slot];
           const stun = d.stun?.[b.slot] ?? 0;
           const action = d.act?.[b.slot] ?? 0;
           const taunt = d.tauntAt?.[b.slot] ?? -1;
@@ -475,20 +480,21 @@ export function createCrateTossView(): ClientMiniGame {
               pose = { clip: anims.taunt, frame: kit.poseTick(b.slot) - taunt };
             } else if (d.air?.[b.slot]) {
               const vy = d.vy[b.slot] ?? 0;
-              const frame = d.jh?.[b.slot] ? 10 * (1 - Math.min(1, vy / 108)) : 10 + 9 * Math.min(1, vy / 100);
+              const frame = d.jh?.[b.slot] ? Math.min(10, jumpFrame ?? 10 * (1 - Math.min(1, vy / 108)))
+                : 10 + Math.min(9, jumpFrame ?? 9 * Math.min(1, vy / 100));
               pose = { clip: held ? anims.carryJump : anims.jump, frame };
             } else if (held) {
-              role = Math.hypot(b.vx, b.vz) > 0.7 ? 'carryRun' : 'carry';
+              role = d.cs?.[carriedBody.id]?.gripScript === 17 ? 'carryRun' : 'carry';
             }
           }
           // invulnerable after a hit: the game flickers the model (40 ticks)
           const inv = (d.inv?.[b.slot] ?? 0) > 0 && b.alive && !b.fall;
-          const character = d.char?.[b.slot] ?? 1;
           const moving = Math.hypot(b.vx, b.vz) > 0.7;
           const deadAge = b.alive ? 0 : kit.poseTick(b.slot) - d.elim[b.slot];
           const script = b.fall ? 7 : !b.alive ? 0x13 : stun ? 9 : action === 1 ? 0xf : action === 2 ? 0x12 : action === 3 ? 10
-            : taunt >= 0 ? 2 : held ? (moving ? 0x11 : 0x10) : d.air[b.slot] ? (d.jh[b.slot] ? 6 : 7) : moving ? 5 : 1;
-          const frame = !b.alive ? deadAge : action >= 1 && action <= 3 ? ctActionTicks(character, action) - d.stT[b.slot] : taunt >= 0 ? kit.poseTick(b.slot) - taunt : carriedBody ? d.cs?.[carriedBody.id]?.gripFrame : undefined;
+            : taunt >= 0 ? 2 : held ? (d.cs?.[carriedBody.id]?.gripScript ?? (moving ? 0x11 : 0x10)) : d.air[b.slot] ? (d.jh[b.slot] ? 6 : 7) : landing ? 8 : moving ? 5 : 1;
+          const frame = !b.alive ? deadAge : action >= 1 && action <= 3 ? ctActionTicks(character, action) - d.stT[b.slot] : taunt >= 0 ? kit.poseTick(b.slot) - taunt : carriedBody ? d.cs?.[carriedBody.id]?.gripFrame
+            : d.air[b.slot] ? jumpFrame : landing ? landingFrame : undefined;
           const hidden = !b.alive && (b.fall || deadAge >= poseTicks(0x13, character)) || (inv && (tick & 2) !== 0);
           a.update(b, dt, { hidden, role: b.fall ? 'jump' : b.alive ? role : 'lose', pose,
             script: anims?.carry != null || kit.over.done ? undefined : script, scriptFrame: b.fall ? undefined : frame });
