@@ -27,6 +27,24 @@ if (process.env.HD_TEXTURES === '1' && fs.existsSync(hdDir)) {
     }
   }
 }
+// The decoded models reference hundreds of small PNGs per arena. Embed their original
+// bytes at publish time so a cold join downloads each model's textures in one request.
+const modelDir = path.join(out, 'models');
+if (fs.existsSync(modelDir)) {
+  for (const file of fs.readdirSync(modelDir)) {
+    if (!file.endsWith('.gltf')) continue;
+    const dest = path.join(modelDir, file);
+    const model = JSON.parse(fs.readFileSync(dest, 'utf8'));
+    let packed = false;
+    for (const image of model.images ?? []) {
+      if (!image.uri?.startsWith('../textures/') || !image.uri.endsWith('.png')) continue;
+      const bytes = fs.readFileSync(path.resolve(modelDir, image.uri));
+      image.uri = 'data:image/png;base64,' + bytes.toString('base64');
+      packed = true;
+    }
+    if (packed) fs.writeFileSync(dest, JSON.stringify(model));
+  }
+}
 const cat = fs.existsSync(path.join(src, 'catalog.json')) ? JSON.parse(fs.readFileSync(path.join(src, 'catalog.json'), 'utf8')) : {};
 for (const c of cat.characters ?? []) if (typeof c.portrait === 'string') cp(c.portrait);
 console.log(`assets copied (${hd} HD textures)`);
