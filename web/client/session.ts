@@ -1,6 +1,7 @@
 // Headless client state machine: talks to any ClientTransport, tracks the party, runs prediction
 // and snapshot interpolation. No DOM / three.js, so tests drive it directly.
 import type { RenderWorld } from './games/types';
+import type { BallistixData } from '../shared/games/ballDefence';
 import { DT, type Body, type GameEvent, type InputState, type World } from '../shared/types';
 import type { C2S, MatchConfig, Phase, ResultsMsg, RoomState, RoundMsg, S2C, WheelMsg } from '../shared/protocol';
 import { getGame } from '../shared/registry';
@@ -249,6 +250,15 @@ export class GameClient {
       if (this.round?.gameId === 'pushOff' && t < 1 && a.w.data.camera && b.w.data.camera) {
         const camera = a.w.data.camera.map((axis: number, j: number) => lerp(axis, b.w.data.camera[j], t));
         data = { ...data, camera };
+      }
+      if (this.round?.gameId === 'ballDefence' && t < 1) {
+        const from = a.w.data as BallistixData, to = b.w.data as BallistixData;
+        const balls = from.balls.map(ball => {
+          const end = to.balls.find(other => other.id === ball.id);
+          if (ball.pitch === undefined || end?.pitch === undefined) return ball;
+          return { ...ball, pitch: lerp(ball.pitch, end.pitch, t), yaw: lerp(ball.yaw ?? 0, end.yaw ?? 0, t) };
+        });
+        data = { ...data, balls };
       }
       const next = new Map<number, Body>(b.w.bodies.map(body => [body.id, body]));
       world = {

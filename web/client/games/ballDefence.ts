@@ -2,7 +2,7 @@
 // seen through the real play and result cameras. Stage pieces come from the disc models listed in assets/stages/ballDefence.json;
 // floors and walls that the disc stores elsewhere are rebuilt here from the same level textures.
 import * as THREE from 'three';
-import { ballistixFloor, BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_U, skyOpeningFrame, type BallistixData, type BDTrailPoint } from '../../shared/games/ballDefence';
+import { ballistixFloor, BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_U, skyOpeningFrame, type BallistixData } from '../../shared/games/ballDefence';
 import type { Body, GameEvent } from '../../shared/types';
 import type { BlobShadow } from '../fx';
 import { ASSET_BASE, getCatalog, type ModelRef } from '../crash';
@@ -445,7 +445,7 @@ function buildStage(variant: string): Stage {
 interface Goal { slot: number; barrier: THREE.Mesh; barrierT: number; shield: THREE.Mesh; zap: THREE.Object3D[][] }
 interface BallView {
   obj: THREE.Group;
-  shadow: BlobShadow;
+  shadow?: BlobShadow;
   reflection?: THREE.Object3D;
   glow?: THREE.Object3D;
   trail?: THREE.Object3D[];
@@ -616,7 +616,6 @@ export function createBallDefenceView(): ClientMiniGame {
       kit.root.add(g);
       // floor glow instead of a dark blob: model 762 mesh 12 (radial disc), additive, the cyan the game shows under balls
       const glow = variant === 'crashball' ? catalogInstance(getCatalog().props.bdGlow) : null;
-      const shadow = kit.fx.shadow(b.r * 1.4, 0.5);
       let trail: THREE.Object3D[] | undefined;
       if (glow) {
         // Crashball uses the same radial mesh for six afterimages, with scale decrement 0x180 and increasing fade.
@@ -668,11 +667,8 @@ export function createBallDefenceView(): ClientMiniGame {
         });
         glow.root.scale.setScalar(2);
         kit.root.add(glow.root);
-        const set = shadow.set.bind(shadow);
-        shadow.set = (x: number, z: number, h: number) => { set(x, z, h); glow.root.position.set(x, 0.02, z); glow.root.visible = g.visible; };
-        (shadow as unknown as { mesh?: THREE.Object3D }).mesh?.removeFromParent();
       }
-      return { obj: g, shadow, reflection: reflection?.root, glow: glow?.root, trail, materials };
+      return { obj: g, reflection: reflection?.root, glow: glow?.root, trail, materials };
     }
     const mat = new THREE.MeshBasicMaterial({ color: BALL_COL[variant] ?? 0xffffff });
     const sph = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), mat);
@@ -692,7 +688,7 @@ export function createBallDefenceView(): ClientMiniGame {
   function removeBall(v: BallView) {
     v.obj.removeFromParent();
     v.glow?.removeFromParent();
-    kit.fx.removeShadow(v.shadow);
+    if (v.shadow) kit.fx.removeShadow(v.shadow);
     v.materials?.forEach((m) => m.dispose());
     disposeTree(v.obj);
   }
@@ -865,7 +861,7 @@ export function createBallDefenceView(): ClientMiniGame {
         fan.frames.forEach((o, i) => { if (o) o.visible = flicker && i === ((stageData.f >> 1) & 7); });
       }
       const pls: BallistixData['pl'] = players.data.pl;
-      const rawBalls: { id: number; trail?: BDTrailPoint[] }[] = stageData.balls;
+      const rawBalls = stageData.balls;
       const seen = new Set<number>(), seenBalls = new Set<number>();
       const bodies = players === arena ? arena.bodies : [
         ...players.bodies.filter(b => b.kind === 'player'), ...arena.bodies.filter(b => b.kind === 'ball'),
@@ -937,19 +933,34 @@ export function createBallDefenceView(): ClientMiniGame {
           if (!v) { v = ballObj(b); balls.set(b.id, v); }
           v.obj.visible = b.alive;
           v.obj.position.set(b.x, b.y, b.z);
-          const sp = Math.hypot(b.vx, b.vz);
+          const ball = rawBalls.find(ball => ball.id === b.id);
           const spin = v.obj.getObjectByName('spin');
-          if (spin && sp > 0.1) { axis.set(b.vz, 0, -b.vx).normalize(); spin.rotateOnWorldAxis(axis, (sp * dt) / b.r); }
-          v.reflection?.quaternion.copy(billboard);
+          if (spin && ball?.pitch !== undefined) {
+            spin.rotation.set(ball.pitch * Math.PI / 2048, -(ball.yaw ?? 0) * Math.PI / 2048, 0, 'YXZ');
+          } else if (spin) {
+            const speed = Math.hypot(b.vx, b.vz);
+            if (speed > 0.1) { axis.set(b.vz, 0, -b.vx).normalize(); spin.rotateOnWorldAxis(axis, speed * dt / b.r); }
+          }
+          if (tilt) {
+            v.obj.position.applyMatrix4(tiltInv);
+            v.obj.quaternion.setFromRotationMatrix(tiltInv);
+            v.reflection?.quaternion.copy(ctx.camera.quaternion);
+          } else {
+            v.reflection?.quaternion.copy(billboard);
+          }
           if (v.trail) {
-            const points = rawBalls.find((ball) => ball.id === b.id)?.trail;
+            const points = ball?.trail;
             v.trail.forEach((segment, i) => {
               const p = points?.[i + 1];
               segment.visible = !!p;
               if (p) segment.position.set(p[0] / BD_U - b.x, -b.y, -p[1] / BD_U - b.z);
             });
           }
-          v.shadow.set(b.x, b.z, Math.max(0, b.y));
+          if (v.glow) {
+            v.glow.position.set(b.x, 0.02, b.z);
+            v.glow.visible = v.obj.visible;
+          }
+          v.shadow?.set(b.x, b.z, Math.max(0, b.y));
         }
       }
       kit.prune(seen);

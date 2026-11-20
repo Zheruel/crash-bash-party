@@ -160,6 +160,7 @@ interface Ball {
   st: number; // 0 new, 0xc waiting, 6 falling in, 8 bounce, 1 rolling, 2 held, 4/0x11/99 into goal, 0x12 scored
   x: number; y: number; z: number;
   prevX?: number; prevZ?: number;
+  pitch?: number; yaw?: number; // mesh rotation, independent of the travel heading
   firstServeAt?: number;
   h: number; spd: number; tgt: number; acc: number; dec: number;
   who: number; // last toucher / conceding player (-1 none)
@@ -524,7 +525,7 @@ function mirror(w: World, d: Data) {
     b.r = BD_BALL_R * w.params.ballScale;
     const sp = (bl.spd * 30) / BD_U;
     b.vx = -((bl.spd * sinq(bl.h)) / 4096) * 30 / BD_U; b.vz = ((bl.spd * cosq(bl.h)) / 4096) * 30 / BD_U; b.vy = sp;
-    b.cd = bl.who + 1; b.alive = bl.st !== 0 && bl.st !== 0xc && bl.st !== 0x12;
+    b.cd = bl.who + 1; b.alive = bl.st !== 0 && bl.st !== 0xc; // The score callback removes the mesh on its next update.
     b.dash = bl.st === 2 ? 1 : 0;
     b.face = bl.st;
   }
@@ -1111,25 +1112,26 @@ function goalSide(d: Data, b: Ball, far: boolean, clampBall?: Ball): number {
   if (isSky(d)) {
     const r = far ? 0xc00 : 0x980;
     if (r * r < b.x * b.x + b.z * b.z) {
-      const q = (atan(-b.x, -b.z) + 0x200) & 0xc00;
+      const q = (discAngle(-b.x, -b.z) + 0x200) & 0xc00;
       return q === 0x400 ? 3 : q === 0x800 ? 1 : q === 0xc00 ? 2 : 0;
     }
     if (clampBall) clampMouth(clampBall);
     return -1;
   }
-  const t = far ? 0xb80 : 0xa00;
+  const nballism = d.variant === 'nballism';
+  const t = far ? (nballism ? 0x1000 : 0xb80) : 0xa00;
   if (b.x > t) return 2;
   if (b.x < -t) return 3;
   if (b.z > t) return 1;
   if (b.z < -t) return 0;
-  if (clampBall) clampMouth(clampBall);
+  if (clampBall) clampMouth(clampBall, nballism ? 0x680 : 0x600);
   return -1;
 }
 
-/** while a ball sinks into a goal it may not leave the mouth sideways (0x600) */
-function clampMouth(b: Ball) {
-  if (b.who === 0 || b.who === 1) b.x = Math.max(-0x600, Math.min(0x600, b.x));
-  else b.z = Math.max(-0x600, Math.min(0x600, b.z));
+/** Keep a sinking ball inside the width of its goal. */
+function clampMouth(b: Ball, width = 0x600) {
+  if (b.who === 0 || b.who === 1) b.x = Math.max(-width, Math.min(width, b.x));
+  else b.z = Math.max(-width, Math.min(width, b.z));
 }
 
 function ballFrame(w: World, d: Data, b: Ball) {
@@ -1139,6 +1141,7 @@ function ballFrame(w: World, d: Data, b: Ball) {
   b.prevX = b.x; b.prevZ = b.z;
   if (b.st === 0) {
     spawnWait(w, d, b);
+    ballRotation(b);
     ballContact(w, d, b);
     return;
   }
@@ -1164,17 +1167,22 @@ function ballFrame(w: World, d: Data, b: Ball) {
         const n = circleHit(w, d, b, BR);
         if (n !== -1) bounce(w, d, b, n);
         const g = goalSide(d, b, false);
-        if (g !== -1) goal(w, d, b, g, 4);
+        if (g !== -1) {
+          b.y += 96; // The airborne goal branch exits at the bottom-of-ball probe.
+          goal(w, d, b, g, 4);
+        }
       }
       break;
     }
     case 1: {
-      if (!sky) b.y = -96;
       const n = circleHit(w, d, b, BR);
       if (n !== -1) bounce(w, d, b, n);
       const g = goalSide(d, b, false);
       if (g !== -1) goal(w, d, b, g, 8);
-      else applyPush(d, b);
+      else {
+        applyPush(d, b);
+        b.y = ballistixFloor(d.tilt, b.x, b.z) - 96;
+      }
       break;
     }
     case 2:
@@ -1191,21 +1199,25 @@ function ballFrame(w: World, d: Data, b: Ball) {
         b.y += b.vv;
       }
       const g = goalSide(d, b, true, b);
-      if (beach && g !== -1) b.who = g;
+      if (g !== -1) b.who = g;
       if (g !== -1 || b.sink > 0xfff) b.st = 0x12;
       break;
     }
     case 99: {
+      const elapsed = b.tm === 0;
+      if (!elapsed) b.tm--;
       const r = goalSide(d, b, false);
       if (r === -1) { b.st = 1; break; }
-      b.h = atan(-b.x, -b.z);
-      const far = goalSide(d, b, true);
-      if (far !== -1 || b.tm === 0) { b.st = 4; b.tm = 0; b.vv = 0x20; b.vmax = 0x60; b.vup = 6; b.vdn = 0; }
-      else b.tm--;
+      b.who = r;
+      b.h = discAngle(-b.x, -b.z);
+      const far = goalSide(d, b, true, b);
+      if (far !== -1 || elapsed) { b.st = 4; b.vv = 0x20; b.vmax = 0x60; b.vup = 6; b.vdn = 0; }
+      b.y = ballistixFloor(d.tilt, b.x, b.z) - 96;
       break;
     }
   }
   b.psh = 0;
+  ballRotation(b);
   // ball against ball (FUN_800bf640)
   if (b.st !== 2 && b.st !== 4 && b.st !== 0x12 && b.st !== 99) ballContact(w, d, b);
   // FUN_800b9e54 records a floor point after the first landing and displays the six previous samples.
@@ -1216,6 +1228,15 @@ function ballFrame(w: World, d: Data, b: Ball) {
       if (trail.length > BD_TRAIL_LENGTH + 1) trail.pop();
     } else if (b.trail) b.trail = undefined;
   }
+}
+
+/** FUN_800b9e54 turns the mesh toward its displacement and rolls it before ball-on-ball contact. */
+function ballRotation(b: Ball) {
+  const dx = b.x - (b.prevX ?? b.x), dz = b.z - (b.prevZ ?? b.z);
+  const yaw = b.yaw ?? 0;
+  // Retain complete turns so a dropped network snapshot cannot reverse the spin.
+  b.yaw = yaw + (adiff(yaw, discAngle(dx, dz)) >> 1);
+  b.pitch = (b.pitch ?? 0) - (ps1SqrtQ6(dx * dx + dz * dz) >> 5);
 }
 
 /** FUN_800bb924: balls held at the bumper avoid corner obstacles and spread out around the capture ring. */
@@ -1300,8 +1321,9 @@ function vertical(w: World, d: Data, b: Ball): boolean {
   if (b.vv === 0) { const t = b.vdn; b.vdn = 0; b.vdir = 0; b.vup = t; }
   if (b.vdir !== 0) return false;
   {
-    if (b.y >= -96) {
-      b.y = -96; b.fl |= 0x400;
+    const rest = ballistixFloor(d.tilt, b.x, b.z) - 96;
+    if (b.y >= rest) {
+      b.y = rest; b.fl |= 0x400;
       if (!b.land) { b.land = true; emit(w, 'sfx', b.x / BD_U, -b.z / BD_U, -1, 1, LAND_SFX[rnd(w, 4)]); }
       b.vv = d.variant === 'nballism' ? b.vv >> 2 : b.vv >> 1;
       const t = b.vup; b.vup = 0; b.vdir = 1; b.vdn = t;
@@ -1326,13 +1348,13 @@ function applyPush(d: Data, b: Ball) {
     const [tx, tz] = d.tilt;
     const i3 = Math.abs((sinq(tx) * 5) >> 3), i4 = Math.abs((sinq(tz) * 5) >> 3);
     const u5 = tx < 0 ? 0x800 : 0, i6 = tz < 0 ? 0x400 : tz > 0 ? 0xc00 : 0;
-    b.pshA = atan(((i3 * sinq(u5)) >> 12) + ((i4 * sinq(i6)) >> 12), ((i3 * cosq(u5)) >> 12) + ((i4 * cosq(i6)) >> 12));
+    b.pshA = discAngle(((i3 * sinq(u5)) >> 12) + ((i4 * sinq(i6)) >> 12), ((i3 * cosq(u5)) >> 12) + ((i4 * cosq(i6)) >> 12));
     b.psh = (i3 + i4) >> 6;
   }
   if (b.psh === 0) return;
   const vx = ((b.spd * sinq(b.h)) >> 12) + ((b.psh * sinq(b.pshA)) >> 12);
   const vz = ((b.spd * cosq(b.h)) >> 12) + ((b.psh * cosq(b.pshA)) >> 12);
-  b.h = atan(vx, vz);
+  b.h = d.tilt ? discAngle(vx, vz) : atan(vx, vz);
 }
 
 /** Sky Balls platform: who the event goes to (0x800c19fc, the 4-player table: never player 1) */
@@ -1396,10 +1418,10 @@ function skyTiltState(d: Data, sk: NonNullable<Data['sky']>) {
 function goal(w: World, d: Data, b: Ball, side: number, tm: number) {
   b.who = side;
   b.sink = 0;
-  if (isSky(d)) { b.st = 99; b.tm = 0x10; return; }
+  if (isSky(d)) { b.st = 99; b.tm = tm === 4 ? 4 : 0x10; return; }
   b.tm = tm === 4 ? 4 : 8;
   if (d.variant === 'crashball') { b.st = 0x11; return; }
-  b.st = 4; b.vv = d.variant === 'beach' ? 0x80 : 0x60; b.vmax = 0x60; b.vup = 8; b.vdn = 0;
+  b.st = 4; b.vv = 0x80; b.vmax = 0x60; b.vup = 8; b.vdn = 0;
 }
 
 /** state 0x12 (FUN_800b9e54): the ball has crossed the goal line for good */

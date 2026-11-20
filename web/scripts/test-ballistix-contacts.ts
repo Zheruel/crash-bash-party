@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { ballDefence, skyOpeningFrame, type BallistixData } from '../shared/games/ballDefence';
+import { ballDefence, skyOpeningFrame, stepBallistixResultArena, type BallistixData } from '../shared/games/ballDefence';
 import { cloneWorld, createWorld, stepWorld } from '../shared/sim';
 import { IDLE } from '../shared/types';
 import { GameClient } from '../client/session';
@@ -32,6 +32,7 @@ for (const variant of ['crashball', 'beach', 'nballism', 'sky']) {
   // native open cylinder ends at exactly 178 horizontally and 255 vertically.
   for (const [dx, dy, hit] of [[177, 254, 1], [178, 0, 0], [40, 255, 0]]) {
     const { w, d, b } = ready(variant);
+    if (variant === 'sky') d.f = 31; // At frame 32 the floor passes through y=0 at the origin.
     d.balls.push({ ...b, id: w.nextId++, st: 12, tm: 10, x: dx, y: b.y + dy });
     const snapshot = cloneWorld(w);
     stepWorld(w, ballDefence, []);
@@ -80,6 +81,15 @@ for (const variant of ['crashball', 'beach', 'nballism', 'sky']) {
   for (const [ms, lit] of [[100, 0], [134, 1], [167, 1]]) {
     assert.equal(client.renderWorld(ms)!.ballistixMarkers!.lights, lit);
   }
+  // Across two lost packets the mesh can turn more than half a revolution.
+  const earlier = cloneWorld(w), later = cloneWorld(w);
+  const first = (earlier.data as BallistixData).balls[0], last = (later.data as BallistixData).balls[0];
+  Object.assign(first, { pitch: -100, yaw: 400 });
+  Object.assign(last, { pitch: -3400, yaw: -2200 });
+  later.tick += 9;
+  client.snaps = [{ w: earlier, tick: earlier.tick, at: 0 }, { w: later, tick: later.tick, at: 300 }];
+  const halfway = (client.renderWorld(250)!.data as BallistixData).balls[0];
+  assert.deepEqual([halfway.pitch, halfway.yaw, first.pitch, last.pitch], [-1750, -900, -100, -3400]);
 }
 {
   const { w, d } = ready('nballism');
@@ -108,6 +118,14 @@ for (const [yaw, positions] of [
     assert(!w.ev.some(e => e.k === 'sfx' && e.o === 1408));
   }
 }
+// N. Ballism's goal mouth is 128 units wider on each side and its far line is 4096.
+for (const [x, expectedZ, state] of [[3050, 1664, 4], [4096, 1664, 4], [4097, 1720, 18]]) {
+  const { w, b } = ready('nballism');
+  Object.assign(b, { x, z: 1720, st: 4, tm: 5, who: 2, vv: 32, vmax: 96, vup: 6, vdn: 0 });
+  stepWorld(w, ballDefence, []);
+  assert.deepEqual([b.x, b.y, b.z, b.st, b.tm], [x, -58, expectedZ, state, 4]);
+}
+
 // USA countdown with the engine clock aligned to the web round.
 for (const [left, tilt, poses] of [
   [97, [19, 1, 4], [[-55, 3], [-190, 0], [-124, -2], [-134, -5]]],
@@ -134,4 +152,37 @@ for (const [left, tilt, poses] of [
     assert.deepEqual([ship.x, ship.y + ship.skyFloor!, ship.z, ship.face, ship.roll], [1101, height, -2024, 1723, -43]);
   }
 }
-console.log('Ballistix marker boundaries, kick lockouts, rebounds, N. Gin launches and Sky Balls ship transforms matched.');
+// Controlled USA callbacks on the same recovering fan. A rolling ball follows
+// the surface, a bounce can cross the goal with a four-tick timer, and a ball
+// on the outer lip can change the credited seat before it leaves the arena.
+for (const [state, expected] of [
+  [{ st: 1, x: 300, y: -162, z: 1000, h: 177 }, [
+    [279, -426, 923, 230, 1, 0, 4065, 1365], [252, -396, 848, 274, 1, 0, 3906, 1819]]],
+  [{ st: 8, x: 720, y: -70, z: -420, h: 177, vv: 48, land: false, fl: 0 }, [
+    [699, -233, -497, 177, 8, 0, 4065, 1365], [678, -254, -574, 177, 8, 0, 3906, 1793]]],
+  [{ st: 8, x: 0, y: -180, z: 2390, h: 2048, vv: 40 }, [
+    [0, -578, 2470, 2048, 99, 4, 4064, 255], [0, -672, 2550, 2048, 99, 3, 3904, 127]]],
+  [{ st: 99, x: 1700, y: -180, z: 1900, h: 2048, tm: 1 }, [
+    [1536, -908, 1980, 2510, 99, 0, 3860, 3987], [1536, -897, 2041, 2479, 4, 0, 3738, 4041]]],
+  [{ st: 99, x: -2200, y: -180, z: 2300, h: 1024, tm: 9 }, [
+    [-2280, -148, 2300, 1539, 4, 8, 4064, 3839], [-2336, -110, 2357, 1539, 18, 7, 3905, 3714]]],
+] as const) {
+  const { w, d, b } = ready('sky');
+  d.f = 1993;
+  Object.assign(d.sky!.ev[2], { pos: -9020, vel: 152, max: 768, ap: 44, an: 0, dir: 0, st: 3, tm: 0 });
+  Object.assign(b, { spd: 80, tgt: 80, pitch: 128, yaw: 510, tm: 0, vup: 6, vdn: 0, vmax: 80, vdir: 0 }, state);
+  for (const [i, frame] of expected.entries()) {
+    if (state.z < 1200) stepWorld(w, ballDefence, []);
+    else stepBallistixResultArena(w, i + 1);
+    assert.deepEqual([b.x, b.y, b.z, b.h, b.st, b.tm, b.pitch! & 4095, b.yaw! & 4095], frame);
+    assert(w.bodies.find(body => body.id === b.id)?.alive);
+  }
+  if (b.st === 18) {
+    assert.equal(b.who, 1);
+    const score = d.pl[1].score;
+    stepWorld(w, ballDefence, []);
+    assert.equal(d.pl[1].score, score - 1);
+    assert(!w.bodies.some(body => body.id === b.id));
+  }
+}
+console.log('Ballistix contacts, launches, Sky Balls platform motion and ball trajectories matched.');
