@@ -487,3 +487,20 @@ body.champ[data-screen="game"] #vortex { opacity: 1; transition: opacity .3s; }
 .newlead { margin-left: 10px; font-size: 15px; display: inline-block; transform: rotate(-4deg); }
 .stamped { animation: stampin2 .45s cubic-bezier(.2, 1.6, .4, 1) both; }
 @media (prefers-reduced-motion: reduce) { .wheelov.showdown::before { animation: none; } }
+
+/* Ballistix's force-victory prompt sits across the bottom of the PS1 picture. */
+.ps1hud .force-victory {
+  position: absolute; z-index: 1; left: 10.546875%; top: 81.67%; width: 78.90625%; height: 10%;
+  padding: 0; box-sizing: border-box; pointer-events: auto; cursor: pointer;
+  font: 400 min(2.45vw, 3.27vh)/1 var(--rules); color: #ffb120;
+  text-transform: uppercase; letter-spacing: 0; white-space: nowrap;
+  border: solid transparent; border-width: min(.625vw,.833vh) min(.586vw,.781vh);
+  background: rgb(0 0 0 / 50%) padding-box;
+  text-shadow: 0 2px #000; -webkit-text-stroke: min(.36vw,.48vh) #130b00; paint-order: stroke fill;
+}
+.force-victory kbd {
+  padding: .08em .25em; margin-inline: .13em; font: inherit; color: #fff5ad;
+  background: #172028; border: 1px solid #777b77; border-radius: .1em; box-shadow: 0 .13em #000;
+}
+.force-victory:focus-visible { outline: 2px solid #fff6a4; outline-offset: 2px; }
+.force-victory:disabled { pointer-events: none; }

@@ -65,6 +65,8 @@ export class InputManager {
   private menuButtons = new Set<number>();
   game = '';
   variant?: string;
+  watchingBallistix = false;
+  pressButton(button: Button) { this.pressed.add(ACTION_CODES[button][0]); }
   clearPresses() { this.pressed.clear(); }
   releaseMenuInput() {
     this.releaseKeyboard();
@@ -166,7 +168,7 @@ export class InputManager {
       if (Math.hypot(px, py) > Math.hypot(x, y)) { x = px; y = py; }
       const layout = padLayout(this.game, this.variant);
       const button = (key: Button) => layout[key] !== undefined && bt(layout[key]!);
-      a ||= button('a'); b ||= button('b'); c ||= button('c'); d ||= button('d');
+      a ||= button('a'); b ||= button('b') || (this.watchingBallistix && bt(0)); c ||= button('c'); d ||= button('d');
       tl ||= button('l'); tr ||= button('r');
       if (this.game === 'ballDefence') tr ||= bt(4) || bt(5) || bt(6) || bt(7);
       if (this.game === 'tankArena') { tl ||= bt(6); tr ||= bt(7); }

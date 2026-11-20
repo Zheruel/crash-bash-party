@@ -13,7 +13,7 @@ export function ballistixResultEntry(w: World, slot: number): number | undefined
   const winner = d.pl[slot];
   if (winner.st === 0x22) return winner.stateAt;
   const losers = d.pl.filter((_, p) => p !== slot);
-  if (d.variant !== 'beach' && winner.score > 0 && losers.every(p => p.score <= 0 && p.st >= 0x24)) {
+  if (d.beachDecidedAt === undefined && d.variant !== 'beach' && winner.score > 0 && losers.every(p => p.score <= 0 && p.st >= 0x24)) {
     // The host spends the final knockout ticking the losing ships. Its surviving
     // ship and arena objects are still at the verdict when the terminal snapshot arrives.
     return Math.max(...losers.map(p => p.stateAt)) + 1;
@@ -33,7 +33,7 @@ function easeAngle(angle: number, target: number) {
 }
 
 export class BallistixResult {
-  private readonly discBeach: boolean;
+  private readonly simulatedWinner: boolean;
   private readonly initial: BallistixData['pl'][number];
   private readonly fit: FitCam;
   private readonly arrival: number;
@@ -48,15 +48,15 @@ export class BallistixResult {
   constructor(source: World, readonly slot: number, readonly entry: number, camera: PS1Cam, readonly arrivedLate: boolean) {
     const d = source.data as BallistixData;
     this.initial = { ...d.pl[slot] };
-    this.discBeach = d.variant === 'beach' && this.initial.st === 0x22;
+    this.simulatedWinner = d.beachDecidedAt !== undefined && this.initial.st === 0x22;
     this.sky = d.variant === 'sky';
     this.fit = new FitCam(camera);
     this.axis = slot < 2 ? 'z' : 'x';
     this.sign = slot === 0 || slot === 3 ? -1 : 1;
-    // All four Beach boats start their victory run at the fixed goal line.
-    const start = this.discBeach ? 2176 : this.sign * this.initial[this.axis];
+    // Crashball and Beach Ball ships start their victory run at the fixed goal line.
+    const start = this.simulatedWinner ? 2176 : this.sign * this.initial[this.axis];
     this.arrival = Math.max(0, Math.ceil((start - 0x500) / 0x20));
-    if (!this.discBeach) {
+    if (!this.simulatedWinner) {
       this.arena = cloneWorld(source);
       const capped = source.finished && entry === d.f;
       this.arena.data.f = capped ? entry : entry - 2;
@@ -66,7 +66,7 @@ export class BallistixResult {
   advance(source: World, now: number, replayAt: number | undefined, onEvent: (e: GameEvent) => void) {
     if (source.finished && this.terminalAt === undefined) {
       this.terminalAt = replayAt ?? now;
-      if (this.discBeach) this.arena = cloneWorld(source);
+      if (this.simulatedWinner) this.arena = cloneWorld(source);
     }
     const d = source.data as BallistixData;
     const elapsed = this.terminalAt === undefined ? 0 : Math.max(0, Math.floor((now - this.terminalAt) * 30 + 1e-7));
@@ -77,14 +77,14 @@ export class BallistixResult {
       while (this.arena.data.f < this.entry + this.age) {
         const frame = this.arena.data.f + 1 - this.entry;
         const arenaData = this.arena.data as BallistixData;
-        const winner = !this.discBeach && frame >= 0 ? this.winnerMotion(arenaData, frame) : undefined;
+        const winner = !this.simulatedWinner && frame >= 0 ? this.winnerMotion(arenaData, frame) : undefined;
         const events = stepBallistixResultArena(this.arena, frame + 1, winner);
-        if (!this.discBeach && frame > this.arrival) this.fitCamera(arenaData, frame, 1);
+        if (!this.simulatedWinner && frame > this.arrival) this.fitCamera(arenaData, frame, 1);
         // Discard old one-shots when a terminal snapshot is first seen or rendering resumes.
         if ((!this.arrivedLate || this.audioAge >= 0) && this.arena.data.f >= this.entry + this.age - 1) events.forEach(onEvent);
       }
     }
-    if (this.discBeach && this.age > this.arrival) {
+    if (this.simulatedWinner && this.age > this.arrival) {
       this.fitCamera((this.arena?.data ?? d) as BallistixData, this.age, this.age - Math.max(this.arrival, previous));
     }
     return this.arena;
@@ -92,22 +92,22 @@ export class BallistixResult {
 
   private winnerMotion(data: BallistixData, age: number) {
     const player = data.pl[this.slot];
-    const position = this.discBeach ? player : this.initial;
+    const position = this.simulatedWinner ? player : this.initial;
     let { x, z } = position;
-    let face = this.discBeach ? FACE[this.slot] : this.initial.face;
-    let roll = this.discBeach ? player.roll : this.initial.roll ?? 0;
-    let vel = this.discBeach ? 0 : this.initial.vel;
+    let face = this.simulatedWinner ? FACE[this.slot] : this.initial.face;
+    let roll = this.simulatedWinner ? player.roll : this.initial.roll ?? 0;
+    let vel = this.simulatedWinner ? 0 : this.initial.vel;
     let slide = 0;
     for (let f = 0; f <= Math.min(age, 32); f++) {
       if (f > 0) face = easeAngle(face, 0);
-      if (this.discBeach) continue;
+      if (this.simulatedWinner) continue;
       vel = Math.sign(vel) * Math.max(0, Math.abs(vel) - (this.sky ? 6 : 18));
       const signedVel = (this.slot === 0 || this.slot === 2) ? -vel : vel;
       if (this.sky) face += signedVel;
       else slide += vel;
       roll = easeAngle(roll, signedVel);
     }
-    const inward = this.discBeach ? 0 : this.sign * Math.min(age, this.arrival) * 0x20;
+    const inward = this.simulatedWinner ? 0 : this.sign * Math.min(age, this.arrival) * 0x20;
     x += this.axis === 'x' ? -inward : slide;
     z += this.axis === 'z' ? -inward : slide;
     return { slot: this.slot, x, y: ballistixFloor(data.tilt, x, z) - 128, z, face: face & 4095, roll, vel };

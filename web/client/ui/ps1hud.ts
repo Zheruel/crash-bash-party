@@ -34,6 +34,10 @@ export class Ps1Hud {
   readonly el: HTMLDivElement;
   /** additive sprites: a sibling layer whose own blend mode adds it onto the canvas (a child of .ps1hud would only blend inside it) */
   private addEl: HTMLDivElement;
+  readonly forceVictory = document.createElement('button');
+  private forceSlide = 0;
+  private forceKey = document.createElement('kbd');
+  private forceLabel = document.createElement('span');
   private pool: HTMLImageElement[] = [];
   private addPool: HTMLImageElement[] = [];
   private textures = new Map<string, HTMLImageElement>();
@@ -43,10 +47,33 @@ export class Ps1Hud {
     this.el.className = 'ps1hud hidden';
     this.addEl = document.createElement('div');
     this.addEl.className = 'ps1hud ps1hud-add hidden';
+    this.forceVictory.className = 'force-victory';
+    this.forceVictory.type = 'button';
+    this.forceVictory.hidden = true;
+    this.forceLabel.append('Press ', this.forceKey, ' to force victory');
+    this.forceVictory.append(this.forceLabel);
+    this.el.append(this.forceVictory);
     parent.append(this.addEl, this.el);
   }
 
   show(on: boolean) { this.el.classList.toggle('hidden', !on); this.addEl.classList.toggle('hidden', !on); }
+
+  setForceVictory(age: number, closing: number, key: string, touch: boolean) {
+    const button = this.forceVictory;
+    button.hidden = age < 0 || closing >= 8;
+    if (button.hidden) return;
+    button.disabled = closing >= 0;
+    if (this.forceKey.textContent !== key) this.forceKey.textContent = key;
+    if (touch !== button.classList.contains('touch')) {
+      button.classList.toggle('touch', touch);
+      if (touch) this.forceLabel.replaceChildren('Force victory');
+      else this.forceLabel.replaceChildren('Press ', this.forceKey, ' to force victory');
+    }
+    // Native HUD object 5 enters from y=500, settles at 380, and exits at twice its entry speed.
+    const offset = closing < 0 ? Math.max(0, 120 - 16 * age) : 32 * closing;
+    this.forceSlide = Math.round(offset * 0.9);
+    button.style.top = `${(196 + this.forceSlide) * 100 / 240}%`;
+  }
 
   preloadRound(chars: number[]) {
     const glyphs = [...'0123456789c'].map(c => `${ASSET_BASE}hud/big${c}.png`);
@@ -62,7 +89,15 @@ export class Ps1Hud {
   /** Draw this frame's sprites (pooled <img>, positions in % of the 512x240 frame). */
   draw(list: HudSprite[]) {
     this.fill(this.el, this.pool, list.filter((s) => !s.add));
-    this.fill(this.addEl, this.addPool, list.filter((s) => s.add));
+    const add = list.filter(s => s.add);
+    if (!this.forceVictory.hidden) {
+      const tex = ASSET_BASE + 'hud/stripEdge.png', y = 188 + this.forceSlide;
+      add.push(
+        { tex, x: 54, y, w: 404, h: 2 }, { tex, x: 54, y: y + 22, w: 404, h: 2 },
+        { tex, x: 54, y: y + 2, w: 3, h: 20 }, { tex, x: 455, y: y + 2, w: 3, h: 20 },
+      );
+    }
+    this.fill(this.addEl, this.addPool, add);
   }
 
   private fill(el: HTMLDivElement, pool: HTMLImageElement[], list: HudSprite[]) {

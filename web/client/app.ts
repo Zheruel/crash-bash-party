@@ -1,6 +1,7 @@
 import { EMOTE_LABELS, winnerCheerFrame } from '../shared/look';
 import { FAST_TIMING, NORMAL_TIMING, STANDINGS_MIN_MS, type Timing } from '../shared/party';
 import { COUNT_FRAMES, COUNT_LABELS, NUMBERED_COUNTDOWN_TICKS, type Phase, type ResultsMsg, type RoomState, type RoundMsg, type WheelMsg } from '../shared/protocol';
+import { SPECTATOR_WAIT, type BallistixData } from '../shared/games/ballDefence';
 import { getGame } from '../shared/registry';
 import { DT, IDLE, type World } from '../shared/types';
 import { preloadBoardTextures } from './scene/tex';
@@ -14,7 +15,7 @@ import { ballistixCupDelay } from './games/ballDefenceResult';
 import { CRATE_RESULT_HOLD_MS } from './games/crateTossResult';
 import { malletMashResultHoldMs } from './games/malletMash';
 import type { RenderWorld } from './games/types';
-import { InputManager, watchKeyboardLayout } from './input';
+import { InputManager, keyLabels, watchKeyboardLayout } from './input';
 import { createHostCore } from './net/hostCore';
 import { LoopbackTransport } from './net/loopback';
 import { PeerHost, PeerTransport, newRoomCode } from './net/peer';
@@ -183,6 +184,11 @@ export class App {
     });
     this.hud = new Hud(root);
     this.ps1hud = new Ps1Hud(root);
+    this.ps1hud.forceVictory.onclick = () => {
+      if (!this.canCaptureArenaKeys()) return;
+      this.stage.renderer.domElement.focus({ preventScroll: true });
+      this.input.pressButton('b');
+    };
     this.touch = new TouchControls(root);
     this.touch.enabled = TouchControls.likely();
     this.input.touch = this.touch.sample;
@@ -876,6 +882,16 @@ export class App {
     const inArena = this.stage.gameVisible && (this.phase === 'intro' || this.phase === 'countdown'
       || this.phase === 'play' || this.phase === 'results' || this.phase === 'final');
     const arenaWorld = c && inArena ? c.renderWorld(t) as RenderWorld | null : null;
+
+    const ballistix = this.phase === 'play' && c?.round?.gameId === 'ballDefence' ? arenaWorld?.data as BallistixData | undefined : undefined;
+    const localShip = c?.roundSlot == null ? undefined : ballistix?.pl?.[c.roundSlot];
+    this.input.watchingBallistix = !!localShip && localShip.score <= 0;
+    if (ballistix && this.input.watchingBallistix && ballistix.spectatorSince !== undefined && this.canCaptureArenaKeys()) {
+      const age = ballistix.f - ballistix.spectatorSince - SPECTATOR_WAIT;
+      const closing = ballistix.pl.filter(p => p.score > 0).length > 1 ? -1
+        : Math.max(0, ballistix.f - Math.max(...ballistix.pl.map(p => p.dead)));
+      this.ps1hud.setForceVictory(age, closing, keyLabels('b')[0], this.touch.enabled);
+    } else this.ps1hud.forceVictory.hidden = true;
 
     // HUD cards: points + trophies (from the room's seats, updated on results)
     if (this.phase !== 'lobby' && this.phase !== 'title') {

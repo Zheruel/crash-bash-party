@@ -3,7 +3,7 @@
 // floors and walls that the disc stores elsewhere are rebuilt here from the same level textures.
 import * as THREE from 'three';
 import { BALLISTIX_OPENING_TICKS, ballistixFloor, ballistixLauncherFrame, BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_POST_AT, BD_U, ballistixOpeningFrame, type BallistixData } from '../../shared/games/ballDefence';
-import type { Body, GameEvent } from '../../shared/types';
+import type { Body } from '../../shared/types';
 import type { BlobShadow } from '../fx';
 import { ASSET_BASE, getCatalog, type ModelRef } from '../crash';
 import { createCharacter } from '../characters';
@@ -20,7 +20,6 @@ import { fxPartTemplate, preloadFx } from './realFx';
 
 /** Object pack 0762 at the stage scale: effect script 0 = a knocked-out ship's explosion (FUN_800b79f4). */
 const FX_PACK = 762, FX_SCALE = 4;
-const KNOCKOUT_FRAMES = 61;
 /** N.Gin machine pack (db 0x80054574 = disc 0764: part0 render id 0x2001, part5 0x2006 while it spits, script 0 = rise / retract
  *  puff) and the N.Ballism level model, whose looping script 1 is the power-up post (FUN_800bd770 at the corner bumper) */
 const MACH_PACK = 764, POST_PACK = 651;
@@ -457,11 +456,11 @@ export function createBallDefenceView(): ClientMiniGame {
   const balls = new Map<number, BallView>();
   let post: { x: number; y: number; z: number } | null = null;
   let machine: ReturnType<typeof catalogInstance> = null;
+  const spectatorSounds = new Map<number, string>();
   let bankIdx: Record<number, { file: string; loop?: number | null }> = {};
   let motor: ReturnType<typeof sfx.startSample> = null;
   let shieldMaterial: THREE.MeshBasicMaterial | undefined;
   const catchSounds = new Map<number, () => void>();
-  const pendingKnockouts = new Map<number, GameEvent>();
   const flashes: THREE.Object3D[] = [];
   let loaded = false;
   let active = false;
@@ -750,15 +749,6 @@ export function createBallDefenceView(): ClientMiniGame {
     if (sample) sfx.playFile(sample.file, VOL(id), false, sfxRate(BANK_OF[variant], id));
   }
 
-  function delaysKnockout() {
-    return variant === 'crashball';
-  }
-
-  function knockout(e: GameEvent) {
-    kit.real.play(FX_PACK, 0, e.x, e.v, e.z);
-    if (delaysKnockout()) playSound(451 + (e.id & 1));
-  }
-
   return {
     id: 'ballDefence',
     async preload() {
@@ -769,14 +759,18 @@ export function createBallDefenceView(): ClientMiniGame {
     init(ctx, world) {
       active = true;
       variant = world.data.variant ?? 'crashball';
+      spectatorSounds.clear();
       bgColor = new THREE.Color(BG[variant] ?? 0);
       kit = new Kit(ctx, 'ballDefence', { bg: BG[variant] ?? 0, hemi: [0xffffff, 0x888899, 1.6] });
       kit.realFx(FX_SCALE);
       goals.length = 0; balls.clear(); post = null; machine = null; bankIdx = {}; result = undefined;
-      pendingKnockouts.clear();
       // samples are shared between banks on disc, so the file comes from audio/index.json
       void fetch(ASSET_BASE + 'audio/index.json').then((r) => (r.ok ? r.json() : null)).then((j) => {
         if (!active) return;
+        for (const id of [0x194, 0x195]) {
+          const file = j?.sfx?.banks?.['0277']?.samples[id - 0x192]?.file;
+          if (file) { spectatorSounds.set(id, file); sfx.preloadFile(file); }
+        }
         const smp: { n: number; file?: string | null; loop?: number | null }[] = j?.sfx?.banks?.[BANK_OF[variant]]?.samples ?? [];
         for (const { n, file, loop } of smp) if (file) bankIdx[n] = { file, loop };
         const ids = new Set<number>(Object.values({ ...COMMON, ...EXTRA[variant] }));
@@ -816,7 +810,7 @@ export function createBallDefenceView(): ClientMiniGame {
         }
         result.audioAge = result.age;
       }
-      const players = variant === 'beach' ? arena : w;
+      const players = d.beachDecidedAt !== undefined ? arena : w;
       ctx.scene.background = bgColor;
       setCamera(ctx.camera);
       const stageData = arena.data as BallistixData;
@@ -832,12 +826,6 @@ export function createBallDefenceView(): ClientMiniGame {
       const opening = remaining === undefined ? undefined : ballistixOpeningFrame(remaining);
       const tilt = variant === 'sky' ? opening?.tilt ?? stageData.tilt : undefined;
       if (tilt) skyTilt(tilt, opening?.pose ?? BALLISTIX_OPENING_TICKS + stageData.f);
-      for (const [slot, e] of pendingKnockouts) {
-        if (stageData.f - d.pl[slot].stateAt < KNOCKOUT_FRAMES) continue;
-        playSound(1414);
-        knockout(e);
-        pendingKnockouts.delete(slot);
-      }
       kit.root.getWorldQuaternion(billboard).invert().multiply(ctx.camera.quaternion);
       if (variant === 'crashball') {
         const tick = opening ? opening.pose - BALLISTIX_OPENING_TICKS : markers?.tick ?? stageData.f;
@@ -882,10 +870,8 @@ export function createBallDefenceView(): ClientMiniGame {
           const player = (result ? players.data : kit.playerWorld(b.slot).data) as BallistixData;
           const pl = player.pl?.[b.slot] ?? pls[b.slot];
           const a = kit.actor(b, () => shipParts(b.slot));
-          // The other hosts freeze after 60 knockout ticks. Native ship 0x25
-          // and its two sounds enter together on the 61st presentation tick.
-          const gone = pl.st === 0x25 && (!result || !delaysKnockout() || stageData.f - pl.stateAt >= KNOCKOUT_FRAMES);
-          const dying = pl.st === 0x24 || (pl.st === 0x25 && !gone);
+          const gone = pl.st === 0x25;
+          const dying = pl.st === 0x24;
           const celebration = !!result && result.age >= 0;
           const winner = celebration && result!.slot === b.slot ? result!.winnerBody(b, stageData) : undefined;
           const seatedLoser = celebration && !winner && pl.score > 0;
@@ -895,7 +881,7 @@ export function createBallDefenceView(): ClientMiniGame {
           const idleGesture = pl?.st === 0x1c && pl.idleAt >= 0;
           const hull = a.extra?.userData.hull as THREE.Object3D[] | undefined;
           if (hull && !dying) {
-            const cooldown = winner && variant !== 'beach' ? pl.kcd - result!.age : pl.kcd;
+            const cooldown = winner && d.beachDecidedAt === undefined ? pl.kcd - result!.age : pl.kcd;
             const off = catching || cooldown > 0;
             hull[0].visible = !off;
             hull[1].visible = off;
@@ -1044,9 +1030,12 @@ export function createBallDefenceView(): ClientMiniGame {
       if (!kit) return;
       if (kit.baseEvent(e)) return;
       switch (e.k) {
-        case 'sfx':
-          if (e.o !== 1471 && !(delaysKnockout() && result && e.o === 1414)) playSound(e.o);
+        case 'sfx': {
+          const prompt = spectatorSounds.get(e.o);
+          if (prompt) sfx.playFile(prompt, 1, true, sfxRate('0277', e.o));
+          else if (e.o !== 1471) playSound(e.o);
           break;
+        }
         case 'hit': {
           if (result) break;
           const strong = e.v > 1.2;
@@ -1064,8 +1053,7 @@ export function createBallDefenceView(): ClientMiniGame {
           kit.shake(0.45);
           break;
         case 'gone':
-          if (delaysKnockout() && result) pendingKnockouts.set(e.s, e);
-          else knockout(e);
+          kit.real.play(FX_PACK, 0, e.x, e.v, e.z);
           if (!result) kit.shake(0.9);
           break;
         case 'launch':
