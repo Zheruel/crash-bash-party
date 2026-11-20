@@ -1,6 +1,6 @@
 import { EMOTE_LABELS, winnerCheerFrame } from '../shared/look';
 import { FAST_TIMING, NORMAL_TIMING, STANDINGS_MIN_MS, type Timing } from '../shared/party';
-import { COUNT_FRAMES, COUNT_LABELS, NUMBERED_COUNTDOWN_TICKS, type Phase, type ResultsMsg, type RoomState, type RoundMsg, type WheelMsg } from '../shared/protocol';
+import { COUNT_FRAMES, COUNT_LABELS, NUMBERED_COUNTDOWN_TICKS, readsCountdownPad, type Phase, type ResultsMsg, type RoomState, type RoundMsg, type WheelMsg } from '../shared/protocol';
 import { SPECTATOR_WAIT, type BallistixData } from '../shared/games/ballDefence';
 import { getGame } from '../shared/registry';
 import { DT, IDLE, type World } from '../shared/types';
@@ -874,9 +874,9 @@ export class App {
     const c = this.client;
     this.tryLoadGame();
 
-    const startingRace = this.phase === 'countdown' && c?.round?.gameId === 'dashRace';
-    if (c && (this.phase === 'play' || startingRace) && c.roundSlot != null) {
-      if (startingRace) this.input.clearPresses();
+    const openingPad = this.phase === 'countdown' && readsCountdownPad(c?.round?.gameId);
+    if (c && (this.phase === 'play' || openingPad) && c.roundSlot != null) {
+      if (openingPad) this.input.clearPresses();
       this.acc += dt;
       for (let n = 0; this.acc >= DT && n < 5; n++, this.acc -= DT) c.sendInput(this.optionsOpen || this.notice ? IDLE : this.input.sample());
       if (this.acc > DT * 5) this.acc = 0;

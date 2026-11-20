@@ -250,6 +250,38 @@ for (const [id, finish] of drawFamilies) {
   }
 }
 
+// USA Polar Push distinguishes a held countdown button from a press sampled on GO.
+for (const variant of ['tilt', 'polar', 'melt', 'manic']) {
+  const host = new InlineHostCore('BEAR', { auto: false, games: pickGames(['pushOff']), variants: { pushOff: variant }, timing: FAST_TIMING });
+  const links = [0, 1, 2].map(() => new LoopbackTransport(host));
+  const riders = links.map((link, i) => new GameClient(() => link, { name: 'Rider' + i, look: { char: [8, 9, 0][i], color: i } }));
+  const press = { x: 0, y: 0, a: true, b: false };
+  const release = { ...press, a: false };
+  let now = 1000;
+  const advance = async () => { host.step(now += 34); await tick(); };
+  const states = (w?: World | null) => w?.data.P.slice(0, 3).map((q: { st: number }) => q.st);
+  try {
+    for (const rider of riders) { await rider.start(); await tick(); rider.ready(true); }
+    await tick();
+    for (let n = 0; n < 35 && riders[0].phase !== 'countdown'; n++) await advance();
+    riders[0].sendInput(press); riders[1].sendInput(release);
+    riders[2].sendInput(press); riders[2].sendInput(release);
+    await tick();
+    for (let n = 0; n < 20 && riders[0].phase !== 'play'; n++) await advance();
+    riders[0].sendInput(press); riders[1].sendInput(press); riders[2].sendInput(release);
+    const predicted = riders.map((rider, i) => states(rider.predictor?.pred)?.[i]);
+    links[1].send({ t: 'input', round: riders[1].round!.round, opening: true, seq: 9999, ...press });
+    await tick(); await advance();
+    const first = riders[0].snaps.at(-1)?.w;
+    ok(variant + ': held dash stays idle, fresh dash starts on GO', first?.tick === 1
+      && isDeepStrictEqual(states(first), [0x49, 0x51, 0x49]) && isDeepStrictEqual(predicted, states(first)));
+    riders[2].sendInput(press); await tick(); await advance();
+    ok(variant + ': a press one tick after GO starts the third rider’s dash', states(riders[0].snaps.at(-1)?.w)?.[2] === 0x51);
+  } finally {
+    riders.forEach(rider => rider.leave()); host.destroy();
+  }
+}
+
 // Held controls cross the Dash countdown once, even if old unreliable inputs arrive at GO.
 {
   const host = new InlineHostCore('GRID', { auto: false, games: pickGames(['dashRace']), variants: { dashRace: 'splash' }, timing: FAST_TIMING });

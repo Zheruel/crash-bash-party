@@ -10,6 +10,7 @@ export const MAX_CUPS_TO_WIN = 7;
 export const DEFAULT_CUPS_TO_WIN = 3;
 /** Repeat up to two recent live pad samples on the unordered channel. */
 export const INPUT_HISTORY = 2;
+export const readsCountdownPad = (game?: string) => game === 'dashRace' || game === 'pushOff';
 
 export function isCupsToWin(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= MIN_CUPS_TO_WIN && value <= MAX_CUPS_TO_WIN;

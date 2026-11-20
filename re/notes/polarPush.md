@@ -209,6 +209,8 @@ Setup: `FUN_800b5ac4` (callbacks), `FUN_800bafa0` (init), `FUN_800bb810` (per fr
   speed / box / exchange; on-foot idle after item / stun; no spin on foot; bolt dropped at the bomb / zap pickup; winner flag before the objects;
   wait-handler quirk with a bolt; intro: a waiting CPU already turns (yaw eases toward the nearest bear); spark / burst / bear / emitter rng draws;
   a button held through GO is not a press (the pad's previous bits keep tracking during the intro).
+
+In four controlled USA Tilt Panic openings, the countdown flag cleared at sample 99. Square held from sample 91 or 98 left the rider idle. Square first read on 99 set the pressed word to `0x8000` and entered dash state `0x51` on 99. Pressing one sample later moved both to 100. The same fresh press started the dash on 99 in Polar, Melt and Manic Panic. The host and local prediction use the last countdown pad as the previous input for the first playable step.
 - Older TILT runs (rec.js / replay2.ts): physics with recorded pads 1630/1630; free run from the round reset reproduces whole all-CPU rounds.
 - Round lengths, all-CPU TILT, normal, from GO: real n=26 (emulator, chars 8/2/5/7): mean 14.7 s, median 15.4, 27% under 10 s, p75 17.6, p90 20.8, max 26.1.
   (The sim numbers quoted here before were measured with the estimated seal; not re-measured.)

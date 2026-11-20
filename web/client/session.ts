@@ -4,7 +4,7 @@ import type { RenderWorld } from './games/types';
 import type { BallistixData } from '../shared/games/ballDefence';
 import { DT, type Body, type GameEvent, type InputState, type World } from '../shared/types';
 import type { C2S, MatchConfig, Phase, ResultsMsg, RoomState, RoundMsg, S2C, WheelMsg } from '../shared/protocol';
-import { INPUT_HISTORY } from '../shared/protocol';
+import { INPUT_HISTORY, readsCountdownPad } from '../shared/protocol';
 import { getGame } from '../shared/registry';
 import { sanitizeLook, type Look } from '../shared/look';
 import { Predictor } from './predict';
@@ -145,13 +145,14 @@ export class GameClient {
     return i >= 0 ? i : null;
   }
 
-  /** Countdown samples stage held race controls at the host without predicting movement. */
+  /** Sample held controls during the countdown without predicting movement. */
   sendInput(s: InputState) {
     if (!this.predictor || this.roundSlot == null) return;
-    const opening = this.phase === 'countdown' && this.round?.gameId === 'dashRace';
+    const opening = this.phase === 'countdown' && readsCountdownPad(this.round?.gameId);
     if (!opening && this.phase !== 'play') return;
     const inp = { seq: ++this.predictor.seq, ...s };
     if (opening) {
+      if (this.round?.gameId === 'pushOff') this.predictor.openingPolarPad = s;
       this.rawSend({ t: 'input', round: this.round?.round, ...inp, opening: true }, true);
       return;
     }

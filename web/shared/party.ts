@@ -3,13 +3,13 @@
 // host's browser (PeerJS mode) or inside the Node ws server (LAN mode).
 import { getGame, GAMES } from './registry';
 import { BALLISTIX_OPENING_TICKS } from './games/ballDefence';
-import { POLAR_WIN_TALLY_TICKS } from './games/pushOff';
+import { POLAR_WIN_TALLY_TICKS, primePolarPad } from './games/pushOff';
 import { dragonResultFrames } from './games/dragonDrop';
 import { modifiersFor } from './modifiers';
 import { createWorld, roundOver, stepWorld } from './sim';
 import { botInput } from './bots';
 import { COLORS, CHARACTERS, EMOTES, sanitizeLook, winnerCheerFrame, type Look } from './look';
-import { DEFAULT_CUPS_TO_WIN, INPUT_HISTORY, NUMBERED_COUNTDOWN_TICKS, isCupsToWin } from './protocol';
+import { DEFAULT_CUPS_TO_WIN, INPUT_HISTORY, NUMBERED_COUNTDOWN_TICKS, isCupsToWin, readsCountdownPad } from './protocol';
 import type { Award, C2S, Phase, ResultsMsg, RoomState, RoundMsg, S2C, Seat, SeatInfo, StageOption, WheelMsg, WinCondition } from './protocol';
 import { DT, IDLE, MAX_SEATS, POINTS, type Input, type InputState, type MiniGame, type Modifier, type World } from './types';
 
@@ -244,7 +244,7 @@ export class Party {
       case 'input': {
         const opening = m.opening === true;
         if (m.round !== undefined && m.round !== this.round) return;
-        if (opening && (this.game?.id !== 'dashRace' || m.round === undefined)) return;
+        if (opening && (!readsCountdownPad(this.game?.id) || m.round === undefined)) return;
         if (this.phase !== (opening ? 'countdown' : 'play')) return;
         const seq = Math.floor(num(m.seq, 0, 1e9));
         if (seq <= c.lastRecv) return;
@@ -442,6 +442,11 @@ export class Party {
         break;
       case 'countdown':
         if (now >= this.phaseEnds) {
+          if (this.game?.id === 'pushOff' && this.world) {
+            for (const [slot, id] of this.seats.entries()) {
+              if (id !== null) primePolarPad(this.world, slot, this.members.get(id)?.cur ?? IDLE);
+            }
+          }
           this.setPhase('play', 0, now);
           this.acc = 0;
         }

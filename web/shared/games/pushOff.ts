@@ -1811,6 +1811,12 @@ function padOf(inp: InputState): number {
   return b;
 }
 
+/** The pad reader remembers held buttons before the first playable rider update. */
+export function primePolarPad(w: World, slot: number, pad: InputState) {
+  const q = (w.data as Data).P[slot];
+  if (q && !q.cpu) q.pb = padOf(w.params.mirror ? { ...pad, x: -pad.x, y: -pad.y } : pad);
+}
+
 function newP(id: number, cpu: boolean, sk: number, x: number, z: number): PoP {
   const yaw = (((at2(x, z) + 0x800) & 0xfff) + 0x800) & 0xffff;
   return {
@@ -1987,7 +1993,6 @@ export const pushOff: MiniGame = {
       if (poTest.pads) { const b = poTest.pads[s]; q.pressed = b.pressed; q.held = b.held; q.ang = b.ang; continue; }
       if (!q.cpu) {
         const b = padOf(inputs[s] ?? IDLE);
-        if (d.t === 0) q.pb = b; // the pad's previous bits keep tracking during the intro: a button held through GO is not a press (replay)
         q.pressed = b & ~q.pb; q.held = b; q.pb = b; q.ang = stickAngle(b);
       } else { q.pressed = q.nb & ~q.pb; q.held = q.nb; q.pb = q.nb; q.ang = stickAngle(q.nb); }
     }
