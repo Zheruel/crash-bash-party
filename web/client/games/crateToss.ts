@@ -1,12 +1,13 @@
 // CRATE CRUSH view (shared/games/crateToss.ts): the real Jungle / Space / Snow / Drain Bash stages, wood / TNT / Nitro crates.
 import * as THREE from 'three';
-import { CT_FLOOR_N, CT_HP, CT_RING_COUNT, CT_RING_GAP, CT_RING_TICKS,
+import { CT_FLOOR_N, CT_HP, CT_OPENING_TICKS, CT_RING_COUNT, CT_RING_GAP, CT_RING_TICKS,
   CT_U, CT_WEAPON_BLAST, ctActionTicks, ctRingScale, floorAt, spaceFloorIndex } from '../../shared/games/crateToss';
 import type { Body, GameEvent } from '../../shared/types';
 import { ASSET_BASE, getCatalog } from '../crash';
 import type { BlobShadow } from '../fx';
 import { sfx, sfxRate } from '../shell/sound';
 import { charVoice, hitVoice, spinVoice, tauntVoice, winnerVoice } from '../shell/voice';
+import { discStereo } from '../shell/discStereo';
 import { poseTicks } from './playerPose';
 import { createCharacter } from '../characters';
 import { catalogInstance, Kit, nativeCharScale, preloadCatalogFor } from './kit';
@@ -119,10 +120,24 @@ export function createCrateTossView(): ClientMiniGame {
   const playSample = (n: number, vol: number, rate = 1, late = false) => { const f = bankIdx?.[lv.bank]?.[n]?.file; if (f) sfx.playFile(f, vol, late, rate); };
   /** one of a rand-4 list, at that id's own pitch */
   const playPick = (l: number[], ids: number[], vol: number) => { const i = Math.floor(Math.random() * l.length); playSample(l[i], vol, sfxRate(lv.bank, ids[i])); };
+  type Scrape = { id: number; frame: number; sound: NonNullable<ReturnType<typeof sfx.startSample>> };
+  const scrapes = new Map<number, Scrape>();
+  function syncScrape(slot: number, id?: number, frame = 0) {
+    const current = scrapes.get(slot);
+    if (current && current.id === id && frame >= current.frame) { current.frame = frame; return; }
+    current?.sound.stop();
+    scrapes.delete(slot);
+    const file = bankIdx?.['0165']?.[34]?.file;
+    if (id === undefined || !file) return;
+    const rate = sfxRate('0165', id);
+    const sound = sfx.startSample(file, null, 1, rate, Math.max(0, frame - 1) * rate / 30);
+    if (sound) scrapes.set(slot, { id, frame, sound });
+  }
   const preloadSfx = () => {
     const sx = SFX[variant];
     if (bankIdx) for (const n of [sx.beep, sx.thump, sx.whoosh, FRUIT_SFX, 1, 2, ...sx.wood, ...sx.tnt, ...sx.nitro]) playSample(n, 0);
     if (variant === 'space') playSample(SPACE_FALL_SFX, 0);
+    if (variant === 'snow') { const file = bankIdx?.['0165']?.[34]?.file; if (file) sfx.preloadFile(file); }
     if (variant === 'drain') for (const [n] of [...WEAPON_SOUND.slice(1), ...WEAPON_PICKUP_SOUND.slice(1), RING_HIT]) playSample(n, 0);
   };
   const pickOf = (l: number[]) => l[Math.floor(Math.random() * l.length)]; // presentation only (not the sim rng)
@@ -317,6 +332,12 @@ export function createCrateTossView(): ClientMiniGame {
     if (c.far < 400) { c.near = 0.5; c.far = 600; c.updateProjectionMatrix(); }
   }
 
+  function spatialCue(e: GameEvent) {
+    const camera = follow?.camera;
+    const stereo = camera && discStereo(camera, Math.round(e.x / CT_U), (variant === 'drain' ? 0 : -16) - Math.round((e.y ?? 0) / CT_U), -Math.round(e.z / CT_U));
+    return (file: string, volume: number, rate: number) => { sfx.startSample(file, null, volume, rate, 0, stereo); };
+  }
+
   function ghost(b: Body, age: number) {
     let vis = ghosts.get(b.slot);
     if (age >= 106) {
@@ -339,7 +360,7 @@ export function createCrateTossView(): ClientMiniGame {
 
   function crateEvent(ctx: Parameters<ClientMiniGame['render']>[0], e: GameEvent, audio: boolean) {
     switch (e.k) {
-      case 'resultThrowVoice':
+      case 'throwVoice': case 'resultThrowVoice':
         if (audio) charVoice('c', ctx.seats[e.s]?.look.char, 0x10);
         return true;
       case 'smash':
@@ -448,6 +469,8 @@ export function createCrateTossView(): ClientMiniGame {
           const carriedBody = playerWorld.bodies.find(c => c.cd === b.slot + 1 && ['crate', 'tnt', 'nitro', 'chest'].includes(c.kind));
           seen.add(b.id);
           const a = kit.actor(b, () => ({ inst: createCharacter(kit.look(b.slot), { ring: false }), scale: nativeCharScale(kit.look(b.slot), S), headY: 2.3, shadow: 0.8 }));
+          const ground = d.groundPose?.[b.slot];
+          syncScrape(b.slot, !result && b.alive && ground?.script === 14 ? ground.scrape : undefined, ground?.frame);
           if (result) {
             const state = result.scene.actors.get(b.slot)!;
             if (state.state === 'out') ghost(b, state.outAge);
@@ -461,13 +484,15 @@ export function createCrateTossView(): ClientMiniGame {
           const character = d.char?.[b.slot] ?? 1;
           const touchdown = d.landedAt?.[b.slot] ?? -1;
           const landingFrame = touchdown < 0 ? 0 : playerWorld.tick - touchdown + 1;
-          const landing = landingFrame > 0 && landingFrame < poseTicks(8, character);
+          const landing = ground ? ground.script === 8 : landingFrame > 0 && landingFrame < poseTicks(8, character);
+          const groundFrame = playerWorld.tick === 0 && ctx.countdownTicksLeft !== undefined
+            ? Math.min(CT_OPENING_TICKS, Math.max(0, CT_OPENING_TICKS + 1 - ctx.countdownTicksLeft)) : ground?.frame;
           const jumpFrame = d.jumpFrame?.[b.slot];
           const stun = d.stun?.[b.slot] ?? 0;
           const action = d.act?.[b.slot] ?? 0;
           const taunt = d.tauntAt?.[b.slot] ?? -1;
           let role = taunt >= 0 ? 'taunt' : stun > 0 ? 'hit' : action > 0 ? 'action' : undefined;
-          let pose: { clip: number; frame: number } | undefined;
+          let pose: { clip: number; frame: number; loop?: boolean } | undefined;
           const anims = a.inst.ref?.anims;
           if (!kit.over.done && !b.fall && !stun && anims?.carry != null) {
             const scriptedRole = action === 1 ? 'lift' : action === 2 ? 'throw' : action === 3 ? 'spin' : null;
@@ -484,7 +509,20 @@ export function createCrateTossView(): ClientMiniGame {
                 : 10 + Math.min(9, jumpFrame ?? 9 * Math.min(1, vy / 100));
               pose = { clip: held ? anims.carryJump : anims.jump, frame };
             } else if (held) {
-              role = d.cs?.[carriedBody.id]?.gripScript === 17 ? 'carryRun' : 'carry';
+              const grip = d.cs?.[carriedBody.id];
+              role = grip?.gripScript === 17 ? 'carryRun' : 'carry';
+              if (grip) {
+                const clip = anims[role];
+                const phase = grip.gripFrame / poseTicks(grip.gripScript, character);
+                pose = { clip, frame: phase * a.inst.clipTicks(clip), loop: true };
+              }
+            } else if (ground && groundFrame !== undefined) {
+              // Both custom rigs use Cortex's movement family. His slide uses the idle model track.
+              if (landing) pose = { clip: anims.jump, frame: 19 };
+              else if (ground.script === 5) {
+                const phase = groundFrame / poseTicks(5, character);
+                pose = { clip: anims.run, frame: phase * a.inst.clipTicks(anims.run), loop: true };
+              } else if (ground.script) pose = { clip: anims.idle, frame: groundFrame, loop: true };
             }
           }
           // invulnerable after a hit: the game flickers the model (40 ticks)
@@ -492,9 +530,9 @@ export function createCrateTossView(): ClientMiniGame {
           const moving = Math.hypot(b.vx, b.vz) > 0.7;
           const deadAge = b.alive ? 0 : kit.poseTick(b.slot) - d.elim[b.slot];
           const script = b.fall ? 7 : !b.alive ? 0x13 : stun ? 9 : action === 1 ? 0xf : action === 2 ? 0x12 : action === 3 ? 10
-            : taunt >= 0 ? 2 : held ? (d.cs?.[carriedBody.id]?.gripScript ?? (moving ? 0x11 : 0x10)) : d.air[b.slot] ? (d.jh[b.slot] ? 6 : 7) : landing ? 8 : moving ? 5 : 1;
+            : taunt >= 0 ? 2 : held ? (d.cs?.[carriedBody.id]?.gripScript ?? (moving ? 0x11 : 0x10)) : d.air[b.slot] ? (d.jh[b.slot] ? 6 : 7) : ground?.script || (landing ? 8 : moving ? 5 : 1);
           const frame = !b.alive ? deadAge : action >= 1 && action <= 3 ? ctActionTicks(character, action) - d.stT[b.slot] : taunt >= 0 ? kit.poseTick(b.slot) - taunt : carriedBody ? d.cs?.[carriedBody.id]?.gripFrame
-            : d.air[b.slot] ? jumpFrame : landing ? landingFrame : undefined;
+            : d.air[b.slot] ? jumpFrame : groundFrame ?? (landing ? landingFrame : undefined);
           const hidden = !b.alive && (b.fall || deadAge >= poseTicks(0x13, character)) || (inv && (tick & 2) !== 0);
           a.update(b, dt, { hidden, role: b.fall ? 'jump' : b.alive ? role : 'lose', pose,
             script: anims?.carry != null || kit.over.done ? undefined : script, scriptFrame: b.fall ? undefined : frame });
@@ -591,15 +629,27 @@ export function createCrateTossView(): ClientMiniGame {
         case 'throw': case 'kick':
           playSample(e.k === 'kick' ? sfxSet().thump : sfxSet().whoosh, 0.45);
           if (e.k === 'kick') spinVoice('c', ctx.seats[e.s]?.look.char);
-          if (e.k === 'throw') charVoice('c', ctx.seats[e.s]?.look.char, 0x10, 2); // throw clip 18: `0x8008 block*0x32+0x10` at frame 2-3
           break;
         case 'grab':
-          charVoice('c', ctx.seats[e.s]?.look.char, 0xf, 1); // pick-up clip 15: `0x8008 block*0x32+0xf` at frame 1
+          charVoice('c', ctx.seats[e.s]?.look.char, 0xf);
           break;
         case 'taunt':
           tauntVoice('c', ctx.seats[e.s]?.look.char);
           break;
+        case 'carryStep':
+          charVoice('c', ctx.seats[e.s]?.look.char, e.v === 0 ? 0xa : 0xb, 0, 1);
+          break;
+        case 'step': {
+          const play = spatialCue(e);
+          if (e.o === 0x41e) {
+            const n = variant === 'space' ? 29 : 25;
+            const file = bankIdx?.[lv.bank]?.[n]?.file;
+            if (file) play(file, 1, sfxRate(lv.bank, e.o));
+          } else charVoice('c', ctx.seats[e.s]?.look.char, e.v === 0 ? 0xa : 0xb, 0, 1, undefined, play);
+          break;
+        }
         case 'bounce': case 'land':
+          if (e.k === 'land') charVoice('c', ctx.seats[e.s]?.look.char, 0xd, 0, 1, undefined, spatialCue(e));
           dust(e.x, e.z, 2);
           break;
         case 'hit':
@@ -619,7 +669,7 @@ export function createCrateTossView(): ClientMiniGame {
           break;
         case 'jump':
           dust(e.x, e.z, 1);
-          charVoice('c', ctx.seats[e.s]?.look.char, 0xc, 1); // jump anim 6 (FUN_80087fc0): `0x8008 block*0x32+0xc`
+          charVoice('c', ctx.seats[e.s]?.look.char, 0xc);
           break;
         case 'weapon': {
           const [n, id] = WEAPON_SOUND[e.v] ?? WEAPON_SOUND[0];
@@ -660,6 +710,8 @@ export function createCrateTossView(): ClientMiniGame {
     },
 
     dispose() {
+      for (const playing of scrapes.values()) playing.sound.stop();
+      scrapes.clear();
       for (const shot of shots.values()) removeShot(shot);
       crates.clear(); items.clear(); shots.clear(); weaponIcons.clear(); tiles.length = 0; pieces.length = 0; billboards.clear();
       for (const ghost of ghosts.values()) ghost.dispose();

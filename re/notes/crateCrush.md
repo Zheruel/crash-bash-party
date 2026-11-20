@@ -19,6 +19,16 @@ On the default arrow-key layout, Z picks up or throws, X attacks, C jumps empty-
 - Jump (`800860d4`, `80087fc0`): human characters 1–4 start at 108 and decelerate by 10. Characters 5–8 start at 72 and decelerate by 6. Releasing jump above velocity 64 subtracts 40. CPUs use the first row and run the full rise. A held jump peaks at 530 or 396 raw units. Fall entry (`800880e0`) resets speed to 8, adds 10 per update and caps at 112. Coco finishes her rise animation one update earlier. Touchdown tests the previous height and starts landing script 8 at frame 1.
 - Across all eight stock characters, tap and hold traces matched the original height, script and render word on 431 samples. The custom characters use Cortex movement with their own jump animations.
 
+### Ground animations and audio
+
+The versus countdown advances idle script 1 on each of 99 locked updates. The four original actors matched all 396 render words in each L0–L3 opening. Number meshes 3, 2 and 1 become visible at updates 15, 43 and 71 and disappear for the last update of each interval. GO and the first playable pad arrive at update 99.
+
+Snow Bash checks the previous velocity in `800874ec`. Releasing a direction enters idle script 1, frame 0. If either axis still has velocity on the next update, the player enters slide script 14 at frame 1. Returning to rest starts idle at frame 1. Renewed steering starts run script 5 at frame 0. Carrying uses scripts 16 and 17 even on the ice. The character and the carried crate use the same script phase.
+
+The Snow bank maps all six scrape IDs (0x456–0x45b) to sample 34. The selected ID supplies the pitch. Walking uses the two foot markers in script 5 and positions their sound at the character. Carrying plays the two centered sounds embedded in script 17. Under the slowing potion, walking substitutes stage cue 0x41e for the first contact and skips the second. Jump and pickup sound on entry. Landing script 8 plays at the actor's position. Tiny's throw cue plays four updates before crate release.
+
+Across eight controlled Snow runs, 1,078 movement render words matched. This comparison covers running, releasing, steering and restarting. Where a native arena hazard interrupted the fixture, comparison resumed at the next run entry. Two additional Cortex and Dingodile recordings matched all 364 poses and all 22 footfall, scrape, jump and landing cue times without interruption. Scrape pitch follows the web round's random draw. WebGL checked slide meshes for all eight original characters and sampled both custom models with their own clips.
+
 ## Actions
 - Spin (Square, `FUN_80088794`): yaw -0x155/tick, clip 9 ~26 ticks, event at ~tick 11. Player hit: 1 HP (`0x8001`), knock 0x30/tick, only if victim not hurt / invulnerable. Crates in hull get flag 2 + owner and are kicked. Clip state by char: 1-2 -> 8, 3-4 -> 10, 7-8 -> 9, else 0xb.
 - Pick up (Circle, `FUN_80086fcc` -> `c1848`): centre 256 raw in front of quantised facing, radius 256, angle +-0x280; crate needs flag 1 and no rider. On an empty reach, the handler clears the previous Circle bit. A held button retries on the next update without entering the lift animation. In L0–L3 recordings, Circle was held for 21 updates before a wooden crate moved within reach. Each pickup started on the first eligible update. Picking up TNT lights it.

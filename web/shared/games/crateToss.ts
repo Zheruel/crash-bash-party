@@ -41,6 +41,14 @@ import { angDiff, pickVariant } from './common';
 
 export const CT_HALF = 7.2;
 export const CT_HP = 20;
+export const CT_OPENING_TICKS = 99;
+// Script 5's cycle length and its two foot-contact events from the USA character VM.
+const STRIDE = [[22, 9, 20], [22, 8, 19], [22, 1, 12], [22, 1, 12],
+  [20, 1, 11], [20, 1, 11], [18, 4, 13], [20, 1, 11]];
+const CARRY_STEPS = [[7, 19], [9, 20], [0, 12], [0, 12], [0, 10], [0, 10], [0, 12], [0, 10]];
+const LAND_TICKS = [27, 11, 6, 4, 11, 9, 15, 7];
+interface GroundPose { script: number; frame: number; scrape?: number }
+const openingGroundPose = (): GroundPose => ({ script: 1, frame: CT_OPENING_TICKS });
 export const CT_FLOOR_N = 8; // space bash floor grid (tiles of 512 raw)
 /** world units per raw unit */
 export const CT_U = CT_HALF / 2048;
@@ -63,6 +71,7 @@ const ACTIONS = [
 export function ctActionTicks(char: number, action: number) {
   return (ACTIONS[char - 1] ?? ACTIONS[0])[action - 1];
 }
+const throwVoiceFrame = (char: number) => char === 5 ? 1 : ACTIONS[char - 1][3];
 const SPIN_R = 330, SPIN_DMG = 1, SPIN_KNOCK = 48;
 // Throw table 0x8009e3b4: initial and maximum forward speed, drag, rise speed, vertical acceleration.
 const THROWS = [
@@ -117,6 +126,7 @@ interface Data {
   eff: number[]; effT: number[]; pass: number[];
   weight: number; weightT: number;
   f8: number[]; vx: number[]; vz: number[]; vy: number[]; air: boolean[]; jh: boolean[]; prevA: boolean[]; prevB: boolean[];
+  groundPose?: GroundPose[];
   jumpFrame?: number[]; landedAt?: number[];
   iceTargets?: { x: number; z: number }[];
   /** Cross (jump) held last tick */
@@ -329,6 +339,7 @@ export const crateToss: MiniGame = {
       stun: z4(), act: z4(), st: z4(), stT: z4(), inv: z4(), ic: z4(), boots: z4(), slow: z4(), mask: z4(),
       eff: z4(), effT: z4(), pass: z4(), weight: -1, weightT: 0,
       f8: [0, 0, 0, 0], vx: z4(), vz: z4(), vy: z4(), air: [false, false, false, false], jh: [false, false, false, false], prevA: [false, false, false, false], prevB: [false, false, false, false],
+      groundPose: Array.from({ length: 4 }, openingGroundPose),
       pend: [0, 1, 2, 3].map(() => ({ dmg: 0, cls: 0, by: -1, kx: 0, kz: 0, kv: 0 })),
       weapon: z4(), ammo: z4(), wcd: z4(),
       floor: variant === 'space' ? new Array(CT_FLOOR_N * CT_FLOOR_N).fill(1) : [], // 0711.t29 has all 64 top labels
@@ -560,8 +571,9 @@ export function createCrateCrushResult(terminal: World, winner: number | undefin
       const elapsed = (action === ST_HURT ? HURT_TICKS : ctActionTicks(char, action)) - d.stT[s];
       return [s, { state: action === ST_SPIN ? 'ready' : 'action', script, elapsed, outAge: 0 }];
     }
-    const script = held ? (moving ? 0x11 : 0x10) : moving ? 5 : 1;
-    const elapsed = held ? d.cs[held.id]?.gripFrame ?? 0 : 0;
+    const ground = d.groundPose?.[s];
+    const script = held ? d.cs[held.id]?.gripScript ?? (moving ? 0x11 : 0x10) : ground?.script || (moving ? 5 : 1);
+    const elapsed = held ? d.cs[held.id]?.gripFrame ?? 0 : ground?.frame ?? 0;
     return [s, { state: 'ready', script, elapsed, outAge: 0 }];
   }));
   let winnerAt = -1;
@@ -655,7 +667,7 @@ export function createCrateCrushResult(terminal: World, winner: number | undefin
         const action = d.st[s];
         d.stT[s]--;
         const releaseFrame = ACTIONS[char - 1][3];
-        if (action === ST_THROW && a.elapsed === (char === 5 ? 1 : releaseFrame)) emit(world, 'resultThrowVoice', p.x, p.z, s);
+        if (action === ST_THROW && a.elapsed === throwVoiceFrame(char)) emit(world, 'resultThrowVoice', p.x, p.z, s);
         if (action === ST_THROW && a.elapsed === releaseFrame) {
           const crate = holdingCrate(world, s);
           if (crate) {
@@ -716,6 +728,32 @@ export function createCrateCrushResult(terminal: World, winner: number | undefin
       return world.ev;
     },
   };
+}
+
+/** FUN_800874ec checks ice velocity before friction. Entering idle from a run takes one update. */
+function stepGroundPose(w: World, d: Data, p: Body, walking: boolean, occupied: boolean) {
+  const slot = p.slot, char = d.char[slot];
+  const poses = d.groundPose ??= Array.from({ length: 4 }, openingGroundPose);
+  const pose = poses[slot];
+  const previous = pose.script;
+  const touchdown = d.landedAt?.[slot] === w.tick + 1;
+  let script = 1;
+  if (occupied || d.air[slot]) script = 0;
+  else if (touchdown || (previous === 8 && !walking && pose.frame + 1 < LAND_TICKS[char - 1])) script = 8;
+  else if (walking) script = 5;
+  else if (d.variant === 'snow' && (previous === 1 || previous === 14) && (d.vx[slot] || d.vz[slot])) script = 14;
+  pose.script = script;
+  if (script === 0) pose.frame = 0;
+  else if (script === previous) pose.frame++;
+  else pose.frame = script === 8 || script === 14 || (script === 1 && previous === 14) ? 1 : 0;
+  if (script === 14 && previous !== 14) pose.scrape = 0x456 + Math.floor(rand(w) * 6);
+  else if (script !== 14) delete pose.scrape;
+  if (script !== 5) return;
+  const [period, left, right] = STRIDE[char - 1];
+  const phase = pose.frame % period;
+  if (phase === left || (phase === right && d.eff[slot] !== EFF_SLOW)) {
+    emit(w, 'step', p.x, p.z, slot, phase === left ? 0 : 1, d.eff[slot] === EFF_SLOW ? 0x41e : -1, undefined, p.y);
+  }
 }
 
 function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
@@ -786,6 +824,7 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
       break;
     case ST_THROW: {
       const t = ctActionTicks(char, 2) - d.stT[slot];
+      if (t === throwVoiceFrame(char)) emit(w, 'throwVoice', p.x, p.z, slot);
       if (t === ACTIONS[char - 1][3]) { const c = holdingCrate(w, slot); if (c) throwCrate(w, d, p, c); }
       if (d.stT[slot] <= 0) { d.st[slot] = ST_MOVE; d.act[slot] = 0; }
       break;
@@ -866,7 +905,7 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
       p.y = g;
       d.air[slot] = false; d.vy[slot] = 0;
       landedAt[slot] = w.tick + 1;
-      emit(w, 'land', p.x, p.z, slot, 0.4);
+      emit(w, 'land', p.x, p.z, slot, 0.4, -1, undefined, p.y);
       landedOn(w, d, p);
     } else {
       d.vy[slot] = Math.min(JUMP_FALL_MAX, d.vy[slot] + 10 * grav);
@@ -876,6 +915,7 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
     d.air[slot] = true; d.jh[slot] = false; d.vy[slot] = 8; jumpFrame[slot] = 0;
   } else p.y = Math.max(0, g);
 
+  stepGroundPose(w, d, p, wasFree && free && moving, !free || !!held || taunt[slot] >= 0);
   // ---- horizontal velocity (raw/tick) ----
   const sp = w.params.speed;
   const hasHold = !!held || d.st[slot] === ST_THROW;
@@ -1153,9 +1193,14 @@ function stepCrate(w: World, d: Data, c: Body) {
       const walking = s.walking ?? Math.hypot(p.vx, p.vz) > 0.7;
       const script = action === 1 ? 15 : action === 2 ? 18 : walking ? 17 : 16;
       const track = CRATE_GRIPS[char-1][script-15];
+      const frozen = d.eff[slot] === EFF_SLOW && (w.tick & 1) !== 0 && s.gripScript === script;
       let frame = action === 1 || action === 2 ? ctActionTicks(char, action) - d.stT[slot]
-        : s.gripScript === script ? (s.gripFrame ?? 0) + 1 : 0;
+        : s.gripScript === script ? (s.gripFrame ?? 0) + (frozen ? 0 : 1) : 0;
       if (frame >= track.length-1) frame = track[0][0] < 0 ? track.length-2 : track[0][0];
+      if (script === 17 && !frozen) {
+        const [left, right] = CARRY_STEPS[char - 1];
+        if (frame === left || frame === right) emit(w, 'carryStep', p.x, p.z, slot, frame === left ? 0 : 1);
+      }
       s.gripScript = script; s.gripFrame = frame;
       const [x, y, z, yaw, pitch] = track[frame+1];
       const sin = Math.sin(p.face), cos = Math.cos(p.face);

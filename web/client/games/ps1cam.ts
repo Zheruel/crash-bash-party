@@ -285,6 +285,8 @@ export class Ps1Follow {
     return ps1Pose(cur, this.ref);
   }
 
+  get camera(): Readonly<PS1Cam> { return this.fit.c; }
+
   /** Jump straight to the fit next step (new round / cut). */
   reset() { this.started = false; }
 }

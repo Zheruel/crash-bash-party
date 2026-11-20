@@ -236,6 +236,8 @@ export class ModelInstance {
     this.action = next;
   }
 
+  clipTicks(clip: number) { return (this.clips[clip]?.duration ?? 0) * 30; }
+
   /** Show one frame of a clip by index (30 fps frames, may be fractional): the real game's own anim scripts drive this. */
   pose(clip: number, frame: number, loop = false) {
     const c = this.clips[clip];
