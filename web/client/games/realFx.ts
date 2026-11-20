@@ -378,8 +378,9 @@ export class PartBatch {
   private n = 0;
   private m = new THREE.Matrix4(); private q = new THREE.Quaternion(); private p = new THREE.Vector3(); private s = new THREE.Vector3(); private e = new THREE.Euler();
   private own: THREE.Material[] = [];
-  constructor(parent: THREE.Object3D, model: number, part: number, scale: number, private max: number, add = false) {
-    const t = fxPartTemplate(model, part, scale);
+  constructor(parent: THREE.Object3D, model: number, part: number, scale: number, private max: number, blend: boolean | { shadowDepthBias: number } = false) {
+    const add = blend === true;
+    const t = typeof blend === 'object' ? pickupShadow(model, part, scale, { depthBias: blend.shadowDepthBias }) : fxPartTemplate(model, part, scale);
     if (!t) return;
     t.updateMatrixWorld(true);
     t.traverse((o) => {
@@ -388,6 +389,7 @@ export class PartBatch {
       const mk = (q: THREE.Material) => { const n = ownMaterial(q, true); this.own.push(n); return n; };
       const mat = !add ? mm.material : Array.isArray(mm.material) ? mm.material.map(mk) : mk(mm.material);
       const im = new THREE.InstancedMesh(mm.geometry, mat, max);
+      im.renderOrder = mm.renderOrder;
       if (add) im.renderOrder = 6;
       im.frustumCulled = false; im.count = 0; im.userData.shared = true;
       parent.add(im);
@@ -397,13 +399,23 @@ export class PartBatch {
   get ok() { return this.meshes.length > 0; }
   begin() { this.n = 0; }
   /** yaw about world y, tilt about the part's own x (radians) */
-  add(x: number, y: number, z: number, yaw = 0, tilt = 0, size = 1) {
+  add(x: number, y: number, z: number, yaw = 0, tilt = 0, size = 1, brightness?: number) {
     if (this.n >= this.max) return;
     this.m.compose(this.p.set(x, y, z), this.q.setFromEuler(this.e.set(tilt, yaw, 0, 'YXZ')), this.s.setScalar(size));
-    for (const b of this.meshes) b.im.setMatrixAt(this.n, tmpM.multiplyMatrices(this.m, b.base));
+    for (const b of this.meshes) {
+      b.im.setMatrixAt(this.n, tmpM.multiplyMatrices(this.m, b.base));
+      if (brightness !== undefined) b.im.setColorAt(this.n, tmpColor.setScalar(brightness));
+    }
     this.n++;
   }
-  end() { for (const b of this.meshes) { b.im.count = this.n; b.im.instanceMatrix.needsUpdate = true; } }
+  end() {
+    for (const { im } of this.meshes) {
+      im.count = this.n;
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    }
+  }
   dispose() { for (const b of this.meshes) { b.im.removeFromParent(); b.im.dispose(); } for (const m of this.own) m.dispose(); this.meshes = []; this.own = []; }
 }
 const tmpM = new THREE.Matrix4();
+const tmpColor = new THREE.Color();

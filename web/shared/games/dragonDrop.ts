@@ -42,6 +42,15 @@ export const RD_CHAR_ID = DISC_CHARACTER;
 export const ST_IDLE = 99, ST_RUN = 100, ST_THROW = 101, ST_BARGE = 102, ST_RECOIL = 103;
 const ST_RESULT = 104;
 
+export function dragonRiderScript(state: number) {
+  switch (state) {
+    case ST_RUN: return 0x4e;
+    case ST_THROW: return 0x4f;
+    case ST_BARGE: return 0x50;
+    default: return 0x4d;
+  }
+}
+
 // ---------------------------------------------------------------- exe math replicas
 const COS = new Int16Array(4096);
 for (let i = 0; i < 4096; i++) COS[i] = Math.round(4096 * Math.cos((i * 2 * Math.PI) / 4096));
@@ -144,6 +153,10 @@ export interface RDPlayer {
   carry: number;
   /** run animation counter (footsteps), control lock (ticks) */
   sc: number; lock: number;
+  /** Current rider script tick, including advances during the countdown and resets by other riders. */
+  poseFrame?: number;
+  puff?: { x: number; z: number; age: number };
+  tracks?: { x: number; z: number; yaw: number; age: number }[];
   /** pad word (0x10 up(+z) 0x20 right 0x40 down 0x80 left, 0x8000 square held) and the pad angle word */
   pad: number; ang: number;
   face: number;
@@ -550,6 +563,7 @@ function aiTick(w: World, d: DragonDropData, p: RDPlayer, me: number) {
 // ---------------------------------------------------------------- players
 function setState(w: World, d: DragonDropData, p: RDPlayer, s: number, st: number) {
   p.st = st;
+  p.poseFrame = 0;
   switch (st) {
     case ST_IDLE: p.ac = p.dc = 9; break;
     case ST_THROW: p.tt = 0; E(w, 'throw', p.x, p.z, s); break;
@@ -620,6 +634,7 @@ function press(w: World, d: DragonDropData, p: RDPlayer, s: number) {
 export const rdTest: { pads: number[] | null; order: number[] | null } = { pads: null, order: null };
 
 function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?: 'draw' | 'win') {
+  const x = p.x, z = p.z;
   if (p.lock > 0) p.lock--;
   if (result) p.pad = 0;
   else if (rdTest.pads) { p.pad = rdTest.pads[s]; p.ang = rdPadAngle(p.pad); } else if (cpuDriven(p)) aiTick(w, d, p, s);
@@ -638,7 +653,7 @@ function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?
   switch (p.st) {
     case ST_IDLE:
       collide(w, d, p, s);
-      if (p.pad & 0xf0) p.st = ST_RUN;
+      if (p.pad & 0xf0) setState(w, d, p, s, ST_RUN);
       press(w, d, p, s);
       break;
     case ST_RUN:
@@ -652,12 +667,14 @@ function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?
       break;
     case ST_THROW:
       collide(w, d, p, s);
-      if (++p.tt >= 15) setState(w, d, p, s, ST_IDLE);
+      p.tt++;
       break;
     case ST_BARGE:
       p.tt++;
-      if (p.tt === 2) E(w, 'bargesmoke', p.x, p.z, s);
-      if (p.tt === 14 && (p.vx || p.vz)) E(w, 'bargesound', p.x, p.z, s);
+      if (p.tt === 1) {
+        p.puff = { x: p.x, z: p.z, age: -1 };
+        E(w, 'bargesmoke', p.x, p.z, s);
+      }
       collide(w, d, p, s);
       if (sq(p.vx * p.vx + p.vz * p.vz) < 0x20 && (p.st as number) !== ST_IDLE) setState(w, d, p, s, ST_IDLE);
       break;
@@ -671,6 +688,11 @@ function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?
     }
     default: break;
   }
+  // Each state handler advances the current script once. The throw's final command
+  // enters idle inside that advance, leaving the first idle word visible this tick.
+  p.poseFrame = (p.poseFrame ?? 0) + 1;
+  if (p.st === ST_THROW && p.tt >= 15) setState(w, d, p, s, ST_IDLE);
+  if (p.st === ST_BARGE && p.poseFrame >= 28) setState(w, d, p, s, ST_IDLE);
   // FUN_800b9778: turn, accelerate, move, wall
   if (result === 'win') {
     if (p.st === ST_RESULT) p.yaw = (p.yaw + (adiff(p.yaw, 0) >> 2)) & 0xfff;
@@ -694,13 +716,40 @@ function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?
     if (p.vx * p.vx + p.vz * p.vz > 0x1000 && p.st === ST_BARGE) E(w, 'wallbump', p.x, p.z, s, ri(w, 4));
     if (a !== 0 && p.st === ST_BARGE) { p.vx = p.vz = p.tvx = p.tvz = 0; }
   }
+  return x !== p.x || z !== p.z;
+}
+
+/** Objects 1902 and 1903 run after all riders, including contacts from a later seat. */
+function bargeEffects(w: World, d: DragonDropData, moved: boolean[]) {
+  for (let s = 0; s < d.P.length; s++) {
+    const p = d.P[s];
+    if (!p) continue;
+    const puff = p.puff;
+    if (puff && ++puff.age > 0) {
+      if (puff.age >= 18) delete p.puff;
+      else {
+        puff.x += Math.trunc((p.x - puff.x) / 6);
+        puff.z += Math.trunc((p.z - puff.z) / 6);
+      }
+    }
+    if (moved[s] && p.st === ST_BARGE && (p.poseFrame ?? 0) >= 13 && (p.tracks?.length ?? 0) < 16) {
+      (p.tracks ??= []).push({ x: p.x, z: p.z, yaw: (p.yaw + 2048) & 4095, age: 0 });
+      if (p.poseFrame === 13) E(w, 'bargesound', p.x, p.z, s);
+    }
+    if (p.tracks?.length) {
+      for (const mark of p.tracks) mark.age++;
+      if (p.tracks[0].age > 32) p.tracks.shift();
+      if (!p.tracks.length) delete p.tracks;
+    }
+  }
 }
 
 /** Continue rider updates on a render-owned copy after the authority has ranked the round. */
 export function createDragonDropResult(source: World, winner: number | undefined) {
   const snapshot = source.data as DragonDropData;
   // The native timeout holds the prior heading until the result handlers take over turning.
-  const d: DragonDropData = { ...snapshot, P: snapshot.P.map(p => p && { ...p, carry: -1, lock: 99 }), J: [] };
+  const d: DragonDropData = { ...snapshot, P: structuredClone(snapshot.P), J: [] };
+  for (const p of players(d)) { p.carry = -1; p.lock = 99; }
   if (snapshot.random) d.random = [...snapshot.random];
   const local: World = { ...source, data: d, ev: [] };
   let tick = 0;
@@ -709,15 +758,17 @@ export function createDragonDropResult(source: World, winner: number | undefined
     advance(frame: number) {
       while (tick < frame) {
         tick++;
+        const moved: boolean[] = [];
         if (winner === undefined) {
           for (const slot of d.ord[ri(local, 16)]) {
             const p = d.P[slot];
-            if (p) playerTick(local, d, p, slot, 'draw');
+            if (p) moved[slot] = playerTick(local, d, p, slot, 'draw');
           }
         } else {
           const p = d.P[winner];
-          if (p) playerTick(local, d, p, winner, 'win');
+          if (p) moved[winner] = playerTick(local, d, p, winner, 'win');
         }
+        bargeEffects(local, d, moved);
         local.ev.length = 0;
       }
     },
@@ -936,7 +987,7 @@ export const dragonDrop: MiniGame = {
       d.P[s.slot] = {
         bid: b.id, id: RD_CHAR_ID[look], bot: s.bot, skill, x, z, yaw, hd: yaw,
         vx: 0, vz: 0, tvx: 0, tvz: 0, ac: 9, dc: 9, st: ST_IDLE, rt: 0, tt: 0, cd: 0, carry: -1, sc: 0, lock: 0, pad: 0, ang: 0,
-        face: (-yaw * Math.PI * 2) / 4096,
+        poseFrame: RD_INTRO_TARGETS.length - 1, face: (-yaw * Math.PI * 2) / 4096,
         ai: { h: H_IDLE, jw: -1, n30: 8, mode: 0, ang: 0, t40: 0, rv: 0, pa: 0, acc: 0, cx: 0, cz: 0, tx: 0, tz: 0 },
       };
       b.face = d.P[s.slot]!.face;
@@ -981,10 +1032,12 @@ export const dragonDrop: MiniGame = {
       }
     }
     const order = rdTest.order ?? d.ord[ri(w, 16)];
+    const moved: boolean[] = [];
     for (const s of order) {
       const p = d.P[s];
-      if (p) playerTick(w, d, p, s);
+      if (p) moved[s] = playerTick(w, d, p, s);
     }
+    bargeEffects(w, d, moved);
     d.J.forEach((j, i) => jewelTick(w, d, j, i));
     // Model 0621 script 0 emits the third jewel's appearance particles for four updates.
     const burstFrame = d.t - 0x546;

@@ -2,13 +2,13 @@
 // circling outside the wall, archery-range props, tent and castle backdrop; riders are the per-character dino models.
 import * as THREE from 'three';
 import { CHARACTERS, DISC_CHARACTER } from '../../shared/look';
-import { createDragonDropResult, RD_INTRO_GONG, RD_INTRO_TARGETS, RD_S, RD_TARGET_Y, type DragonDropData, type DragonTarget } from '../../shared/games/dragonDrop';
+import { createDragonDropResult, dragonRiderScript, RD_INTRO_GONG, RD_INTRO_TARGETS, RD_S, RD_TARGET_Y, type DragonDropData, type DragonTarget } from '../../shared/games/dragonDrop';
 import type { Body } from '../../shared/types';
 import { getCatalog } from '../crash';
 import { sfx, sfxRate } from '../shell/sound';
 import { hitVoice } from '../shell/voice';
 import { Actor, Kit, catalogInstance, preloadCatalogFor } from './kit';
-import { pickupShadow, preloadFx } from './realFx';
+import { fxPartTemplate, PartBatch, pickupShadow, preloadFx } from './realFx';
 import { makeJewel } from './partyBits';
 import { applyPose, levelStage, loadPlacements, Ps1Follow, TRACK_CAMS, type Placements, type Tracked } from './ps1cam';
 import { arenaClockSprites, scoreHud } from '../ui/ps1hud';
@@ -130,6 +130,8 @@ export function createDragonDropView(): ClientMiniGame {
   let loaded = false;
   let target: THREE.Group;
   const jewels = new Map<number, { obj: THREE.Object3D; shadow: THREE.Object3D }>();
+  const puffs = new Map<number, THREE.Group>();
+  let tracks: PartBatch;
   const burstLosers = new Set<number>();
   let playedWinThrough = -1;
   let introTargetTick = -1;
@@ -151,6 +153,9 @@ export function createDragonDropView(): ClientMiniGame {
 
   function build() {
     const R = kit.root;
+    tracks?.dispose();
+    tracks = new PartBatch(R, LEVEL, 2, S, 64, { shadowDepthBias: LAYERS.length * 2 });
+    puffs.clear();
     const ref = getCatalog().arenas.dragonDrop;
     // the level exactly as the real game builds it (native mesh table + RAM object list of level 0x1c); the target is ours
     const lvl = ref ? levelStage(ref, placements, (r) => catalogInstance(r)?.root ?? null, { skip: ['extra_18b8'], backdrop: BACKDROP }) : null;
@@ -179,6 +184,24 @@ export function createDragonDropView(): ClientMiniGame {
     const look = kit.look(b.slot);
     const inst = catalogInstance(getCatalog().props['rdRider_' + CHARACTERS[look.char % CHARACTERS.length].id]);
     return inst ? kit.actor(b, () => ({ inst, scale: 1, steady: true, headY: 2.4, shadow: 1.3 })) : kit.actor(b);
+  }
+
+  function showPuff(slot: number, puff?: { age: number; x: number; z: number }) {
+    let group = puffs.get(slot);
+    if (!puff || puff.age < 1) {
+      if (group) group.visible = false;
+      return;
+    }
+    if (!group) {
+      group = new THREE.Group();
+      for (const part of SMOKE_FRAMES) group.add(fxPartTemplate(SMOKE, part, S, true)?.clone() ?? new THREE.Group());
+      puffs.set(slot, group);
+      kit.root.add(group);
+    }
+    group.visible = true;
+    group.position.set(puff.x * RD_S, 420 * RD_S, -puff.z * RD_S);
+    const frame = puff.age <= 3 ? 0 : puff.age - 2;
+    group.children.forEach((mesh, i) => { mesh.visible = i === frame; });
   }
 
   return {
@@ -219,6 +242,7 @@ export function createDragonDropView(): ClientMiniGame {
         playedWinThrough = -1;
       }
       const seen = new Set<number>(), seenJ = new Set<number>();
+      tracks.begin();
       const tracked: Tracked[] = [];
       const intro = ctx.countdownTicksLeft !== undefined && w.tick === 0
         ? Math.max(0, RD_INTRO_TARGETS.length - 1 - ctx.countdownTicksLeft) : undefined;
@@ -229,6 +253,10 @@ export function createDragonDropView(): ClientMiniGame {
           seen.add(b.id);
           const playerData = (done ? d : kit.playerWorld(s).data) as DragonDropData;
           const p = result?.players[s] ?? playerData.P[s];
+          for (const mark of p?.tracks ?? []) {
+            tracks.add(mark.x * RD_S, 0, -mark.z * RD_S, -mark.yaw * Math.PI / 2048, 0, 1, 1 - (1024 + 64 * mark.age) / 4096);
+          }
+          showPuff(s, p?.puff);
           const body = result && p ? { ...b, x: p.x * RD_S, z: -p.z * RD_S, y: 0,
             vx: p.vx * RD_S * 30, vz: -p.vz * RD_S * 30, face: -p.yaw * Math.PI / 2048 } : b;
           if (!decided || frame === 0 || winners.has(s)) {
@@ -240,7 +268,9 @@ export function createDragonDropView(): ClientMiniGame {
             const hidden = !winners.has(s);
             const char = DISC_CHARACTER[kit.look(s).char] ?? 1;
             const winTick = frame < WIN_START ? -1 : frame - WIN_START + 1;
-            a.update(body, dt, { script: 0x4d, scriptFrame: Math.max(0, frame - 1), renderWord: winPose(char, winTick), hidden, freeze: true, keepYaw: true });
+            const verdict = frame === 0 ? p : undefined;
+            a.update(body, dt, { script: verdict ? dragonRiderScript(verdict.st) : 0x4d,
+              scriptFrame: verdict ? verdict.poseFrame : Math.max(0, frame - 1), renderWord: winPose(char, winTick), hidden, freeze: true, keepYaw: true });
             if (hidden && !burstLosers.has(s)) {
               // FUN_800b62d8 marks losers gone and spawns a one-shot level script 0 at each of them.
               burstLosers.add(s);
@@ -259,8 +289,8 @@ export function createDragonDropView(): ClientMiniGame {
           // states: 99 idle, 100 run, 101 throw, 102 barge (action via body.dash), 103 recoil
           const st = result?.players[s]?.st ?? playerData.st?.[s] ?? 99;
           const role = st === 101 ? 'throw' : st === 103 ? 'hit' : st === 100 ? 'run' : st === 99 ? 'idle' : undefined;
-          const script = st === 101 ? 0x4f : st === 102 ? 0x50 : st === 100 ? 0x4e : 0x4d;
-          a.update(body, dt, { role, script, scriptFrame: st === 101 ? p?.tt : undefined, freeze: true, keepYaw: done });
+          const script = dragonRiderScript(st);
+          a.update(body, dt, { role, script, scriptFrame: intro ?? p?.poseFrame ?? (st === 101 ? p?.tt : undefined), freeze: true, keepYaw: done });
         } else if (b.kind === 'jewel' && (!done || frame === 0)) {
           seenJ.add(b.id);
           let v = jewels.get(b.id);
@@ -287,6 +317,7 @@ export function createDragonDropView(): ClientMiniGame {
         }
       }
       kit.prune(seen);
+      tracks.end();
       for (const [id, v] of jewels) if (!seenJ.has(id)) { kit.root.remove(v.obj, v.shadow); jewels.delete(id); }
 
       // target: swings on the rim (placed by the sim), faces the pit, rolls with the swing
@@ -302,6 +333,7 @@ export function createDragonDropView(): ClientMiniGame {
       // camera
       ctx.scene.background = SKY;
       applyPose(ctx.camera, cam().step(dt, tracked, done));
+      for (const smoke of puffs.values()) if (smoke.visible) smoke.quaternion.copy(ctx.camera.quaternion);
       // Preserve the projected footprint of the buried native quad while depth-testing riders and the rim.
       const eye = ctx.camera.position, floorY = 0.002;
       const rayScale = (eye.y - floorY) / (eye.y - JEWEL_SHADOW_Y);
@@ -337,6 +369,7 @@ export function createDragonDropView(): ClientMiniGame {
           play(SND.barge[s], 0.5);
           break;
         case 'bargesmoke':
+          if (kit.world?.data.P?.[s]?.poseFrame !== undefined) break;
           { // barge state 102 (FUN_800ba724): smoke puff object 0x1903 trails the rider 420 u up, 16 frames at one per tick
             const who = e.s, at = () => { const a = kit.actorForSlot(who); return a ? { x: a.holder.position.x, y: a.holder.position.y + 420 * RD_S, z: a.holder.position.z } : null; };
             kit.real.sprite(SMOKE, SMOKE_FRAMES, e.x, 420 * RD_S, e.z, { life: 16 / 30, follow: at });
@@ -395,6 +428,8 @@ export function createDragonDropView(): ClientMiniGame {
 
     dispose(ctx) {
       jewels.clear();
+      puffs.clear();
+      tracks?.dispose();
       kit.dispose();
       void ctx;
     },

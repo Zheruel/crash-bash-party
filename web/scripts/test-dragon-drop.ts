@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { playerPose } from '../client/games/playerPose';
 import { Predictor } from '../client/predict';
 import { botInput } from '../shared/bots';
 import { IDLE } from '../shared/types';
 import { versusClock } from '../shared/games/common';
-import { createDragonDropResult, dragonDrop, RD_INTRO_GONG, RD_INTRO_TARGETS, RD_TICKS, type DragonDropData } from '../shared/games/dragonDrop';
+import { createDragonDropResult, dragonDrop, dragonRiderScript, RD_INTRO_GONG, RD_INTRO_TARGETS, RD_TICKS, type DragonDropData } from '../shared/games/dragonDrop';
 import { createWorld, roundOver, stepWorld } from '../shared/sim';
 
 const seats = [8, 9, 0, 2].map((char, slot) => ({ char, slot, name: String(slot), bot: false }));
@@ -16,6 +17,29 @@ assert.deepEqual(initial.data.ord[0], [2, 0, 3, 1]);
 const beforeResult = JSON.stringify(initial);
 createDragonDropResult(initial, undefined).advance(120);
 assert.equal(JSON.stringify(initial), beforeResult);
+
+// L28 recorded barge, relative to the frame before the button went down.
+const barge = start();
+const runner = barge.data.P[1];
+Object.assign(runner, { x: 368, z: 499, yaw: 572, hd: 512, vx: -58, vz: -58, st: 100 });
+for (let tick = 1; tick <= 51; tick++) {
+  stepWorld(barge, dragonDrop, [null, { ...IDLE, a: tick === 1 }]);
+  if (tick === 2) assert.deepEqual(runner.puff, { x: 231, z: 385, age: 0 });
+  if (tick === 3) assert.deepEqual(runner.puff, { x: 189, z: 350, age: 1 });
+  if (tick === 13) {
+    assert.deepEqual(runner.tracks, [{ x: -945, z: -515, yaw: 2620, age: 1 }]);
+    assert.deepEqual(runner.puff, { x: -559, z: -231, age: 11 });
+    assert(barge.ev.some(e => e.k === 'bargesound' && e.t === barge.tick - 1));
+    const original = JSON.stringify(barge);
+    const replay = createDragonDropResult(barge, undefined);
+    replay.advance(33);
+    assert.equal(replay.players[1]?.puff, undefined);
+    assert.equal(JSON.stringify(barge), original);
+  }
+  if (tick === 20) assert.equal(runner.puff, undefined);
+  if (tick === 44) assert.equal(runner.tracks?.[0].age, 32);
+  if (tick === 51) assert.equal(runner.tracks, undefined);
+}
 
 // A disconnected custom rider gets the same inputs, speed and throw boost as a roster CPU.
 for (const slot of [0, 1]) {
@@ -126,9 +150,9 @@ for (const points of [0, 1, 3, 5]) {
 // Three complete USA L28 captures, starting from the disc's order table and RNG at GO.
 const firstOrder = '0132123002311230032121031032230121301230120332100123123023101320';
 for (const capture of [
-  { mode: 'Normal', rng: [1246185985, 2713100104], order: '1230023112300321210310322301213012301203321001231230231013201230', digest: '7b09ae8d2b30f6573e7e49e2e069070e95ec10252513b0904834827b774f770e' },
-  { mode: 'Hard', rng: [2754134720, 1885585218], order: firstOrder, digest: '3f4793c92587c212020f06fe5756b6fc8c3592559190743eb7f5e69d0955e844' },
-  { mode: 'Human', rng: [2171508062, 3975092396], order: firstOrder, digest: '96ddc75bf7811c5cef0eabfb7f194dfc14a6073fe181873ab28ce3086dd2a8c7' },
+  { mode: 'Normal', rng: [1246185985, 2713100104], order: '1230023112300321210310322301213012301203321001231230231013201230', digest: 'bc08db3c19924efe6f365ba79474eff8ede80c00f5b80953b0134ffb5542225a' },
+  { mode: 'Hard', rng: [2754134720, 1885585218], order: firstOrder, digest: '3e14b48461b5e6d23af29f62c88fab64e500198387f22468dcbb5c81eaa8b654' },
+  { mode: 'Human', rng: [2171508062, 3975092396], order: firstOrder, digest: 'c474dad8506a1e3bf0e2ba0cb83ee947e474e3948d6ce3fa8e2a71779dbd1422' },
 ]) {
   const roster = [1, 4, 7, 6].map((char, slot) => ({
     char, slot, name: String(slot), bot: capture.mode !== 'Human' && slot > 0, level: capture.mode === 'Hard' ? 2 : 1,
@@ -154,6 +178,7 @@ for (const capture of [
       values.push(p.x, p.z, p.yaw, p.hd, p.vx, p.vz, p.st, p.cd, p.carry, p.pad, d.score[slot]);
     }
     for (const j of d.J) values.push(j.x, j.y, j.z, j.st, j.owner);
+    for (const p of d.P) if (p) values.push(playerPose(dragonRiderScript(p.st), p.id, p.poseFrame!)!);
     hash.update(values.join(',') + '\n');
   }
   assert.equal(hash.digest('hex'), capture.digest, capture.mode);

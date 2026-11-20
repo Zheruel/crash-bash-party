@@ -77,6 +77,12 @@ With sampled USA positions, fitting the riders and target gave zero exact transl
 ## Unknowns
 Analog stick deadzone, additional rosters and difficulties, and the RNG phase from boot through GO remain to be compared directly.
 
-## Effects (decoded)
-Level model 0621 script 0 = jewel spawn burst (192 u up; parts 0, 1, 4, 5). Barge = smoke puff object 0x1903: pack 0619 parts 3-18, 16 frames,
-easing 1/6 toward the player; one per barge (`FUN_800ba724` spawns it on the tick the barge counter at player +0x1c node +0x1e reads 2). Nothing for scoring, throws, pickups, clashes, bumps or steps.
+## Rider animation and effects
+
+The idle script runs during the countdown and reaches frame 99 at input unlock. A new action normally advances its script on the same player update. A hit from a later seat can leave the victim on frame zero until the next tick. Script `0x4f` finishes the throw inside the interpreter and returns to idle frame zero. Script `0x50` ends the barge after 28 frames. The host carries the pose frame in snapshots. The three USA versus recordings matched all 32,388 live rider render words. WebGL checks exercised the pose tracks on all ten roster models.
+
+Level model 0621 script 0 draws the jewel spawn burst 192 units above the origin using parts 0, 1, 4 and 5.
+
+On the second barge update, `FUN_800ba724` creates smoke object `0x1903`. It stays hidden on entry, then moves one sixth of the distance to the rider each tick using signed integer division. At height 420 it draws the additive billboard from pack 0619, holding the first visible word `0x2004` for three ticks before playing `0x2006` through `0x2013`.
+
+While a barging rider moves at pose 13 or later, object `0x1902` stamps model 0621 part 2 at floor height facing half a turn away from the rider. Pose 13 triggers sound `0x6ac + slot`. The sixteen-entry pool retains each mark for 32 visible updates. The fade field starts at `0x400` and rises by `0x40` per tick. Toggling a mark in PCSX confirmed that it darkens the floor. Over 1,000 live USA updates the web simulation matched 249 smoke samples and 224 visible skid-mark samples. The browser uses WebGL blending for the original meshes.
