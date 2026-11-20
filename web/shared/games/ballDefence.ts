@@ -108,6 +108,7 @@ const hash = (...v: number[]) => { let h = 0x811c9dc5; for (const x of v) { h = 
 interface Pl {
   x: number; z: number; // u (game z)
   y: number; roll: number; // hull's hover height and lean, in game coordinates
+  skyFloor?: number; // height sampled before the ship takes its orbital step
   vel: number; // lateral velocity (+0xc)
   face: number; // facing angle (outward)
   ang: number; // Sky Balls: ring angle
@@ -209,6 +210,32 @@ export function ballistixFloor(tilt: readonly number[] | undefined, x: number, z
   return y - ((z * sinq(rx)) >> 12) + ((x * sinq(rz)) >> 12);
 }
 
+function skyBaseTilt(frame: number): [number, number, number] {
+  const cosine = cosq(frame * 0x20);
+  return [(sinq(frame * 0x20) * 5) >> 10, ((sinq(frame * 0x40) + cosine) * 11) >> 12, (cosine * 3) >> 7];
+}
+
+// All seats are idle for the 99 controller updates before input unlocks.
+// Index by time remaining so reconnects can start at the current numbered frame.
+const skyOpening = (() => {
+  const roll = [0, 0, 0, 0];
+  return Array.from({ length: 99 }, (_, index) => {
+    const tick = index - 98;
+    const tilt = skyBaseTilt(tick);
+    const ships = FACE.map((angle, slot) => {
+      const x = (sinq(angle) * RING) >> 12, z = (cosq(angle) * RING) >> 12;
+      const bob = sinq((tick + slot) * 0x40);
+      roll[slot] += adiff(roll[slot], (bob * 17) >> 10) >> 2;
+      return { x, z, y: -128 + ((bob * 15) >> 11), skyFloor: ballistixFloor(tilt, x, z), roll: roll[slot] };
+    });
+    return { tilt, ships };
+  });
+})();
+
+export function skyOpeningFrame(ticksLeft: number) {
+  return skyOpening[98 - Math.max(0, Math.min(98, Math.floor(ticksLeft)))];
+}
+
 const V = (w: World) => (w.data as Data).variant;
 const bumpers = (d: Data) => BD_BUMPERS[d.variant];
 const isSky = (d: Data) => d.variant === 'sky';
@@ -300,12 +327,14 @@ export const ballDefence: MiniGame = {
     if (variant === 'nballism') d.mach = { st: 0, t: 291, c: 0, yaw: 0, spin: 0 };
     if (variant === 'sky') { // The 270-tick tilt timer has counted down to 171 at GO.
       d.sky = { ev: [0, 1, 2, 3].map(() => ({ pos: 0, vel: 0, max: 0, ap: 0, an: 0, dir: 0, st: 0, tm: 0 })), t: 171, i: rnd(w, 0x12) };
-      d.tilt = [0, 0, 0];
+      d.tilt = [...skyOpeningFrame(0).tilt];
     }
     for (let i = 0; i < MAX_SEATS; i++) {
       const seat = slots.find((s) => s.slot === i);
       d.pl.push({
-        x: START[i][0], z: START[i][1], y: -128, roll: 0, vel: 0, face: FACE[i], ang: FACE[i],
+        x: START[i][0], z: START[i][1], y: -128, roll: 0,
+        ...(variant === 'sky' ? skyOpeningFrame(0).ships[i] : {}),
+        vel: 0, face: FACE[i], ang: FACE[i],
         score: start, kcd: 0, kpen: 0, kfr: 0, st: 0x1c, stateAt: 0, hold: 0, arm: 0, cpu: !!seat?.bot,
         skill: BOT_SKILLS[variant][seat?.level ?? 2] ?? BOT_SKILLS[variant][2],
         character: DISC_CHARACTER[seat?.char ?? 0] ?? 1, idleT: rnd(w, 150) + 180, idleAt: -1,
@@ -741,6 +770,7 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
   // --- apply motion (FUN_800b5c30 / b5ec8)
   const sm = w.params.speed;
   if (sky) {
+    pl.skyFloor = ballistixFloor(d.tilt, pl.x, pl.z);
     const sgn = (p === 0 || p === 2) ? -1 : 1;
     pl.ang = (pl.ang + sgn * Math.trunc(pl.vel * sm)) & 4095;
     pl.face = pl.ang;
@@ -1320,9 +1350,8 @@ function skyPlatform(w: World, d: Data, sk: NonNullable<Data['sky']>, serveEvent
     emit(w, 'tilt', 0, 0, p, 1);
     sk.t = rnd(w, 9) * 0x1e + 0x10e;
   } else if (serveEvents) sk.t--;
-  // The result controller still draws the previous offsets and advances the
-  // platform events (FUN_800bca38, then FUN_800bd510).
-  if (!serveEvents) skyTiltState(d, sk, 0x20);
+  // FUN_800bca38 draws the current offsets before FUN_800bd510 advances them.
+  skyTiltState(d, sk);
   for (const e of sk.ev) {
     if (e.tm !== 0) e.tm--;
     if (e.st === 2) { e.max = 0x300; e.dir = 0; e.ap = 4; e.an = 0; e.st = 3; }
@@ -1350,21 +1379,18 @@ function skyPlatform(w: World, d: Data, sk: NonNullable<Data['sky']>, serveEvent
     if (e.vel < -e.max) e.vel = -e.max;
     e.pos += e.vel;
   }
-  if (serveEvents) skyTiltState(d, sk);
 }
 
-function skyTiltState(d: Data, sk: NonNullable<Data['sky']>, cosineStep = 0x40) {
+function skyTiltState(d: Data, sk: NonNullable<Data['sky']>) {
   // FUN_800bca38: slow wobble and bob plus each player's lurch along its diagonal.
-  const u = d.f & 0x7f;
-  const cosine = cosq(u * cosineStep);
-  let rz = ((sinq(u * 0x40) + cosine) * 0xb) >> 12, rx = (sinq(u * 0x20) * 5) >> 10;
-  const floor = (cosine * 3) >> 7;
+  const tilt = skyBaseTilt(d.f);
   sk.ev.forEach((e, p) => {
     if (e.pos === 0) return;
-    const t = atan(0xa00, e.pos >> 4) - 0x400;
-    if (p === 0) { rz += t; rx -= t; } else if (p === 1) { rz += t; rx += t; } else if (p === 2) { rz -= t; rx += t; } else { rz -= t; rx -= t; }
+    const t = discAngle(0xa00, e.pos >> 4) - 0x400;
+    tilt[0] += p === 1 || p === 2 ? t : -t;
+    tilt[1] += p < 2 ? t : -t;
   });
-  d.tilt = [rx, rz, floor];
+  d.tilt = tilt;
 }
 
 function goal(w: World, d: Data, b: Ball, side: number, tm: number) {

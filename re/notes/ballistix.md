@@ -221,7 +221,7 @@ The fresh captures start at the first playable serve with all four seats on 12 p
 - A 32-checkpoint regression covers allocation, free order, kick lockout, sinking-ball contact and victory. The original allocator fails the check on 7706. The Party host, wire snapshots and GameClient prediction match 7681–9344 in the Normal checkpoint replay, 3275–7126 in the fresh Normal round, and 3275–7364 in the fresh Hard round. Prediction also matches with three unacknowledged pads replayed after each reconciliation.
 
 ## Unknowns
-- Sky Balls ring facing and CPU behavior still need longer frame comparisons.
+- Sky Balls CPU routes and ball trajectories still need uninterrupted round comparisons.
 - The four-stage opening test samples one human’s movement and arena counters. Countdown camera, CPU setup, timeout results, team and adventure rules remain outside those comparisons. The catch-loop sound starts in the renderer, so the shared events differ from the disc's sound log even where the gameplay matches.
 
 ### Crashball background flashes
@@ -257,9 +257,10 @@ Crashball draws the six stored trail positions with mesh 12.
 - Event (bd43c) on player p (slot 0x800c1e78 + p*0x1c = pos, vel, max, accel+, accel-, dir, state, timer): timer rand(30)+60, state 1,
   accel- 0xa0, max 0x300, dir -1; sfx 0x5c9 + 0x5ca..0x5cd (rand 4). bd510 runs the lurch / rock-back state machine (states 1 -> 2 -> 3 -> 0);
   emulator: pos dips to about -8000 and rocks back over ~3 s.
-- Tilt (bca38): base wobble rz = (sin(u*0x40)+cos(u*0x40))*11>>12, rx = sin(u*0x20)*5>>10, floor y = cos(u*0x40)*3>>7 (u = frame & 0x7f);
+- Tilt (bca38): base wobble rz = (sin(u*0x40)+cos(u*0x20))*11>>12, rx = sin(u*0x20)*5>>10, floor y = cos(u*0x20)*3>>7 (u = frame & 0x7f);
   each event adds t = atan(0xa00, pos>>4) - 0x400 along the player's diagonal (p0 rz+ rx-, p1 rz+ rx+, p2 rz- rx+, p3 rz- rx-).
   Applied as rx / rz of the disc nodes.
 - Balls (bb41c, sky): push = |sin(rx)*5>>3| + |sin(rz)*5>>3| >> 6 toward the downhill side; it bends the heading only (replaces the ship push).
-- Port: sim `skyPlatform` + `applyPush`; view tilts the whole game root (disc, ships, balls ride it) and holds the landscape / clouds still.
-  Direction checked against the emulator (player 3's event lifts the same side). The affected fan cycles its eight model parts in event states 1 and 2.
+- The arena computes its tilt from the existing offsets, then advances the fan events. The affected fan cycles its eight model parts in states 1 and 2. The landscape and clouds use world coordinates.
+- A ship orbits at radius 2304. Its height callback `800b5ec8` samples the floor after the pad's bumper probe and before the orbital step, then adds its hover. The hull keeps its world-space yaw and banks with its steering. Tilting its render origin with the platform displaced a hull by as much as 174 units in the L17 comparison.
+- WebGL reproduced all 1,916 ship positions and rotations over 479 captured updates with the recorded pads and platform state, including sustained corner contact, idle bobbing and fan recovery. A second capture synchronized the engine clock to the web round and matched all 392 sampled countdown ship transforms. The web clock starts its own wobble phase. Two WebRTC clients using Top G and Big Stein agreed on all 185 common snapshots during the live test.

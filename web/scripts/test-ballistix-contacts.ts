@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { ballDefence, type BallistixData } from '../shared/games/ballDefence';
+import { ballDefence, skyOpeningFrame, type BallistixData } from '../shared/games/ballDefence';
 import { cloneWorld, createWorld, stepWorld } from '../shared/sim';
 import { IDLE } from '../shared/types';
 import { GameClient } from '../client/session';
@@ -108,4 +108,30 @@ for (const [yaw, positions] of [
     assert(!w.ev.some(e => e.k === 'sfx' && e.o === 1408));
   }
 }
-console.log('Ballistix marker boundaries, kick lockouts, rebounds and N. Gin launches matched.');
+// USA countdown with the engine clock aligned to the web round.
+for (const [left, tilt, poses] of [
+  [97, [19, 1, 4], [[-55, 3], [-190, 0], [-124, -2], [-134, -5]]],
+  [47, [-15, 3, -65], [[-216, 61], [-111, 62], [-155, 62], [-177, 62]]],
+  [0, [0, 11, 96], [[-32, -20], [-30, -14], [11, -8], [-63, -2]]],
+] as const) {
+  const frame = skyOpeningFrame(left);
+  assert.deepEqual(frame.tilt, tilt);
+  assert.deepEqual(frame.ships.map(p => [p.y + p.skyFloor, p.roll]), poses);
+}
+
+// USA Sky Balls frame 1993. The bottom ship is steering into the corner
+// while the side fan recovers. The floor is sampled between the two bumper checks.
+{
+  const { w, d } = ready('sky');
+  d.f = 1993;
+  d.balls.length = 0;
+  Object.assign(d.sky!.ev[2], { pos: -9020, vel: 152, max: 768, ap: 44, an: 0, dir: 0, st: 3, tm: 0 });
+  const ship = d.pl[0];
+  Object.assign(ship, { x: 1101, z: -2024, face: 1723, ang: 1723, roll: -43, vel: 40, st: 0x1d });
+  for (const [rx, rz, floor, height] of [[131, -142, -85, -16], [127, -138, -83, -18], [122, -133, -80, -21]]) {
+    stepWorld(w, ballDefence, [{ ...IDLE, x: 1 }]);
+    assert.deepEqual(d.tilt, [rx, rz, floor]);
+    assert.deepEqual([ship.x, ship.y + ship.skyFloor!, ship.z, ship.face, ship.roll], [1101, height, -2024, 1723, -43]);
+  }
+}
+console.log('Ballistix marker boundaries, kick lockouts, rebounds, N. Gin launches and Sky Balls ship transforms matched.');

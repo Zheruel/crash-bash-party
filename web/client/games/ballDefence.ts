@@ -2,7 +2,7 @@
 // seen through the real play and result cameras. Stage pieces come from the disc models listed in assets/stages/ballDefence.json;
 // floors and walls that the disc stores elsewhere are rebuilt here from the same level textures.
 import * as THREE from 'three';
-import { BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_U, type BallistixData, type BDTrailPoint } from '../../shared/games/ballDefence';
+import { ballistixFloor, BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_U, skyOpeningFrame, type BallistixData, type BDTrailPoint } from '../../shared/games/ballDefence';
 import type { Body, GameEvent } from '../../shared/types';
 import type { BlobShadow } from '../fx';
 import { ASSET_BASE, getCatalog, type ModelRef } from '../crash';
@@ -470,7 +470,7 @@ export function createBallDefenceView(): ClientMiniGame {
   let result: BallistixResult | undefined;
   const axis = new THREE.Vector3();
   const billboard = new THREE.Quaternion();
-  const localWinner = new THREE.Vector3();
+  const shadowFloor = new THREE.Vector3();
 
   function setCamera(cam: THREE.PerspectiveCamera) {
     const lc = result?.camera ?? LEVEL_CAMS[LEVEL[variant]];
@@ -487,8 +487,8 @@ export function createBallDefenceView(): ClientMiniGame {
   }
 
   /**
-   * Sky Balls: the disc's tilt and bob (FUN_800bca38: node rx 0x800c1c68, rz 0x800c1c6c, floor y 0x8005a5d8). The ships and
-   * balls ride the disc. The distant landscape and drifting clouds do not take the platform transform.
+   * Sky Balls platform nodes follow the tilt and bob from FUN_800bca38.
+   * Cancel the platform transform on the landscape and advance each drifting cloud in world coordinates.
    */
   const tiltM = new THREE.Matrix4(), tiltInv = new THREE.Matrix4(), cloudM = new THREE.Matrix4();
   function skyTilt(t: number[], frame: number) {
@@ -824,7 +824,10 @@ export function createBallDefenceView(): ClientMiniGame {
         const frame = marker.serve ? serveFrame : (lit >> marker.corner) & 1;
         marker.frames.forEach((meshes, i) => { for (const mesh of meshes) mesh.visible = i === frame; });
       }
-      if (stageData.tilt) skyTilt(stageData.tilt, stageData.f);
+      const skyCountdown = variant === 'sky' && w.tick === 0 ? ctx.countdownTicksLeft : undefined;
+      const opening = skyCountdown === undefined ? undefined : skyOpeningFrame(skyCountdown);
+      const tilt = opening?.tilt ?? stageData.tilt;
+      if (tilt) skyTilt(tilt, skyCountdown === undefined ? 99 + stageData.f : Math.max(0, 99 - skyCountdown));
       for (const [slot, e] of pendingKnockouts) {
         if (stageData.f - d.pl[slot].stateAt < KNOCKOUT_FRAMES) continue;
         playSound(1414);
@@ -903,28 +906,31 @@ export function createBallDefenceView(): ClientMiniGame {
           }
           if (variant === 'beach') catchSound(b.slot, catching && !w.finished);
           if (celebration) a.face = winner?.body.face ?? b.face;
-          let hop = -(winner?.y ?? (celebration ? -128 : pl.y ?? -128)) / BD_U;
-          if (winner && stageData.tilt) {
-            // The hull bobs against the tilted floor, while its yaw and roll
-            // are applied in arena coordinates without the platform rotation.
-            const local = localWinner.set(winner.body.x, hop, winner.body.z).applyMatrix4(tiltInv);
-            winner.body.x = local.x;
-            winner.body.z = local.z;
-            hop = local.y;
-            a.holder.quaternion.setFromRotationMatrix(tiltInv);
-          }
-          a.update(winner?.body ?? b, dt, {
+          const body = winner?.body ?? b;
+          const openingShip = opening?.ships[b.slot];
+          const hover = celebration ? -128 : openingShip?.y ?? pl.y ?? -128;
+          a.update(body, dt, {
             hidden: gone,
             // The catch and kick enter handlers both start script 0x1d (the seated idle pose).
             script: dying ? 0x20 : seatedLoser ? 0x19 : catching || kicking ? 0x1d : pl.st === 0x1e ? 0x1c : pl.st === 0x1d ? 0x1a : idleGesture ? 0x1b : 0x19,
             scriptFrame: seatedLoser ? result!.age : idleGesture ? player.f - pl.idleAt : age,
             renderWord: winner?.pose,
-            hop,
+            hop: -hover / BD_U,
             role: dying ? 'lose' : pl?.st === 0x1e ? 'hit' : pl?.st === 0x1d ? 'run' : 'idle',
             freeze: true,
             keepYaw: celebration,
           });
-          a.pivot.rotation.z = -(winner?.roll ?? pl.roll ?? 0) * Math.PI / 2048;
+          if (tilt && !gone) {
+            // L17 changes the hull height while leaving its horizontal position and axes in world space.
+            const floor = ballistixFloor(tilt, Math.round(body.x * BD_U), Math.round(-body.z * BD_U));
+            const sampledFloor = celebration || dying ? floor : openingShip?.skyFloor ?? pl.skyFloor ?? floor;
+            const height = winner?.y ?? sampledFloor + hover;
+            a.holder.position.set(body.x, -height / BD_U, body.z).applyMatrix4(tiltInv);
+            a.holder.quaternion.setFromRotationMatrix(tiltInv);
+            shadowFloor.set(body.x, -floor / BD_U, body.z).applyMatrix4(tiltInv);
+            a.shadow.set(shadowFloor.x, shadowFloor.z, (floor - height) / BD_U);
+          }
+          a.pivot.rotation.z = -(winner?.roll ?? openingShip?.roll ?? pl.roll ?? 0) * Math.PI / 2048;
         } else if (b.kind === 'ball') {
           seenBalls.add(b.id);
           let v = balls.get(b.id);
