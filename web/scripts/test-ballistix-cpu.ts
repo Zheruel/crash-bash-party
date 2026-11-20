@@ -88,4 +88,24 @@ for (const stage of stages) {
   assert.equal(human.beachCpu?.nextPad, undefined);
   assert.ok(human.vel < 0);
 }
+// USA L17. The hull enters its knockout on 4871 and the burst and both sounds start on 4932.
+{
+  const { w, pl, d } = fixture('sky', 1);
+  w.tick = d.f = 4870;
+  d.efc = 200;
+  pl.score = 0;
+  const tick = () => stepWorld(w, game, [IDLE, IDLE, IDLE, IDLE]);
+  tick();
+  assert.equal(pl.st, 0x24);
+  for (let i = 0; i < 60; i++) tick();
+  assert.equal(d.f, 4931);
+  assert.equal(pl.st, 0x24);
+  tick();
+  assert.equal(pl.st, 0x25);
+  assert.equal(w.ev.filter(e => e.k === 'gone').length, 1);
+  const sounds = w.ev.filter(e => e.k === 'sfx').map(e => e.o);
+  assert(sounds.includes(1414));
+  assert.equal(sounds.filter(id => id === 451 || id === 452).length, 1);
+  assert.equal(pl.beachSmoke?.length, 3);
+}
 console.log('Ballistix defensive lines, kicks, taunts, shield targeting and CPU takeover matched.');

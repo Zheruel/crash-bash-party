@@ -744,9 +744,13 @@ export function createBallDefenceView(): ClientMiniGame {
     if (sample) sfx.playFile(sample.file, VOL(id), false, sfxRate(BANK_OF[variant], id));
   }
 
+  function delaysKnockout() {
+    return variant === 'crashball' || variant === 'nballism';
+  }
+
   function knockout(e: GameEvent) {
     kit.real.play(FX_PACK, 0, e.x, e.v, e.z);
-    if (variant !== 'beach') playSound(451 + (e.id & 1));
+    if (delaysKnockout()) playSound(451 + (e.id & 1));
   }
 
   return {
@@ -872,7 +876,7 @@ export function createBallDefenceView(): ClientMiniGame {
           const a = kit.actor(b, () => shipParts(b.slot));
           // The other hosts freeze after 60 knockout ticks. Native ship 0x25
           // and its two sounds enter together on the 61st presentation tick.
-          const gone = pl.st === 0x25 && (!result || variant === 'beach' || stageData.f - pl.stateAt >= KNOCKOUT_FRAMES);
+          const gone = pl.st === 0x25 && (!result || !delaysKnockout() || stageData.f - pl.stateAt >= KNOCKOUT_FRAMES);
           const dying = pl.st === 0x24 || (pl.st === 0x25 && !gone);
           const celebration = !!result && result.age >= 0;
           const winner = celebration && result!.slot === b.slot ? result!.winnerBody(b, stageData) : undefined;
@@ -1015,7 +1019,7 @@ export function createBallDefenceView(): ClientMiniGame {
       if (kit.baseEvent(e)) return;
       switch (e.k) {
         case 'sfx':
-          if (!(variant !== 'beach' && result && e.o === 1414)) playSound(e.o);
+          if (!(delaysKnockout() && result && e.o === 1414)) playSound(e.o);
           break;
         case 'hit': {
           if (result) break;
@@ -1034,7 +1038,7 @@ export function createBallDefenceView(): ClientMiniGame {
           kit.shake(0.45);
           break;
         case 'gone':
-          if (variant !== 'beach' && result) pendingKnockouts.set(e.s, e);
+          if (delaysKnockout() && result) pendingKnockouts.set(e.s, e);
           else knockout(e);
           if (!result) kit.shake(0.9);
           break;

@@ -662,20 +662,20 @@ function idleFrame(w: World, d: Data, pl: Pl) {
 function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p].cpu) {
   const pl = d.pl[p];
   const beach = d.variant === 'beach';
+  const sky = isSky(d);
   if (pl.st === 0x25) {
-    if (pl.beachSmoke) beachSmokeFrame(w, d, pl, pl.beachSmoke);
+    if (pl.beachSmoke) knockoutSmokeFrame(w, d, pl, pl.beachSmoke);
     return;
   }
-  if (!beach && pl.score <= 0 && pl.st < 0x24) {
+  if (!beach && !sky && pl.score <= 0 && pl.st < 0x24) {
     enterDie(w, d, p);
     return;
   }
-  if (!beach && pl.st === 0x24) {
+  if (!beach && !sky && pl.st === 0x24) {
     pl.vel = 0;
     if (--pl.dieT <= 0) finishDie(w, d, pl, p);
     return;
   }
-  const sky = isSky(d);
   const fr = w.params.friction;
   // --- input to pad bits (digital)
   const th = 0.35;
@@ -719,13 +719,13 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
     kickUpdate(w, d, p);
   } else if (pl.st === 0x21) {
     catchUpdate(w, d, p, !!inp.b, cpu);
-  } else if (beach && pl.st === 0x24) {
+  } else if (pl.st === 0x24) {
     if (--pl.dieT <= 0) finishDie(w, d, pl, p);
   } else if (beach && pl.st === 0x22) {
     // FUN_800b6cf0: the winner travels inward before the result screen.
     const axis = ballistixSlidesHorizontally(p) ? 'z' : 'x';
     if (Math.abs(pl[axis]) > 0x500) pl[axis] -= Math.sign(pl[axis]) * 0x20;
-  } else if (beach && pl.score <= 0) {
+  } else if (pl.score <= 0) {
     enterDie(w, d, p);
   } else if (beach && d.beachDecidedAt !== undefined) {
     pl.st = 0x22;
@@ -762,7 +762,7 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
   // The ship body bobs in a 64-frame cycle. Its roll eases towards the motion or idle target.
   const bob = sinq((d.f + p) * 0x40);
   const signedVel = (p === 0 || p === 2) ? -pl.vel : pl.vel;
-  const settling = beach && (pl.score <= 0 || d.beachDecidedAt !== undefined);
+  const settling = pl.score <= 0 || d.beachDecidedAt !== undefined;
   const targetRoll = signedVel || (settling ? 0 : (bob * 0x11) >> 10);
   pl.y = settling ? -128 : -128 + ((bob * 15) >> 11);
   pl.roll = (pl.roll ?? 0) + (adiff(pl.roll ?? 0, targetRoll) >> 2);
@@ -772,7 +772,7 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
 }
 
 /** FUN_80089be8: the sinking hull emits three puffs on the shared RNG stream. */
-function beachSmokeFrame(w: World, d: Data, pl: Pl, puffs: BeachSmoke[]) {
+function knockoutSmokeFrame(w: World, d: Data, pl: Pl, puffs: BeachSmoke[]) {
   const y = -24 * (d.f - pl.stateAt);
   if (y < -0xa00) {
     delete pl.beachSmoke;
@@ -783,7 +783,7 @@ function beachSmokeFrame(w: World, d: Data, pl: Pl, puffs: BeachSmoke[]) {
       puff.vy = Math.min(48, puff.vy + 4);
       puff.y += puff.vy;
       puff.age++;
-      if (puff.y > 0 || 0x100 + 0x60 * puff.age > 0xfff) {
+      if (puff.y > (d.tilt?.[2] ?? 0) || 0x100 + 0x60 * puff.age > 0xfff) {
         puff.wait = rnd(w, 10) + 2;
         puff.age = -1;
       }
@@ -799,15 +799,15 @@ function beachSmokeFrame(w: World, d: Data, pl: Pl, puffs: BeachSmoke[]) {
 
 function enterDie(w: World, d: Data, p: number) {
   const pl = d.pl[p];
-  const beach = d.variant === 'beach';
-  if (!beach) {
+  const pooled = d.variant === 'beach' || isSky(d);
+  if (!pooled) {
     releaseBalls(w, d, p, false);
     pl.vel = 0;
   }
-  pl.st = 0x24; pl.stateAt = d.f; pl.dieT = beach ? 61 : 60; pl.dead ||= d.f;
+  pl.st = 0x24; pl.stateAt = d.f; pl.dieT = pooled ? 61 : 60; pl.dead ||= d.f;
   if (!d.walls) emit(w, 'sfx', 0, 0, -1, 1, 1425); // goal wall closes (0x591/0x592)
   const wall = [1, 2, 8, 4][p];
-  if (beach) (d.beachPoolEffects ??= []).push({ beachPoolSlot: allocPoolSlot(d), wall });
+  if (pooled) (d.beachPoolEffects ??= []).push({ beachPoolSlot: allocPoolSlot(d), wall });
   d.walls |= wall;
   pl.shield = 0;
   emit(w, 'ko', pl.x / BD_U, -pl.z / BD_U, p, 1);
@@ -817,7 +817,7 @@ function finishDie(w: World, d: Data, pl: Pl, p: number) {
   pl.st = 0x25;
   emit(w, 'sfx', pl.x / BD_U, -pl.z / BD_U, p, 1, 1414);
   emit(w, 'gone', pl.x / BD_U, -pl.z / BD_U, p, -(pl.y ?? -128) / BD_U);
-  if (d.variant !== 'beach') return;
+  if (d.variant !== 'beach' && !isSky(d)) return;
   pl.roll = 0;
   // Pack 0762 script 0 returns its entity after 23 updates.
   (d.beachPoolEffects ??= []).push({ beachPoolSlot: allocPoolSlot(d), releaseAt: d.f + 23 });
@@ -1415,7 +1415,7 @@ function scoreBall(w: World, d: Data, b: Ball) {
   emit(w, 'sfx', pl.x / BD_U, -pl.z / BD_U, p, 1, SIDE_SFX[p]);
   pl.score--;
   if (pl.score === 0) {
-    if (d.variant === 'beach') pl.dead = d.f;
+    if (d.variant === 'beach' || isSky(d)) pl.dead = d.f;
     if (d.beachSpectatorTarget === p) d.beachSpectatorTarget = -1;
   }
   emit(w, 'goal', b.x / BD_U, -b.z / BD_U, p, 1, -1);

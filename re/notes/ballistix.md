@@ -110,6 +110,8 @@ Running the USA L14, L16 and L17 callbacks on 1,800 controlled cases per stage m
 
 The L17 match checkpoint at frame 2072 matched continuously for 420 updates with one idle human and three Normal CPUs. Comparison covered staged pads, CPU state, ship movement and kick cooldowns, scores, balls, platform events, tilt, and both RNG words. At frame 2233 two rolling balls contact after the newer one reuses the lower pool slot. The disc updates it first. The same contact now resolves in slot order during play and result replay.
 
+A second L17 capture matched all 3,292 consecutive updates from frame 1963 to the deciding point on 5255, including two knockouts and the switch to spectator AI. Final scores were 0, 0, 7, 0. The first eliminated hull enters state 36 on 4871 and state 37 on 4932. Its burst takes an entity slot for 23 updates. Each of its three smoke puffs tests its local height against the current arena height at `8005a5d8`, which changes on Sky. Using zero shifted the RNG on 4979. Both recordings begin during play.
+
 ### Beach Ball entity pool and victory
 
 - Balls (`0x1501`), closed-goal barriers (`0x1505`) and the knockout burst (`0x1605`) share the dynamic entity pool. `FUN_80022a3c` takes the free-list head and `FUN_80022fd4` pushes released slots onto it. The capture numbers dynamic slots from `0x801c91c8` at 0x70-byte intervals.
