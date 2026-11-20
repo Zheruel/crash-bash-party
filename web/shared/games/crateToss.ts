@@ -84,6 +84,11 @@ const DMG_WOOD = 5, DMG_WOOD_DRAIN = 3, DMG_BIG = 8;                            
 const HURT_TICKS = 30, FLICKER_TICKS = 40;
 const BOOTS_T = 240, MASK_T = 300, WEIGHT_T = 240, SLOW_T = 240, PASS_LOCK = 30;
 const FRUIT_LIFE = 150, POWER_LIFE = 120;
+// FUN_8008d6c8: launch at 64 raw units, gravity 8, relaunch at floor contact.
+export function ctFruitRise(ticksFromSpawn: number) {
+  const age = Math.max(0, ticksFromSpawn) % 15;
+  return 4 * age * (15 - age) * U;
+}
 const AIM = 0x110 / 4096 * TAU;                                                           // facing re-snaps when the stick is > 24 deg off
 
 const KIND_DMG = (variant: string, kind: string) => (kind === 'crate' ? (variant === 'drain' ? DMG_WOOD_DRAIN : DMG_WOOD) : DMG_BIG);
@@ -108,6 +113,7 @@ const SPAWN: [number, number][] = [[-1600, 1600], [-1600, -1600], [1600, -1600],
 const ST_MOVE = 0, ST_PICK = 1, ST_THROW = 2, ST_SPIN = 3, ST_HURT = 4;
 const EFF_AKU = 0x12, EFF_BOOTS = 0x13, EFF_WEIGHT = 0x14, EFF_SLOW = 0x15;
 const W_MISSILE = 0x19, W_ORB = 0x1b, W_RING = 0x1c;
+const DRAIN_WEAPONS = [25, 27, 28, 25, 28, 27, 28, 25, 27, 28, 27, 25, 27, 28, 25, 27, 25, 28]; // 0x800c46c0
 
 /** crate sub state */
 const C_GROW = 0, C_IDLE = 1, C_HELD = 2, C_THROWN = 3, C_SLIDE = 4, C_DELAY = 5, C_OPEN = 6, C_FALL = 7, C_DROP = 8;
@@ -135,6 +141,8 @@ interface Data {
   weapon: number[]; ammo: number[]; wcd: number[];
   shots?: Record<number, DrainShot>;
   floor: number[];
+  drainWeaponIndex?: number;
+  openingSpawns?: Record<number, number>;
   penguin: number;
   cs: Record<number, CS>;
   cells: number[]; cur: number; deck: number[]; di: number;
@@ -189,7 +197,7 @@ function occupiedAt(w: World, ci: number, cj: number): boolean {
   // FUN_800bad70 reserves the four 256-unit spawn cells beneath each missing tile.
   if (!floorAt(D(w), cellRaw(ci - 2) * U, -cellRaw(cj - 2) * U)) return true;
   for (const b of w.bodies) {
-    if (!b.alive || !(isCrate(b) || b.kind === 'penguin')) continue;
+    if (!b.alive || !(isCrate(b) || isPickup(b) || b.kind === 'penguin')) continue;
     if (Math.floor(b.x / U / 256) + 10 === ci && 9 - Math.floor(b.z / U / 256) === cj) return true;
   }
   return false;
@@ -233,7 +241,7 @@ function addCrate(w: World, d: Data, kind: string, xr: number, zr: number): Body
 function spawnCrates(w: World, d: Data, n: number) {
   const cfg = CFG[d.variant];
   const np = Math.max(2, Math.min(4, players(w).filter((p) => p.alive).length || 4));
-  const nitroCap = cfg.nitroCap[4 - np];
+  const nitroCap = cfg.nitroCap[np - 2];
   for (let k = 0; k < n; k++) {
     const cell = freeCell(w, d);
     if (!cell) continue;
@@ -243,6 +251,100 @@ function spawnCrates(w: World, d: Data, n: number) {
     if (t === 6 && nitros >= nitroCap) t = 4;
     if (d.variant === 'drain' && t === 4) t = 3;
     addCrate(w, d, t === 6 ? 'nitro' : t === 5 ? 'tnt' : 'crate', cell[0], cell[1]);
+  }
+}
+
+// L3 chooses one offset for all four edges. Occupied cells are probed in
+// alternating directions along the edge, in the original grid's column/row order.
+function spawnDrainChests(w: World, d: Data) {
+  const offset = (Math.floor(rand(w) * 12) - 6) * 256 + 128;
+  const chests: Body[] = [];
+  const center = (raw: number) => Math.floor(raw / 256) * 256 + 128;
+  for (let edge = 0; edge < 4; edge++) {
+    const horizontal = edge < 2;
+    const near = edge === 0 || edge === 2;
+    const fixed = near ? -0x700 : 0x600;
+    const start = edge === 0 || edge === 3 ? -offset : offset;
+    let along = start;
+    for (let attempt = 0; attempt <= 16; attempt++) {
+      const direction = (attempt % 2 === 1 ? 1 : -1) * (horizontal ? 1 : -1);
+      const cell = (Math.floor(start / 256) + direction * Math.ceil(attempt / 2)) * 256;
+      const x = horizontal ? cell : fixed, z = horizontal ? fixed : cell;
+      if (!occupiedAt(w, 10 + Math.floor(x / 256), 10 + Math.floor(z / 256))) {
+        if (Math.abs(cell) <= 0x700) along = cell;
+        break;
+      }
+    }
+    const x = horizontal ? along : fixed, z = horizontal ? fixed : along;
+    chests.push(addCrate(w, d, 'chest', center(x), -center(z)));
+  }
+  const winner = chests[Math.floor(rand(w) * 4)];
+  const index = d.drainWeaponIndex ?? Math.floor(rand(w) * DRAIN_WEAPONS.length);
+  csOf(d, winner).item = DRAIN_WEAPONS[index];
+  d.drainWeaponIndex = (index + 1) % DRAIN_WEAPONS.length;
+}
+
+function stepSpawners(w: World, d: Data, survivors: number, opening = false) {
+  if (survivors < 2) return;
+  const cfg = CFG[d.variant];
+  const sr = Math.max(0.1, w.params.spawnRate);
+  const np = Math.max(2, Math.min(4, survivors));
+  const crateN = crates(w).length; // FUN_800bb7e8 includes Drain's four question crates
+
+  // ---- crate spawner (FUN_800b7358) ----
+  d.tSpawn -= sr >= 1 ? sr : 1;
+  if (d.tSpawn < 0) {
+    const cap = cfg.cap[np - 2];
+    if (cap <= crateN) d.tSpawn = Math.floor(rand(w) * 40) + 5;
+    else {
+      const room = cap - crateN;
+      let n = Math.min(4, cap);
+      if (room < n) { n = Math.floor(rand(w) * room) + 1; d.tSpawn = Math.floor(rand(w) * 20) + 8; } else d.tSpawn = Math.floor(rand(w) * 10) + 2;
+      spawnCrates(w, d, n);
+    }
+  }
+  // The native pickup counter includes fruit, power-ups and dropped weapons.
+  const pickupCount = w.bodies.filter((b) => isPickup(b) && b.alive).length;
+  if (pickupCount < 3) {
+    if (d.tFruit <= 0) { const c = freeCell(w, d); if (c) dropFruit(w, c[0], c[1], 0, opening); d.tFruit = Math.floor(rand(w) * 30) + 10; } else d.tFruit--;
+  }
+  // fruit bursts (not in drain bash): 6-9 fruits every 30-50 s
+  if (d.variant !== 'drain') {
+    if (d.tBurstN === 0) {
+      if (d.tBurst <= 0) {
+        if (pickupCount < 5) { d.tBurstN = Math.floor(rand(w) * 4) + 6; d.tBurst = (Math.floor(rand(w) * 20) + 30) * 30; } else d.tBurst = 60;
+      } else d.tBurst--;
+    } else {
+      if (d.tBurst > 0) d.tBurst--;
+      if (d.tBurstGap <= 0) {
+        const k = Math.floor(rand(w) * 256);
+        const x = cellRaw(d.cells[k * 2]), z = cellRaw(d.cells[k * 2 + 1]);
+        if (floorAt(d, x * U, z * U) && !occupiedAt(w, Math.floor(x / 256) + 10, 9 - Math.floor(z / 256))) { dropFruit(w, x, z, 1, opening); d.tBurstN--; d.tBurstGap = Math.floor(rand(w) * 4) + 2; }
+      } else d.tBurstGap--;
+    }
+  }
+  // power-ups (space + snow): one at a time, when nobody holds one
+  if (d.variant === 'space' || d.variant === 'snow') {
+    if (d.tPower <= 0) {
+      if (d.eff.some((e) => e !== 0) || w.bodies.some((b) => b.kind === 'boots' || b.kind === 'potion' || b.kind === 'mask' || b.kind === 'weight')) d.tPower = (Math.floor(rand(w) * 10) + 5) * 30;
+      else {
+        const kind = 0x12 + Math.floor(rand(w) * 4);
+        const k = Math.floor(rand(w) * 256), x = cellRaw(d.cells[k * 2]), z = cellRaw(d.cells[k * 2 + 1]);
+        if (floorAt(d, x * U, z * U) && !occupiedAt(w, Math.floor(x / 256) + 10, 9 - Math.floor(z / 256))) {
+          const name = kind === EFF_AKU ? 'mask' : kind === EFF_BOOTS ? 'boots' : kind === EFF_WEIGHT ? 'weight' : 'potion';
+          const it = addBody(w, name, -1, x * U, z * U, 0.5, 1);
+          it.y = 2032 * U; it.dash = POWER_LIFE; it.vy = 0; // falls from the sky
+          d.tPower = (Math.floor(rand(w) * 10) + 10) * 30;
+        }
+      }
+    } else d.tPower--;
+  }
+  // drain bash: four "?" crates at the edges once the last weapon was taken
+  if (d.variant === 'drain') {
+    if (d.tPower <= 0 && !crates(w).some((c) => c.kind === 'chest')) {
+      spawnDrainChests(w, d);
+      d.tPower = 1 << 20;
+    } else if (d.tPower > 0) d.tPower--;
   }
 }
 
@@ -359,6 +461,7 @@ export const crateToss: MiniGame = {
     while (deck.length < 64) deck.push(4);
     for (let k = 0; k < 600; k++) { const a = Math.floor(rand(w) * 64), b = Math.floor(rand(w) * 64); const t = deck[a]; deck[a] = deck[b]; deck[b] = t; }
     d.deck = deck;
+    if (variant === 'drain') d.drainWeaponIndex = Math.floor(rand(w) * DRAIN_WEAPONS.length);
     d.di = Math.floor(rand(w) * 32) + 20;
     if (variant === 'snow') { const g = addBody(w, 'penguin', -1, 0, 0, 1.1, 8); g.face = 0; }
     for (const s of slots) {
@@ -368,12 +471,22 @@ export const crateToss: MiniGame = {
       b.face = Math.atan2(-x, -z);
       d.f8[s.slot] = snap8(b.face);
     }
+    // The network clock starts on GO. Run the arena spawner during the 99
+    // locked updates and keep birth ticks so a joining client can draw the intro.
+    const openingSpawns: Record<number, number> = {};
+    let nextSpawn = w.nextId;
     spawnCrates(w, d, cfg.start);
+    for (let frame = 0; frame < CT_OPENING_TICKS; frame++) {
+      stepSpawners(w, d, slots.length, true);
+      while (nextSpawn < w.nextId) openingSpawns[nextSpawn++] = frame;
+      for (const c of crates(w)) if (d.cs[c.id].s === C_GROW) stepCrate(w, d, c);
+      for (const o of w.bodies) if (isPickup(o)) stepPickup(w, d, o, []);
+    }
+    d.openingSpawns = openingSpawns;
   },
 
   step(w, inputs) {
     const d = D(w);
-    const cfg = CFG[d.variant];
     const ps = players(w);
     const live = ps.filter((p) => p.alive);
     const contestants = crushContestants(live);
@@ -381,75 +494,7 @@ export const crateToss: MiniGame = {
     d.cpu = [0, 1, 2, 3].map((slot) => planCrushBot(w, slot, contestants, focus).state);
     // FUN_800b432c clears an eliminated focus this tick and draws its replacement next tick.
     d.cpuFocus = contestants.some((p) => p.slot === focus) ? focus : undefined;
-    const sr = Math.max(0.1, w.params.spawnRate);
-    const np = Math.max(2, Math.min(4, live.length));
-    const crateN = crates(w).filter((c) => c.kind !== 'chest').length;
-
-    // ---- crate spawner (FUN_800b7358) ----
-    if (live.length > 1) {
-      d.tSpawn -= sr >= 1 ? sr : 1;
-      if (d.tSpawn < 0) {
-        const cap = cfg.cap[4 - np];
-        if (cap <= crateN) d.tSpawn = Math.floor(rand(w) * 40) + 5;
-        else {
-          const room = cap - crateN;
-          let n = Math.min(4, cap);
-          if (room < n) { n = Math.floor(rand(w) * room) + 1; d.tSpawn = Math.floor(rand(w) * 20) + 8; } else d.tSpawn = Math.floor(rand(w) * 10) + 2;
-          spawnCrates(w, d, n);
-        }
-      }
-      // fruit: keep fewer than 3 lying around
-      const fruitN = w.bodies.filter((b) => b.kind === 'fruit' && b.alive).length;
-      if (fruitN < 3) {
-        if (d.tFruit <= 0) { const c = freeCell(w, d); if (c) dropFruit(w, c[0], c[1], 0); d.tFruit = Math.floor(rand(w) * 30) + 10; } else d.tFruit--;
-      }
-      // fruit bursts (not in drain bash): 6-9 fruits every 30-50 s
-      if (d.variant !== 'drain') {
-        if (d.tBurstN === 0) {
-          if (d.tBurst <= 0) {
-            if (fruitN < 5) { d.tBurstN = Math.floor(rand(w) * 4) + 6; d.tBurst = (Math.floor(rand(w) * 20) + 30) * 30; } else d.tBurst = 60;
-          } else d.tBurst--;
-        } else {
-          if (d.tBurst > 0) d.tBurst--;
-          if (d.tBurstGap <= 0) {
-            const k = Math.floor(rand(w) * 256);
-            const x = cellRaw(d.cells[k * 2]), z = cellRaw(d.cells[k * 2 + 1]);
-            if (floorAt(d, x * U, z * U) && !occupiedAt(w, Math.floor(x / 256) + 10, 9 - Math.floor(z / 256))) { dropFruit(w, x, z, 1); d.tBurstN--; d.tBurstGap = Math.floor(rand(w) * 4) + 2; }
-          } else d.tBurstGap--;
-        }
-      }
-      // power-ups (space + snow): one at a time, when nobody holds one
-      if (d.variant === 'space' || d.variant === 'snow') {
-        if (d.tPower <= 0) {
-          if (d.eff.some((e) => e !== 0) || w.bodies.some((b) => b.kind === 'boots' || b.kind === 'potion' || b.kind === 'mask' || b.kind === 'weight')) d.tPower = (Math.floor(rand(w) * 10) + 5) * 30;
-          else {
-            const kind = 0x12 + Math.floor(rand(w) * 4);
-            const k = Math.floor(rand(w) * 256), x = cellRaw(d.cells[k * 2]), z = cellRaw(d.cells[k * 2 + 1]);
-            if (floorAt(d, x * U, z * U) && !occupiedAt(w, Math.floor(x / 256) + 10, 9 - Math.floor(z / 256))) {
-              const name = kind === EFF_AKU ? 'mask' : kind === EFF_BOOTS ? 'boots' : kind === EFF_WEIGHT ? 'weight' : 'potion';
-              const it = addBody(w, name, -1, x * U, z * U, 0.5, 1);
-              it.y = 2032 * U; it.dash = POWER_LIFE; it.vy = 0; // falls from the sky
-              d.tPower = (Math.floor(rand(w) * 10) + 10) * 30;
-            }
-          }
-        } else d.tPower--;
-      }
-      // drain bash: four "?" crates at the edges once the last weapon was taken
-      if (d.variant === 'drain') {
-        if (d.tPower <= 0 && !crates(w).some((c) => c.kind === 'chest')) {
-          const at: [number, number][] = [[0, -0x700], [0, 0x600], [-0x700, 0], [0x600, 0]];
-          const win = Math.floor(rand(w) * 4);
-          const wlist = [W_MISSILE, W_ORB, W_RING];
-          for (let k = 0; k < 4; k++) {
-            const off = (Math.floor(rand(w) * 12) - 6) * 0x100 + 0x80;
-            const x = k < 2 ? off : at[k][0], z = k < 2 ? at[k][1] : off;
-            const c = addCrate(w, d, 'chest', x, z);
-            csOf(d, c).item = k === win ? wlist[Math.floor(rand(w) * 3)] : 0;
-          }
-          d.tPower = 1 << 20;
-        } else if (d.tPower > 0) d.tPower--;
-      }
-    }
+    stepSpawners(w, d, live.length);
 
     // ---- players ----
     for (const p of ps) if (p.alive) stepPlayer(w, d, p, inputs[p.slot] ?? IDLE);
@@ -513,11 +558,11 @@ export const crateToss: MiniGame = {
   bot(w, slot): InputState { return botInput(w, slot); },
 };
 
-function dropFruit(w: World, xr: number, zr: number, sky: number) {
+function dropFruit(w: World, xr: number, zr: number, sky: number, opening: boolean) {
   const f = addBody(w, 'fruit', 0, xr * U, zr * U, 0.5, 1);
   f.dash = FRUIT_LIFE;
   f.y = sky ? 2032 * U : 0;
-  f.slot = 0;
+  if (!opening) emit(w, 'fruitSpawn', f.x, f.z, -1);
 }
 
 // ---------- players ----------
@@ -1307,7 +1352,8 @@ function stepPickup(w: World, d: Data, o: Body, live: Body[]) {
     if (o.y <= 0) { o.vy = 0; }
     return;
   }
-  if (--o.dash <= 0) { o.alive = false; return; }
+  if (o.kind === 'fruit') o.cd++; // grounded bounce clock, floor Wumpa persist until collected
+  else if (--o.dash <= 0) { o.alive = false; return; }
   for (const p of live) {
     if (!p.alive || p.y > 700 * U) continue;
     if (dist2(p.x, p.z, o.x, o.z) >= p.r + CRATE_R * U) continue;

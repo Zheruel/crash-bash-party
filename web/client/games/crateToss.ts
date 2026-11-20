@@ -1,7 +1,7 @@
 // CRATE CRUSH view (shared/games/crateToss.ts): the real Jungle / Space / Snow / Drain Bash stages, wood / TNT / Nitro crates.
 import * as THREE from 'three';
 import { CT_FLOOR_N, CT_HP, CT_OPENING_TICKS, CT_RING_COUNT, CT_RING_GAP, CT_RING_TICKS,
-  CT_U, CT_WEAPON_BLAST, ctActionTicks, ctRingScale, floorAt, spaceFloorIndex } from '../../shared/games/crateToss';
+  CT_U, CT_WEAPON_BLAST, ctActionTicks, ctFruitRise, ctRingScale, floorAt, spaceFloorIndex } from '../../shared/games/crateToss';
 import type { Body, GameEvent } from '../../shared/types';
 import { ASSET_BASE, getCatalog } from '../crash';
 import type { BlobShadow } from '../fx';
@@ -56,8 +56,7 @@ const RING_HIT = [32, 0x446];
 interface Vis {
   obj: THREE.Group;
   shadow: BlobShadow;
-  kind: string;
-  frames: THREE.Object3D[];
+  mesh: THREE.Object3D;
   count: THREE.Object3D[];
   heldBy?: number;
   pickupFrom?: THREE.Vector3;
@@ -97,6 +96,7 @@ export function createCrateTossView(): ClientMiniGame {
   let variant = 'jungle';
   let lv: Level = LEVELS.jungle;
   const crates = new Map<number, Vis>();
+  let lastOpeningFrame: number | undefined;
   const items = new Map<number, { obj: THREE.Group; frames: THREE.Object3D[] }>();
   const shots = new Map<number, ShotVis>();
   const weaponIcons = new Map<number, { kind: number; obj: THREE.Object3D }>();
@@ -118,6 +118,7 @@ export function createCrateTossView(): ClientMiniGame {
   }).catch(() => { /* silent */ });
   const sfxSet = () => SFX[variant];
   const playSample = (n: number, vol: number, rate = 1, late = false) => { const f = bankIdx?.[lv.bank]?.[n]?.file; if (f) sfx.playFile(f, vol, late, rate); };
+  const fruitSpawnSound = () => playSample(sfxSet().whoosh, 1, sfxRate(lv.bank, 0x3fa), true);
   /** one of a rand-4 list, at that id's own pitch */
   const playPick = (l: number[], ids: number[], vol: number) => { const i = Math.floor(Math.random() * l.length); playSample(l[i], vol, sfxRate(lv.bank, ids[i])); };
   type Scrape = { id: number; frame: number; sound: NonNullable<ReturnType<typeof sfx.startSample>> };
@@ -233,14 +234,15 @@ export function createCrateTossView(): ClientMiniGame {
     for (let i = 0; i < n; i++) piece(f, x + rnd(0.3), 0.2, z + rnd(0.3), { life: 0.45, s0: 1, s1: 1.2, fade: false });
   }
 
-  /** Real crate meshes (0796): animation frames + TNT countdown faces, toggled per frame. */
+  /** 0796 uses a fixed mesh for each unlit crate and separate faces for lit TNT. */
   function crateObj(kind: string): Vis {
     const obj = new THREE.Group();
-    const names = kind === 'tnt' ? [0, 1, 2, 3, 4, 5, 6].map((i) => `ctTnt${i}`) : kind === 'nitro' ? [0, 1, 2, 3, 4, 5, 6].map((i) => `ctNitro${i}`) : kind === 'chest' ? ['ctChest'] : [variant === 'drain' ? 'ctDrainCrate' : 'ctWood'];
-    const frames = names.map((n) => { const f = propClone(n); obj.add(f); return f; });
+    const name = kind === 'tnt' ? 'ctTnt0' : kind === 'nitro' ? 'ctNitro0' : kind === 'chest' ? 'ctChest' : variant === 'drain' ? 'ctDrainCrate' : 'ctWood';
+    const mesh = propClone(name);
+    obj.add(mesh);
     const count = kind === 'tnt' ? ['ctTnt1', 'ctTnt2', 'ctTnt3'].map((n) => { const f = propClone(n); f.visible = false; obj.add(f); return f; }) : [];
     kit.root.add(obj);
-    return { obj, shadow: kit.fx.shadow(0.9, 0.45), kind, frames, count };
+    return { obj, shadow: kit.fx.shadow(0.9, 0.45), mesh, count };
   }
 
   const FRUIT = Array.from({ length: 14 }, (_, i) => `ctFruit${i}`);
@@ -409,6 +411,7 @@ export function createCrateTossView(): ClientMiniGame {
       follow = null;
       result = undefined;
       ghosts.clear();
+      lastOpeningFrame = undefined;
       build();
       setCamera(ctx, 0, world);
       if (!loaded) this.preload!().then(() => { buildArena(); });
@@ -462,7 +465,12 @@ export function createCrateTossView(): ClientMiniGame {
         }
       }
       const tick = w.tick;
+      const openingFrame = tick === 0 && ctx.countdownTicksLeft !== undefined
+        ? CT_OPENING_TICKS - ctx.countdownTicksLeft : undefined;
       for (const b of w.bodies) {
+        const born = d.openingSpawns?.[b.id];
+        const openingAge = born !== undefined && openingFrame !== undefined ? openingFrame - born : undefined;
+        if (openingAge !== undefined && openingAge < 0) continue;
         if (b.kind === 'player') {
           const playerWorld = result ? w : kit.playerWorld(b.slot);
           const d = playerWorld.data;
@@ -564,23 +572,25 @@ export function createCrateTossView(): ClientMiniGame {
             }
           }
           const cst = d.cs?.[b.id];
-          v.obj.scale.setScalar(cst && cst.s === 0 ? Math.max(0.1, 1 - cst.t / 8) : 1); // grows in for 8 ticks
+          v.obj.scale.y = openingAge !== undefined ? Math.min(1, (openingAge + 1) / 8)
+            : cst?.s === 0 ? Math.max(0, 1 - cst.t / 8) : 1;
           const crateState = holderState.cs?.[b.id];
           v.obj.rotation.set(held && !grip ? crateState?.pitch ?? 0 : 0, grip && holder ? holder.face : b.face, 0, 'YXZ');
           const { x, y, z } = v.obj.position;
           v.shadow.set(x, z, held ? y + 0.5 : y);
           if (variant === 'space') v.shadow.visible = y >= 0 && floorAt(d, x, z);
-          // frames: the anim cycles one frame per tick; a lit TNT shows its 3-2-1 face instead
           const lit = b.kind === 'tnt' && b.fall;
-          const n = v.frames.length, f = n > 1 ? Math.floor(tick / 2 + b.id) % n : 0;
-          v.frames.forEach((o, i) => (o.visible = !lit && i === f));
+          v.mesh.visible = !lit;
           v.count.forEach((o, i) => (o.visible = lit && i === Math.max(0, Math.min(2, Math.ceil(b.m) - 1))));
         } else if (b.kind === 'fruit' || b.kind === 'boots' || b.kind === 'potion' || b.kind === 'mask' || b.kind === 'weight' || b.kind === 'weapon') {
+          if (b.kind === 'fruit' && born !== undefined && openingFrame !== undefined
+            && born > (lastOpeningFrame ?? openingFrame - 1)) fruitSpawnSound();
           seenI.add(b.id);
           let o = items.get(b.id);
           if (!o) { o = itemObj(b.kind, b); items.set(b.id, o); }
-          o.obj.position.set(b.x, b.y + (b.kind === 'fruit' ? 0.35 : 0), b.z);
-          if (o.frames.length) { const f = Math.floor(tick / 2 + b.id) % o.frames.length; o.frames.forEach((q, i) => (q.visible = i === f)); }
+          const rise = b.kind === 'fruit' && b.y === 0 ? ctFruitRise(openingAge ?? (b.cd - 1)) : 0;
+          o.obj.position.set(b.x, b.y + rise, b.z);
+          if (o.frames.length) { const f = Math.floor(((openingFrame ?? (tick + CT_OPENING_TICKS - 1)) + 1) / 2) % o.frames.length; o.frames.forEach((q, i) => (q.visible = i === f)); }
           else o.obj.rotation.y += dt * 2;
         } else if (b.kind === 'orb' || b.kind === 'rocket' || b.kind === 'ring' || b.kind === 'weaponBlast') {
           seenS.add(b.id);
@@ -616,6 +626,7 @@ export function createCrateTossView(): ClientMiniGame {
       for (const [id, v] of crates) if (!seenC.has(id)) { kit.root.remove(v.obj); kit.fx.removeShadow(v.shadow); crates.delete(id); }
       for (const [id, o] of items) if (!seenI.has(id)) { kit.root.remove(o.obj); billboards.delete(o.obj); items.delete(id); }
       for (const [id, o] of shots) if (!seenS.has(id)) { removeShot(o); shots.delete(id); }
+      if (openingFrame !== undefined) lastOpeningFrame = Math.max(lastOpeningFrame ?? -1, openingFrame);
       if (!result) stepPieces(dt);
       for (const o of billboards) o.quaternion.copy(ctx.camera.quaternion);
       kit.fx.update(dt);
@@ -629,6 +640,9 @@ export function createCrateTossView(): ClientMiniGame {
         case 'throw': case 'kick':
           playSample(e.k === 'kick' ? sfxSet().thump : sfxSet().whoosh, 0.45);
           if (e.k === 'kick') spinVoice('c', ctx.seats[e.s]?.look.char);
+          break;
+        case 'fruitSpawn':
+          fruitSpawnSound();
           break;
         case 'grab':
           charVoice('c', ctx.seats[e.s]?.look.char, 0xf);

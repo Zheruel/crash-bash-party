@@ -61,10 +61,16 @@ Power-ups (Space and Snow only): when nobody has an effect, kind 0x12 + rand(4),
 - Deck (wood / TNT / nitro): Jungle 40/12/12, Space 40/16/8, Snow 40/12/12, Drain 56/8/0 (Drain wood -> kind 3).
 - Initial crates: 8 (Jungle, Snow), 10 (Space), 6 (Drain).
 - Floor cap by player count 2/3/4: Jungle and Snow 12/10/8, Space 14/12/10, Drain 6. Nitro cap `p*p7/16+1`: Jungle 3/2/2, Space 2/2/2; at cap nitro becomes wood.
+- In four fresh USA versus recordings, the initial crates were visible at opening tick 0 with scale (4096, 512, 4096). Only Y grew, by 512 each update. They reached full height at 7 and became interactive at 8, well before GO at 99. Unlit TNT and Nitro kept mesh words 0x2009 and 0x2001. The online host runs the spawners through the locked opening and sends object birth ticks for countdown playback.
+- `FUN_800bb7e8` counts crate kinds 1–12 toward the limit, including the four Drain question crates. Fruit, power-ups and weapons share a separate pickup count. The cap and Nitro tables are indexed by surviving players, including CPUs.
 - Tick: counter 0 and count >= cap -> counter rand(40)+5; deficit < 4 -> n = rand(deficit)+1, counter rand(20)+8; else n = 4, counter rand(10)+2.
 - Free cell: first from cursor that is unoccupied with 0 occupied 8-neighbours; after 9 tries the least crowded.
 - Fruit: single spawner when floor fruit < 3, every rand(30)+10 ticks. Bursts (not Drain): first after (rand(10)+10)*30, each rand(4)+6 fruits 2-5 ticks apart, next in (rand(20)+30)*30; skipped when fruit >= 5.
 - Drain: 4 chests (kind 2) at the edges, one weapon from list 0x800c46c0: 0x19 missile (ammo 2, cd 20), 0x1b orb (ammo 3, cd 20), 0x1c ring (ammo 1, cd 40). Taking a weapon removes the other chests; next chest after (rand(6)+2)*30. Initial timer rand(30)+30.
+
+Drain uses one offset for the four edges. Each edge probes alternate cells around that offset for a free spot. One chest receives the next weapon in the 18-entry table at `0x800c46c0`. The initial table index and the winning chest use seeded draws.
+
+Ground Wumpa persist until collected or lost through a hole. `FUN_8008d6c8` launches them at 64 raw units with gravity 8. Their rise repeats every 15 updates, peaking 224 units above the floor on updates 7 and 8. `FUN_8008da78` selects one of 14 sprite frames every two updates. The native rotation clock starts from the global display counter. The web clock starts at the arena opening. Two-client WebRTC and WebGL tests covered crate growth, Wumpa bounce, and the first playable pickup. Arena layouts and fruit appearance times depend on the web RNG.
 
 ## Drain weapons (`FUN_800b95f0`–`FUN_800ba8a4`)
 

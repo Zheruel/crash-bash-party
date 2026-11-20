@@ -1,6 +1,6 @@
 // Captured from USA L0–L3. Run with npx tsx scripts/test-crate-controls.ts.
 import assert from 'node:assert/strict';
-import { crateToss, CT_OPENING_TICKS, CT_U, ctActionTicks } from '../shared/games/crateToss';
+import { crateToss, CT_OPENING_TICKS, CT_U, ctActionTicks, ctFruitRise } from '../shared/games/crateToss';
 import { DISC_CHARACTER } from '../shared/look';
 import { cloneWorld, createWorld, stepWorld } from '../shared/sim';
 import { readsCountdownPad } from '../shared/protocol';
@@ -157,4 +157,55 @@ for (const [char, disc] of DISC_CHARACTER.entries()) {
   assert.equal(w.data.groundPose[0].script, 0);
   assert(w.data.vx[0] < 0);
 }
-console.log('Crate Crush countdown, pickup, throw, jumps, landing and Snow Bash steering passed.');
+const seats = [8, 9, 0, 1].map((char, slot) => ({ slot, name: String(slot), bot: false, char }));
+for (const [variant, limits] of Object.entries({ jungle: [12,10,8], snow: [12,10,8], space: [14,12,10], drain: [6,6,6] })) {
+  const w = createWorld(crateToss, seats, [], 432, variant);
+  const boxes = (world: World) => world.bodies.filter(b => ['crate', 'tnt', 'nitro'].includes(b.kind));
+  assert.equal(boxes(w).length, limits[2]);
+  assert(boxes(w).every(b => w.data.cs[b.id].s === 1 && w.data.openingSpawns[b.id] === 0));
+  const fruits = w.bodies.filter(b => b.kind === 'fruit');
+  assert.equal(fruits.length, 3);
+  for (const f of fruits) assert.equal(f.cd, CT_OPENING_TICKS - w.data.openingSpawns[f.id]);
+  if (variant === 'drain') {
+    const chests = w.bodies.filter(b => b.kind === 'chest');
+    assert.equal(chests.length, 4);
+    const remaining = cloneWorld(w);
+    const removed = boxes(remaining)[0];
+    remaining.bodies = remaining.bodies.filter(b => b.id !== removed.id);
+    remaining.data.tSpawn = 0;
+    step(remaining);
+    assert.equal(boxes(remaining).length, 5);
+    assert.equal(chests.filter(b => w.data.cs[b.id].item !== 0).length, 1);
+    for (const c of chests) {
+      assert([c.x, c.z].some(v => Math.abs(Math.round(v / CT_U)) === 1664));
+      assert(w.data.openingSpawns[c.id] >= 30 && w.data.openingSpawns[c.id] < 60);
+      assert.equal(w.data.cs[c.id].s, 1);
+    }
+  }
+  const go = cloneWorld(w);
+  const box = boxes(go).find(b => b.kind === 'crate')!;
+  const player = go.bodies.find(b => b.kind === 'player' && b.slot === 0)!;
+  Object.assign(player, { x: box.x, z: box.z - 256 * CT_U, face: 0 });
+  go.data.f8[0] = 0;
+  step(go, { a: true });
+  assert.equal(box.cd, 1, variant + ' first-frame pickup');
+
+  for (const survivors of [2, 3, 4]) {
+    const world = cloneWorld(w);
+    world.bodies = world.bodies.filter(b => b.kind === 'player');
+    for (const p of world.bodies) p.alive = p.slot < survivors;
+    world.data.tFruit = world.data.tPower = 9999;
+    world.data.deck.fill(variant === 'drain' ? 3 : 6);
+    for (let tick = 0; tick < 40; tick++) {
+      world.data.tSpawn = 0;
+      step(world);
+    }
+    assert.equal(boxes(world).length, limits[survivors - 2]);
+    const nitro = variant === 'drain' ? 0 : variant === 'space' || survivors !== 2 ? 2 : 3;
+    assert.equal(boxes(world).filter(b => b.kind === 'nitro').length, nitro);
+  }
+}
+assert.deepEqual(Array.from({ length: 16 }, (_, i) => Math.round(ctFruitRise(i) / CT_U)),
+  [0,56,104,144,176,200,216,224,224,216,200,176,144,104,56,0]);
+
+console.log('Crate Crush countdown spawns, pickup limits, controls, jump and skate poses passed.');
