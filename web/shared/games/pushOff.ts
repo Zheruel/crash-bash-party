@@ -30,16 +30,22 @@
  * world.data: variant, radius, tilt [x,z] (-1..1), tiltRad [x,z], meter[4], hang[4] (s left), item[4] (1 shrink 2 grow 3 bomb 4 stun
  *   5 zap 6 snowball 7 frozen), itemT[4], elim[4], melt[16], pillars [x,z,alive][], foot[4] (1 = knocked off the bear), hold[4]
  *   (carries a bolt), P[] (per-player engine state), seal, internals.
- * Bodies: 'player', 'mask', 'seal' (TILT; y = height while it jumps in), 'bolt' (manic: pickup on the ice, carried, or thrown; y = height). Events: dash, thump,
- *   hit, skid, ko, hang, climb, pickup, beam, beamEnd, zap, bomb, boom, dazed, melt, pillar, seal, bolt (pickup appears), grab (s
+ * Bodies: 'player', 'mask' (y = hover height), 'seal' (TILT; y = height while it jumps in), 'bolt' (manic: pickup on the ice, carried, or thrown; y = height). Events: dash, thump,
+ *   hit, skid, ko, hang, climb, pickup, beamWarn, beam, beamEnd, zap, bomb, boom, dazed, melt, pillar, seal, bolt (pickup appears), grab (s
  *   takes it), throw, strike (bolt lands / explodes, v = blast radius), zapped (s hit by o's bolt: v 1 off the bear, 2 out).
  *   world.data.scale[4] = Uka shrink/grow model scale.
  */
-import { addBody, emit, rand } from '../physics';
+import { FitCam, trackBox, type TrackBox } from '../fitCamera';
+import { addBody, discRandomInt, discRandomState, emit } from '../physics';
 import { IDLE, MAX_SEATS, type InputState, type MiniGame, type World } from '../types';
-import { pickVariant } from './common';
-import { at2, RD_CHAR_ID, SIN, T } from './ringDing';
+import { pickVariant, VERSUS_CLOCK_END } from './common';
+import { at2, RD_CHAR_ID, SIN, T } from './dragonDrop';
 
+/** GO is the first movement update. Ranking runs 2,698 ticks later. */
+export const POLAR_TIMEOUT_TICK = VERSUS_CLOCK_END;
+export const POLAR_DRAW_TICKS = 120;
+/** From the winner's reaction to the versus reset, including the cup tally. */
+export const POLAR_WIN_TALLY_TICKS = 123;
 export const PO_RADIUS = 8;
 export const PO_CHARGE_COST = 0.5;
 /** Collision circle of the real game: 256 units apart = 0.8 world units. */
@@ -86,7 +92,9 @@ const sq = (n: number): number => {
   const r = cordicSqrt(a);
   return (s < 0 ? r >> -s : r << s) >> 6;
 };
-const ri = (w: World, n: number) => (poTest.rng ? poTest.rng(n) : Math.floor(rand(w) * n));
+function ri(w: World, n: number): number {
+  return poTest.rng ? poTest.rng(n) : discRandomInt(w, n);
+}
 /** a draw made by the init of a cosmetic object (spark 0x1612, burst 0x1614): only its count matters */
 const fx = (w: World, n: number) => { if (!poTest.fx || poTest.fx(false, n)) ri(w, n); };
 /** pad bits -> pad angle (b5ebc / pad reader): up 0, right 0x400, down 0x800, left 0xc00 */
@@ -210,6 +218,8 @@ export interface PoP {
   mass: number; ty: number; qy: number; spd: number;
   /** anim script pc (+0x1e of the anim struct), clip (0 loop, 1 dash, 2 hang, 3 dash on foot, 4 knocked off) and ticks in the current state */
   af: number; clip: number; k: number;
+  bombExpiry?: PolarBombExpiry;
+  slipSoundTick?: number;
   /** mount component: gauge +0x20, presses +0x14, slip speed +0x18, mode +0x24, stun counter +0x1c, forced fall +0xac */
   g: number; pr: number; ss: number; md: number; sc1c: number; ac: number;
   /** pad: held / newly pressed this tick, pad angle; nb/pb = CPU bits of the last two ticks (applied by the pad reader) */
@@ -223,32 +233,55 @@ export interface PoP {
   /** replay only: the id in the selection table DAT_8005a664 (FUN_800b5684 reads the base mass from it); the same as ch in a normal game */
   sel?: number;
 }
+/** Object 0x1602's fixed origin and the rider's last animation frame, carried in round snapshots. */
+export interface PolarBombExpiry {
+  tick: number; x: number; y: number; z: number; frame: number; fidget: number;
+}
+interface SealFlight {
+  x: number; y: number; z: number; sx: number; sy: number; sz: number; tx: number; tz: number;
+  go: number; vy: number; vx: number; vz: number;
+}
+interface SealFish extends SealFlight {
+  yaw: number; pitch: number; spin: number; landed: boolean; frame: number;
+}
+
 /**
  * TILT seal (object 0x160c): state +0xc / timer +0x10, entity x / y / z / yaw, jump (FUN_8008c5c4: go +0x18, vy +0x28, vx / vz +0x48 / +0x4c,
  * start +0x74.., target +0x68..), flip-book pc, walk speed +0x88 -> +0x8c, target yaw +0x90, rim angle DAT_800d563c, the velocity of its
  * motion component (mass 0x400) and obj +0x5c = bears collide with it.
  */
-export interface Seal {
-  st: number; t: number; x: number; y: number; z: number; yaw: number; go: number; vy: number; vx: number; vz: number;
-  sx: number; sy: number; sz: number; tx: number; tz: number; pc: number; spd: number; tgt: number; dir: number; base: number;
+export interface Seal extends SealFlight {
+  fish?: SealFish; pose?: number;
+  st: number; t: number; yaw: number; pc: number; spd: number; tgt: number; dir: number; base: number;
   mvx: number; mvz: number; on: number;
 }
+/** Cosmetic state of objects 0x1601/0x160a and their scripted 0x1605 effects. PS1 units and angles. */
+export interface PolarEmitterPose {
+  y: number; pitch: number; yaw: number; roll: number; tick: number;
+  phase: number; speed: number; targetSpeed: number;
+  effect: { kind: 'beam' | 'pickup' | 'melt'; age: number; x: number; z: number } | null;
+}
 interface Data {
+  random?: [number, number];
+  camera?: [number, number, number];
+  cameraTarget?: [number, number, number];
   variant: string; radius: number; tilt: [number, number]; tiltRad: [number, number];
   meter: number[]; hang: number[]; item: number[]; itemT: number[]; elim: number[]; scale: number[];
   melt: number[]; pillars: [number, number, number][];
   P: (PoP | null)[]; ord: number[][]; ax: number; az: number; rayLen: number; over: boolean; t: number; one: number;
   flags: number[]; d5ffc: number; d6004: number; noHuman: boolean;
   maskA: number; mx: number; mz: number; beam: number;
+  maskView?: PolarEmitterPose;
   ms: number; m58: number; m100: number; mk: number; mh: number; k18: number[]; k28: number[]; t38: number[]; t68: number; t70: number; c6c: number; cool: number[];
   human: boolean[]; seal: Seal | null;
   /** MELT sectors: state +0xbc (0 whole, 1 gone, 2 / 3 half gone, 4 both halves), melt count +0xb8, anim timer +0xc0 (0..0x74) */
-  sec: number[]; secN: number[]; secT: number[];
+  sec: number[]; secN: number[]; secT: number[]; secAnim: number[];
   /** MELT mask: target angle +0x1c0 and point +0x1d0 / +0x1d8, state +0x14, item clock +0x64, counter +0xb4 */
+  meltCamera?: [number, number]; // Last position of tracking object 0x160b during mask travel.
   mTarget: number; mTx: number; mTz: number; mState: number; m64: number; mb4: number;
   /** MANIC: spawner 0x160e (state +0xc, timer +0x10, bolts out +0x18) and the bolts (pickup 0x160f / thrown 0x160d) */
   sp: { st: number; t: number; n: number }; bolts: Bolt[]; foot: number[]; hold: number[];
-  /** FUN_800bcc9c: CPU bear playing its idle fidget script (view only) */
+  /** FUN_800bcc9c: elapsed fidget script ticks plus one, or zero when inactive */
   fid?: number[];
   /** POLAR: ticks the mask-pickup effect (0x1605 script 3) still emits particles */
   fxT: number;
@@ -295,6 +328,12 @@ function onIce(d: Data, gx: number, gz: number): boolean {
 
 // ---------------------------------------------------------------- player state machine
 function setState(w: World, d: Data, q: PoP, s: number, st: number) {
+  if (st === S_BLAST) {
+    const frame = q.st === S_DASH || q.st === S_STUN ? q.k : Math.max(0, q.af - 1);
+    q.bombExpiry = { tick: w.tick + 1, x: q.x, y: q.y, z: q.z, frame, fidget: d.fid?.[s] ?? 0 };
+  }
+  if (d.fid) d.fid[s] = 0;
+  delete q.slipSoundTick;
   q.pst = q.st; q.st = st; q.k = 0;
   switch (st) {
     case S_IDLE: { // FUN_800cd594
@@ -313,7 +352,7 @@ function setState(w: World, d: Data, q: PoP, s: number, st: number) {
       play(q, q.md === 1 ? 3 : 1);
       q.g -= dashCost(q);
       q.vx = q.vz = q.tvx = q.tvz = 0;
-      E(w, 'dash', q.x, q.z, s, 1);
+      E(w, 'dash', q.x, q.z, s, q.md === 1 ? 2 : 1);
       break;
     }
     case S_SLIP: { // FUN_800cfc58
@@ -324,13 +363,18 @@ function setState(w: World, d: Data, q: PoP, s: number, st: number) {
         if (q.md === 0) play(q, 2);
         const v = sq(imul(q.vx, q.vx) + imul(q.vz, q.vz));
         q.ss = v;
-        if (v < 0x4a) { if (q.md === 0) E(w, 'hang', q.x, q.z, s, 1); }
+        if (v < 0x4a) {
+          if (q.md === 0) { q.slipSoundTick = w.tick + 1; E(w, 'hang', q.x, q.z, s, 1); }
+        }
         else { q.af = 0x21; eliminate(w, d, q, s); }
       }
       if (d.variant === 'tilt' && d.seal && sealBox(d.seal, q, 300)) q.af = 0x21; // FUN_800cac20: the seal is right there, no hang
       break;
     }
-    case S_OUT: q.fl |= F_OUT | F_ELIM; break; // FUN_800d0470
+    case S_OUT: // FUN_800d0470
+      q.fl |= F_OUT | F_ELIM;
+      E(w, 'splash', q.x, q.z, s, 1);
+      break;
     case S_ITEM: // FUN_800d034c: straight to idle (its enter still sees the old speed), then the velocity is cleared
       setState(w, d, q, s, q.md === 1 ? S_FOOT : S_IDLE);
       q.vx = q.vz = q.tvx = q.tvz = 0;
@@ -340,7 +384,7 @@ function setState(w: World, d: Data, q: PoP, s: number, st: number) {
       q.sc1c = 0; q.s98 = 0; q.vx = q.vz = q.tvx = q.tvz = 0; q.mass = 0x200;
       break;
     }
-    case S_WIN: q.vx = q.vz = q.tvx = q.tvz = 0; q.lk = 0x14; break;
+    case S_WIN: q.vx = q.vz = q.tvx = q.tvz = 0; break;
     case S_FROZEN: case S_BALL: if (q.fl & F_WON) { setState(w, d, q, s, S_WIN); return; } break; // FUN_800cf9ec / FUN_800d14cc: model swap only
     case S_THROW: { // FUN_800d1188: the bolt (0x160d) leaves 0x100 above the bear toward 0x700 (ids 1-4, 86 u/tick) / 0x800 (106 u/tick) ahead
       const far = q.ch <= 4 ? 0x700 : 0x800;
@@ -466,7 +510,7 @@ function throwCheck(w: World, d: Data, q: PoP, s: number): boolean {
 }
 
 function stateTick(w: World, d: Data, q: PoP, s: number) {
-  if ((q.fl & F_WON) && q.st !== S_WIN && q.st !== S_SLIP && q.st !== S_OUT) { setState(w, d, q, s, S_WIN); return; }
+  if ((q.fl & F_WON) && q.st !== S_WIN && q.st !== S_OUT) { setState(w, d, q, s, S_WIN); return; }
   q.k++;
   switch (q.st) {
     case S_IDLE: case S_WALK: case S_FOOT: case S_FOOTWALK: { // FUN_800cda54 / FUN_800cdbd0, on foot FUN_800d1c14 / FUN_800d1db4
@@ -565,7 +609,12 @@ function stateTick(w: World, d: Data, q: PoP, s: number) {
       if (q.sc1c++ >= 0xb5 && q.st === S_STUN) { q.mass = massOf(q); setState(w, d, q, s, q.md === 1 ? S_FOOT : S_IDLE); } // FUN_800b5684 then 0x49 / 0x54
       break;
     }
-    case S_WIN: q.held = q.pressed = 0; q.vx = q.vz = q.tvx = q.tvz = 0; break;
+    case S_WIN:
+      q.held = q.pressed = 0;
+      q.lk = 0x14;
+      q.yaw = s16(q.yaw + (adiff(q.yaw, 0) >> 2));
+      q.vx = q.vz = q.tvx = q.tvz = 0;
+      break;
     case S_BLAST: // FUN_800d30c0: frozen in the blast; flagged out after 123 ticks (replay), the state stays 0x4d
       q.held = q.pressed = 0; q.vx = q.vz = q.tvx = q.tvz = 0;
       if (q.k >= 123) q.fl |= F_OUT | F_ELIM;
@@ -1112,7 +1161,7 @@ function newSeal(w: World): Seal {
   return sl;
 }
 /** FUN_8008c5c4 for the seal: speed 0x28, gravity 0x10, floor 0; true once it has landed. */
-function sealFly(sl: Seal): boolean {
+function sealFly(sl: SealFlight): boolean {
   if (!sl.go) {
     const dx = sl.tx - sl.sx, dz = sl.tz - sl.sz;
     const n = Math.trunc(sq(imul(dx, dx) + imul(dz, dz)) / 0x28);
@@ -1126,6 +1175,24 @@ function sealFly(sl: Seal): boolean {
   if (sl.y >= 0 && sl.vy > 0) { sl.y = 0; return true; }
   return false;
 }
+/** FUN_800c40b8: the fish spins in flight, then skids and flaps on the ice. */
+function stepSealFish(w: World, f: SealFish) {
+  f.yaw = s16(f.yaw + f.spin);
+  f.pitch = s16(f.pitch + 0x100);
+  if (!f.landed) {
+    f.landed = sealFly(f);
+    if (f.landed) E(w, 'sealSound', f.x, f.z, -1, 0x479);
+    return;
+  }
+  f.frame = (f.frame + 1) & 15;
+  f.x += f.vx;
+  f.z += f.vz;
+  f.spin >>= 1;
+  f.pitch >>= 1;
+  f.vx -= Math.sign(f.vx);
+  f.vz -= Math.sign(f.vz);
+}
+
 /**
  * FUN_800c358c. 0 waits under the rim (timer; needs the mask idle) -> 2 warning (object 0x1610, 91 ticks) -> 3 / 4 jumps in
  * (27 ticks to the point 2000 out) -> 1 lands (12 ticks; from here the bears collide with it) -> 5 turns round at 16 u/tick and
@@ -1136,38 +1203,56 @@ function sealTick(w: World, d: Data) {
   const sl = d.seal;
   if (!sl) return;
   sl.mvx = sl.vx; sl.mvz = sl.vz;
+  if (sl.fish) stepSealFish(w, sl.fish);
   switch (sl.st) {
     case 0:
-      if (sl.t-- < 0 && !d.over && d.ms === 1 && d.mh === -1) { sl.st = 2; sl.t = 0x5a; E(w, 'seal', sl.tx, sl.tz, -1, 2); }
+      if (sl.t-- < 0 && !d.over && d.ms === 1 && d.mh === -1) {
+        sl.st = 2; sl.t = 0x5a;
+        sl.fish = {
+          x: sl.sx, y: sl.sy, z: sl.sz, sx: sl.sx, sy: sl.sy, sz: sl.sz, tx: sl.tx, tz: sl.tz,
+          go: 0, vy: 0, vx: 0, vz: 0, yaw: 0, pitch: 0, spin: 0x80, landed: false, frame: -1,
+        };
+        E(w, 'seal', sl.tx, sl.tz, -1, 2);
+      }
       break;
     case 2: if (!d.over && sl.t-- < 0) { sl.st = 3; sl.t = 0; E(w, 'seal', sl.x, sl.z, -1, 3); } break;
     case 3:
       sl.t++; sl.pc++;
+      sl.pose = 0x4000 + Math.max(0, sl.pc - 6);
       sealFly(sl);
       sl.mvx = sl.vx; sl.mvz = sl.vz;
       if (sl.pc === 0x18) { sl.st = 4; sl.pc = 0; }
       break;
     case 4:
+      sl.pose = 0x4013;
       if (!sealFly(sl)) break;
-      ri(w, 4); // one of four barks
+      const bark = ri(w, 4);
       sl.st = 1; sl.t = 0x96; sl.pc = 0;
-      E(w, 'seal', sl.x, sl.z, -1, 1);
+      E(w, 'seal', sl.x, sl.z, -1, 1, bark);
       break;
     case 1:
       sl.on = 1;
-      if (++sl.pc === 12) { sl.st = 5; sl.pc = 0; sl.t = 0; sl.tgt = 0x10; sl.spd = 0; sl.dir = sl.yaw + 0x800; }
+      sl.pc++;
+      sl.pose = 0x4014 + sl.pc;
+      if (sl.pc === 12) { delete sl.fish; sl.st = 5; sl.pc = 0; sl.t = 0; sl.tgt = 0x10; sl.spd = 0; sl.dir = sl.yaw + 0x800; }
       break;
     case 5: {
-      sl.pc = sl.pc === 15 ? 0 : sl.pc + 1;
+      sl.pc = (sl.pc + 1) & 15;
+      sl.pose = 0x4080 + sl.pc;
+      if (sl.pc === 7 || sl.pc === 13) E(w, 'sealSound', sl.x, sl.z, -1, sl.pc === 7 ? 0x476 : 0x477);
       sl.yaw = s16(sl.yaw - (((sl.yaw - sl.dir) << 20) >> 24));
       if (sl.spd < sl.tgt) sl.spd = sl.tgt; // the ramp code at 0x800c3a.. ends on the target in one step (replay)
-      sl.t++;
+      if (++sl.t === 30) E(w, 'sealSound', sl.x, sl.z, -1, 0x47a);
       sl.x = (sl.x - m12(sl.spd, SIN(sl.yaw))) | 0; sl.z = (sl.z - m12(sl.spd, T(sl.yaw))) | 0;
       sl.mvx = sl.mvz = 0;
       if (!hullInside(HULL_RAW, sl.x + (SIN(sl.yaw) >> 5), sl.z + (T(sl.yaw) >> 5))) { sl.st = 7; sl.pc = 0; E(w, 'seal', sl.x, sl.z, -1, 7); }
       break;
     }
-    case 7: if (++sl.pc === 38) sl.st = 6; break;
+    case 7:
+      sl.pc++;
+      sl.pose = 0x4100 + sl.pc;
+      if (sl.pc === 38) { sl.pc++; sl.st = 6; }
+      break;
     case 6:
       sl.t = ri(w, 900) + 0x5a; sl.st = 0; sl.on = 0; sl.pc = 0;
       sealPlace(sl, sl.base + 0x800);
@@ -1175,13 +1260,113 @@ function sealTick(w: World, d: Data) {
   }
 }
 
+/** Engine mode 1. Store the eased translation so a late client can reproduce the result shot. */
+function updatePolarCamera(d: Data, result: boolean, winner: boolean, trackHazards: boolean) {
+  const boxes: TrackBox[] = [];
+  const add = (x: number, y: number, z: number, yaw: number, r: number, h: number, f: number) => {
+    boxes.push(result ? { x, y, z, xl: r >> 1, xr: r >> 1, zn: 0, zf: 0, h: h - (h >> 2) } : trackBox(x, y, z, yaw, r, h, f));
+  };
+  if (d.variant === 'melt' && trackHazards) {
+    const marker = d.meltCamera;
+    add(marker?.[0] ?? 0, marker ? 256 : 0, marker?.[1] ?? 0, 0, 512, 512, 512);
+  }
+  const seal = d.seal;
+  if (seal && seal.st >= 1 && seal.st !== 2 && trackHazards) {
+    add(seal.x, seal.y, seal.z, seal.yaw, 512, 512, 512);
+  }
+  for (let slot = d.P.length - 1; slot >= 0; slot--) {
+    const q = d.P[slot];
+    if (!q || q.y > 0 || q.st === S_OUT || (q.fl & F_OUT)) continue;
+    if (winner && (!(q.fl & F_WON) || !onIce(d, q.x, q.z))) continue;
+    add(q.x, q.y, q.z, q.yaw, 512, 1280, 1024);
+  }
+  const [x, y, z] = d.camera ?? [0, 0, 0];
+  const fit = new FitCam({ x, y, z, pitch: d.variant === 'melt' ? 257 : 227, H: 512 });
+  if (fit.update(boxes, !d.camera, !result)) d.cameraTarget = fit.destination;
+  else if (d.cameraTarget) fit.approach(d.cameraTarget);
+  d.camera = [fit.c.x, fit.c.y, fit.c.z];
+}
+
+/** Advance a private terminal snapshot. The winner settles into state 0x58. Draws continue with released pads and fixed ice tilt. */
+export function stepPolarResultMotion(w: World, outcome: boolean | number = false, cheerTick = 0) {
+  w.ev.length = 0;
+  const d = w.data as Data;
+  d.over = true;
+  if (outcome !== false) {
+    const winner = typeof outcome === 'number' ? d.P[outcome] : null;
+    if (winner) winner.fl |= F_WON;
+    for (const q of d.P) if (q) { q.pressed = 0; q.held = 0; }
+    advancePolarArena(w, d, !!winner && (winner.st !== S_WIN || winner.k < cheerTick));
+    updatePolarCamera(d, true, !!winner, false);
+    sync(w, d);
+    w.tick++;
+    w.time += 1 / 30;
+    return;
+  }
+  let moved = false;
+  for (const [slot, q] of d.P.entries()) {
+    if (q?.st !== S_SLIP || !(q.fl & F_ELIM)) continue;
+    q.pressed = q.held = 0;
+    stateTick(w, d, q, slot);
+    integrate(q);
+    moved = true;
+  }
+  sealTick(w, d);
+  if (moved) sync(w, d);
+  w.tick++;
+}
+
 // ---------------------------------------------------------------- Uka mask / items (FUN_800bd67c), other hazards
 const MASK_ITEMS = [0, 1, 6, 5];
 /** MELT mask kinds (0x800d5480): shrink, snowball, freeze, bomb */
 const MELT_ITEMS = [0, 8, 2, 5];
-const INTRO = 112;
+export const POLAR_INTRO_TICKS = 112;
 /** mask orbit centre = its spawn point (mask data +0x88 / +0x90, read from RAM of each level) */
 const MASK_CENTRE: Record<string, [number, number]> = { tilt: [108, -8], polar: [-403, -70], manic: [-141, 312] };
+export const MASK_HEIGHT: Record<string, number> = { tilt: -1380, polar: -1246, melt: -1094, manic: -1301 };
+function newMaskPose(variant: string): PolarEmitterPose {
+  return { y: MASK_HEIGHT[variant] ?? MASK_HEIGHT.tilt, pitch: 0, yaw: 0, roll: 0, tick: 0,
+    phase: 0, speed: 12, targetSpeed: 12, effect: null };
+}
+/** The MIPS shifts sign-extend the low 12 bits before easing the angle. */
+const maskTurn = (a: number, target: number) => s16(a - (((a - target) << 20) >> 22));
+type MaskRider = Pick<PoP, 'x' | 'y' | 'z' | 'fl'>;
+function nearestMaskRider(riders: (MaskRider | null)[], x: number, z: number) {
+  let nearest = riders[0];
+  let range = Infinity;
+  for (const q of riders) {
+    if (!q || q.fl & F_ELIM) continue;
+    const distance = dist2(x, z, q.x, q.z);
+    if (distance < range) { nearest = q; range = distance; }
+  }
+  return nearest;
+}
+function maskOrbit(phase: number, cx: number, cz: number): [number, number] {
+  const u = phase >> 1;
+  return [cx + ((1500 * SIN(SIN(u))) >> 12), cz + ((1500 * T(T(u) & 0xfff)) >> 12)];
+}
+function aimMask(pose: PolarEmitterPose, q: MaskRider | null, x: number, z: number, down: boolean) {
+  if (!q) return;
+  pose.yaw = maskTurn(pose.yaw, at2(x - q.x, z - q.z));
+  const pitch = down ? 0x400 : at2(q.y - pose.y - 0x1c2, sq(dist2(x, z, q.x, q.z)));
+  pose.pitch = maskTurn(pose.pitch, pitch);
+}
+function meltHover(pose: PolarEmitterPose, leaving: boolean): [number, number] {
+  const { phase } = pose;
+  if (!leaving) pose.y = MASK_HEIGHT.melt + (SIN(phase) >> 6);
+  pose.phase = (phase + (pose.targetSpeed < 0 ? 64 : -64)) & 0xfff;
+  return [T(phase) >> 5, (SIN(phase) * 3) >> 5];
+}
+function aimMeltMask(pose: PolarEmitterPose, pitch: number, yaw: number) {
+  pose.pitch += (pitch - pose.pitch) >> 2;
+  pose.yaw += (yaw - pose.yaw) >> 2;
+  pose.roll = pose.pitch;
+}
+function meltTravelAxis(value: number, target: number) {
+  if (value < target) value += 32;
+  if (target < value) value -= 32;
+  return value;
+}
 /** kind -> client item code (pickup event value, world.data.item) */
 const CLIENT_ITEM: Record<number, number> = { 0: 1, 1: 2, 5: 3, 6: 5, 2: 4, 8: 6 };
 /** FUN_800bbf2c bomb/zap pass: touching the carrier while the fuse runs hands it over (15-tick lockout +0x48). */
@@ -1193,18 +1378,25 @@ function bombPass(w: World, d: Data, q: PoP, s: number, o: PoP, i: number) {
 }
 
 function maskTick(w: World, d: Data) {
-  if (d.variant === 'melt') { meltMaskTick(w, d); return; }
-  maskItems(w, d);
+  const pose = d.maskView ??= newMaskPose(d.variant);
+  pose.tick++;
+  if (pose.effect && ++pose.effect.age > 120) pose.effect = null;
+  if (d.variant === 'melt') { meltMaskTick(w, d, pose); return; }
+  maskItems(w, d, pose);
   // POLAR: the pickup effect's particle emitter draws 25 rands on four ticks, after the mask's own draws (replay count). In the game
   // it starts on the pickup tick or, if the effect object lands in a pool slot that is not updated any more this tick, one tick later.
   if (d.fxT > 0) { d.fxT--; for (let i = 0; i < 25; i++) fx(w, 0x1000); }
 }
-function maskItems(w: World, d: Data) {
+function maskItems(w: World, d: Data, pose: PolarEmitterPose) {
+  // The target slot is chosen before translation. The angles are evaluated from the new position.
+  const [cx, cz] = MASK_CENTRE[d.variant] ?? MASK_CENTRE.tilt;
+  const x = d.maskA === 0 ? cx : d.mx;
+  const z = d.maskA === 0 ? cz : d.mz;
+  const nearest = nearestMaskRider(d.P, x, z);
   if (d.ms === 1) {
     // orbit (FUN_800bd67c): pos = centre (+0x88/+0x90 = spawn point) + 1500 * (SIN(SIN(a/2)), COS(COS(a/2))), then a (DAT_800d5474) += 8
-    const u = d.maskA >> 1;
-    const [cx, cz] = MASK_CENTRE[d.variant] ?? MASK_CENTRE.tilt;
-    d.mx = cx + ((1500 * SIN(SIN(u))) >> 12); d.mz = cz + ((1500 * T(T(u) & 0xfff)) >> 12);
+    [d.mx, d.mz] = maskOrbit(d.maskA, cx, cz);
+    pose.y = d.over ? pose.y - 16 : (MASK_HEIGHT[d.variant] ?? MASK_HEIGHT.tilt) + (SIN(d.maskA * 16) >> 6);
     d.maskA += 8;
   }
   // FUN_800bd67c item part. Mask +0x14 ms (1 orbit, 2 beam), +0x58 m58 counter, +100 m100 next-beam time, +0x60 beam length 0x78,
@@ -1215,19 +1407,25 @@ function maskItems(w: World, d: Data) {
   // DAT_800d544c: the beam clock stops while the TILT seal is out (FUN_800c358c sets it on entry 0 -> 2, clears it on 7 -> 6)
   const sealOut = !!d.seal && d.seal.st !== 0 && d.seal.st !== 6;
   if (d.ms === 1 && !d.over && !sealOut) {
-    if (++d.m58 >= d.m100) {
+    d.m58++;
+    if (d.m100 - d.m58 === 15) E(w, 'beamWarn', d.mx, d.mz);
+    if (d.m58 >= d.m100) {
       let k = MASK_ITEMS[ri(w, 4)];
       if (d.noHuman) k = k === 0 ? 6 : k === 1 ? 5 : k;
       d.mk = k; d.m58 = 0; d.ms = 2;
+      pose.effect = { kind: 'beam', age: 0, x: d.mx, z: d.mz };
       E(w, 'beam', d.mx, d.mz, -1, CLIENT_ITEM[k]);
     }
   }
+  const aimingDown = d.ms === 2;
   if (d.ms === 2 && ++d.m58 >= 0x78) { d.ms = 1; d.m58 = 0; E(w, 'beamEnd', d.mx, d.mz, -1, 0); }
+  aimMask(pose, nearest, d.mx, d.mz, aimingDown);
   if (d.ms === 2) {
     for (let i = 0; i < 4; i++) {
       const q = d.P[i];
       if (!q || (q.fl & F_ELIM) || d.mh !== -1 || dist2(q.x, q.z, d.mx, d.mz) >= 0x19000) continue;
       d.mh = i; d.ms = 1; d.m58 = 0;
+      pose.effect = { kind: 'pickup', age: 0, x: d.mx, z: d.mz };
       const k = d.mk;
       if (d.variant === 'polar') d.fxT = 4;
       if (k === 0 || k === 1) {
@@ -1320,13 +1518,16 @@ const ringPt = (a: number): [number, number] => [(SIN(a) * 0x115) >> 9, (T(a) * 
 /** FUN_800c0fe8: melt sector s (state 1) and half-melt its neighbours (2 = the half toward s - 1 goes, 3 = toward s + 1, 4 = both). */
 function meltSector(w: World, d: Data, s: number) {
   const n = (s + 1) & 0xf, p = (s - 1) & 0xf;
-  const set = (i: number, st: number) => { d.sec[i] = st; d.secT[i] = 0; d.secN[i]++; };
-  const next = () => { if (d.sec[n] === 0) set(n, 2); else if (d.sec[n] === 3) set(n, 4); };
-  const prev = () => { if (d.sec[p] === 0) set(p, 3); else if (d.sec[p] === 2) set(p, 4); };
+  // Animation group depends on which half melted first (sector record +0xc4).
+  const set = (i: number, st: number, group: number) => {
+    d.sec[i] = st; d.secT[i] = 0; d.secN[i]++; d.secAnim[i] = group;
+  };
+  const next = () => { if (d.sec[n] === 0) set(n, 2, 6); else if (d.sec[n] === 3) set(n, 4, 4); };
+  const prev = () => { if (d.sec[p] === 0) set(p, 3, 7); else if (d.sec[p] === 2) set(p, 4, 2); };
   const cnt = d.secN[s];
-  if (cnt === 0) { set(s, 1); next(); prev(); }
-  else if (cnt === 1) { if (d.sec[s] === 2 || d.sec[s] === 3) set(s, 1); prev(); next(); }
-  else if (cnt === 2) { if (d.sec[s] === 4) set(s, 1); }
+  if (cnt === 0) { set(s, 1, 0); next(); prev(); }
+  else if (cnt === 1) { if (d.sec[s] === 2 || d.sec[s] === 3) set(s, 1, d.sec[s] === 2 ? 3 : 5); prev(); next(); }
+  else if (cnt === 2) { if (d.sec[s] === 4) set(s, 1, 1); }
   else return;
   const a = s * 256 + 0x7d + 128;
   E(w, 'melt', (SIN(a) * 2210) >> 12, (T(a) * 2210) >> 12, -1, s);
@@ -1337,9 +1538,11 @@ function meltSector(w: World, d: Data, s: number) {
  * 3 item running, 2 leaving. While the item clock +0x64 is negative the first bear (from a random slot) closer than 320 units
  * gets a random item; the clock only runs during an item, so after a bomb (it is left at 0xd2) the mask hands out nothing more.
  */
-function meltMaskTick(w: World, d: Data) {
+function meltMaskTick(w: World, d: Data, pose: PolarEmitterPose) {
   const r4 = ri(w, 4);
   const a0 = at2(d.mx, d.mz);
+  let [pitch, yaw] = meltHover(pose, d.mState === 2);
+  let orient = true;
   for (let i = 0; i < SECTORS; i++) if (d.secN[i] !== 0 && d.secT[i] < 0x74) d.secT[i] += 4;
   for (let i = 0; i < 4; i++) if (d.cool[i] > 0) d.cool[i]--;
   if (d.m64 < 0) {
@@ -1349,6 +1552,7 @@ function meltMaskTick(w: World, d: Data) {
       q.vx = q.vz = q.tvx = q.tvz = 0;
       const k = MELT_ITEMS[ri(w, 4)];
       d.mh = i; d.mState = 3; d.mk = k;
+      pose.effect = { kind: 'pickup', age: 0, x: d.mx, z: d.mz };
       d.m64 = k === 2 ? ri(w, 0x3c) + 0x5a : k === 0 ? ri(w, 0x3c) + 0x96 : k === 5 ? 0x14a : ri(w, 0x3c) + 300;
       d.t38[i] = 0; d.k18[i] = k; d.k28[i] = k; d.t70 = 0xf;
       if (k === 0) { q.mass = 0x50; q.spd = 0x40; }
@@ -1360,27 +1564,39 @@ function meltMaskTick(w: World, d: Data) {
   }
   switch (d.mState) {
     case 0: {
-      if (d.over) { d.mState = 2; break; }
-      if (d.mx < d.mTx) d.mx += 0x20;
-      if (d.mTx < d.mx) d.mx -= 0x20;
-      if (d.mz < d.mTz) d.mz += 0x20;
-      if (d.mTz < d.mz) d.mz -= 0x20;
+      if (d.over) { d.mState = 2; orient = false; break; }
+      d.mx = meltTravelAxis(d.mx, d.mTx);
+      d.mz = meltTravelAxis(d.mz, d.mTz);
+      d.meltCamera = [d.mx, d.mz];
+      pose.speed += Math.sign(pose.targetSpeed - pose.speed);
+      const angle = at2(d.mx, d.mz);
+      if (pose.speed === pose.targetSpeed && Math.abs((angle - d.mTarget) << 20 >> 20) <= Math.abs(pose.speed) * 8) pose.targetSpeed = 0;
       const dx = d.mx - d.mTx, dz = d.mz - d.mTz;
       if (imul(dx, dx) + imul(dz, dz) > 0xfff) break;
       let u = ri(w, 0x1000);
       d.mState = 1; d.mb4 = 0x3c;
-      meltSector(w, d, ((a0 + 1) & 0xfff) >> 8); // sfx 0x489 (silent) + 0x44c
+      pose.effect = { kind: 'melt', age: 0, x: d.mx, z: d.mz };
+      meltSector(w, d, ((a0 + 1) & 0xfff) >> 8); // sfx 0x489 and loop 0x44c
       let all = true;
       for (let n = 0; n < 0x10; n++) { const i = u & 0xf; u++; if (d.sec[i] !== 1) { all = false; break; } }
-      if (all) { d.mState = 2; break; }
+      if (all) { d.mState = 2; orient = false; break; }
       d.mTarget = ((u & 0xf) * 0x100 - 0x40) & 0xfff; // one past the first sector still there: the mask stops over that sector
       [d.mTx, d.mTz] = ringPt(d.mTarget);
+      pose.speed = 0;
+      pose.targetSpeed = ((angle - d.mTarget) << 20) < 0 ? 12 : -12;
       break;
     }
-    case 1: if (--d.mb4 === -1) { d.mState = 0; d.mb4 = 0xf0; } break;
-    case 3: meltItem(w, d); break;
+    case 1: yaw = pitch = 0; if (--d.mb4 === -1) { d.mState = 0; d.mb4 = 0xf0; } break;
+    case 2: pose.y -= 16; break;
+    case 3: {
+      const fuseEnded = d.mk === 5 && d.c6c !== 5 && d.t68 <= 1;
+      meltItem(w, d);
+      if (fuseEnded) orient = false;
+      break;
+    }
     case 4: if (d.m64-- < 0) d.mState = 0; break;
   }
+  if (orient) aimMeltMask(pose, pitch, yaw);
   for (let i = 0; i < SECTORS; i++) d.melt[i] = d.sec[i] === 0 ? 0 : (d.secT[i] / 0x74) * (d.sec[i] === 1 ? 1 : 0.4);
   d.radius = PO_RADIUS * (1 - (d.melt.reduce((x, y) => x + y, 0) / SECTORS) * 0.5);
   d.beam = 0;
@@ -1453,7 +1669,7 @@ function pillars(w: World, d: Data, q: PoP, s: number) {
     q.x = (q.x - m12(pu, SIN(a))) | 0; q.z = (q.z - m12(pu, T(a))) | 0;
     const u = at2(q.x, q.z) & 0xfff, spd = sq(imul(q.vx, q.vx) + imul(q.vz, q.vz));
     q.vx = -(imul(spd, T(0x400 - u)) >> 13); q.vz = -(imul(spd, T(-u)) >> 13);
-    if (speed0(q.ch) * 192 < spd * q.mass) { pl[2] = 0; ri(w, 3); E(w, 'pillar', pl[0], pl[1], s, 1); } // 3 ice chunks (0x1604), sfx 0x46a-c (silent)
+    if (speed0(q.ch) * 192 < spd * q.mass) { pl[2] = 0; E(w, 'pillar', pl[0], pl[1], s, ri(w, 3)); } // 3 ice chunks (0x1604), sfx 0x46a-c
     return;
   }
 }
@@ -1584,15 +1800,14 @@ function tiltTick(d: Data) {
 
 const E = (w: World, k: string, gx: number, gz: number, s = -1, v = 1, o = -1) => emit(w, k, gx * U, gz * U, s, v, o);
 
-/** throws = this bear carries a bolt (MANIC): B is Circle (throw) instead of a second Square */
-function padOf(inp: InputState, throws = false): number {
+function padOf(inp: InputState): number {
   let b = 0;
   if (inp.y > 0.4) b |= 0x10; // +z (the view's +z)
   if (inp.y < -0.4) b |= 0x40;
   if (inp.x < -0.4) b |= 0x80;
   if (inp.x > 0.4) b |= 0x20;
-  if (inp.a || (inp.b && !throws)) b |= 0x8000;
-  if (inp.b && throws) b |= 0x2000;
+  if (inp.a) b |= 0x8000;
+  if (inp.b) b |= 0x2000;
   return b;
 }
 
@@ -1601,7 +1816,7 @@ function newP(id: number, cpu: boolean, sk: number, x: number, z: number): PoP {
   return {
     ch: id, cpu, sk, st: S_IDLE, pst: S_IDLE, fl: 0, lk: 0, x, y: 0, z, yaw: s16(yaw), sc: 0x1000,
     vx: 0, vz: 0, tvx: 0, tvz: 0, acx: 2, dcx: 1, acz: 2, dcz: 1, mass: mass0(id), ty: yaw & 0xffff, qy: 0, spd: speed0(id),
-    af: 1, clip: 0, k: 0, g: 0x100, pr: 0, ss: 0, md: 0, sc1c: 0, ac: 0, held: 0, pressed: 0, ang: 0, nb: 0, pb: 0,
+    af: 0, clip: 0, k: 0, g: 0x100, pr: 0, ss: 0, md: 0, sc1c: 0, ac: 0, held: 0, pressed: 0, ang: 0, nb: 0, pb: 0,
     ai: { tx: 0, tz: 0, sx: 0, sz: 0, cnt: 0, tgt: 0, ev: 0, st: H_IDLE, h: H_IDLE, fl: 0, per: 1, dir: 0, f4c: 0, f58: 0, dcd: 0, f54: 0, on: 0, c24: 0, a2a: 0, bits: 0 },
     by: -1, byT: -999, s98: 0, hold: 0, imm: 0,
   };
@@ -1614,6 +1829,31 @@ const PO_STARTS: Record<string, [number, number][]> = {
   melt: [[-1379, -1758], [-1433, 1372], [1206, 1372], [1293, -1687]],
   manic: [[-1506, -1580], [-1588, 1290], [1291, 1360], [1277, -1597]],
 };
+/** The round snapshot has already run these ticks, so the countdown renders this pre-roll locally. */
+export function polarEmitterIntro(variant: string, slots: number[], target: number) {
+  const [cx, cz] = MASK_CENTRE[variant] ?? [0, 0];
+  let x = cx, z = cz;
+  const starts = PO_STARTS[variant] ?? PO_STARTS.tilt;
+  const riders = starts.map(([x, z], slot) => slots.includes(slot) ? { x, y: 0, z, fl: 0 } : null);
+  const pose = newMaskPose(variant);
+  const frames = [{ x, z, pose: { ...pose } }];
+  const [tx, tz] = ringPt(target);
+  for (let i = 0; i < POLAR_INTRO_TICKS; i++) {
+    pose.tick++;
+    if (variant === 'melt') {
+      const [pitch, yaw] = meltHover(pose, false);
+      if (i >= 92) { x = meltTravelAxis(x, tx); z = meltTravelAxis(z, tz); }
+      aimMeltMask(pose, pitch, yaw);
+    } else {
+      const q = nearestMaskRider(riders, x, z);
+      [x, z] = maskOrbit(i * 8, cx, cz);
+      pose.y = MASK_HEIGHT[variant] + (SIN(i * 0x80) >> 6);
+      aimMask(pose, q, x, z, false);
+    }
+    frames.push({ x, z, pose: { ...pose } });
+  }
+  return frames;
+}
 /** POLAR PANIC pillars: the 40 stage sub-objects with collision (models 0x5003-0x500a) in list order DAT_800d6010 (L19 RAM). */
 export const POLAR_PILLARS: [number, number][] = [[-181,-2410],[253,-2411],[659,-2368],[-142,2395],[288,2392],[661,2360],[-2366,623],[-2406,253],[-2410,-176],[2435,648],[2485,225],[2483,-232],[-1390,-2175],[-962,-2300],[-558,-2374],[-2373,-589],[-2320,-959],[-2210,-1406],[2452,-603],[2391,-1024],[2270,-1466],[2091,1823],[2258,1462],[2367,1015],[-2043,-1732],[-1730,-2019],[2121,-1760],[1833,-2058],[1441,-2217],[1072,-2293],[1067,2277],[1499,2184],[1831,2063],[-2011,1765],[-2185,1447],[-2293,1030],[-1751,2010],[-1360,2191],[-972,2295],[-552,2360]];
 
@@ -1645,23 +1885,58 @@ function playerTick(w: World, d: Data, q: PoP, s: number) {
   integrate(q);
 }
 
+/** Player and object dispatch continues during the native TIE sequence. */
+function advancePolarArena(w: World, d: Data, tiltActive = !d.over) {
+  d.noHuman = !d.P.some((q) => q && !q.cpu && !(q.fl & 0xfa00));
+  if (variant6004(d)) { if (d.d6004 === 0 && d.mh !== -1) d.d6004 = 1; if (d.d6004 === -1 && d.mh === -1) d.d6004 = 0; } // FUN_800bb810
+  if (tiltActive) tiltTick(d);
+  if (poTest.pre) poTest.pre(w, d);
+  ri(w, 0x100); // one engine rand per tick before the player loop (a pre-updated object, not identified; replay-verified count)
+  const oi = ri(w, 16);
+  const order = poTest.order ?? d.ord[oi];
+  for (const s of order) { const q = d.P[s]; if (q) playerTick(w, d, q, s); }
+  // FUN_800bcc9c (cosmetic): after 0xd1 level ticks a CPU standing idle in evade / wander starts its fidget script once
+  // (engine characters 1-4 and 7); it lasts until the bear leaves the idle state (the flag +0x50 clears)
+  d.fid ??= [0, 0, 0, 0];
+  for (let s = 0; s < 4; s++) {
+    const q = d.P[s];
+    if (!q || q.st !== S_IDLE) { d.fid[s] = 0; continue; }
+    if (d.fid[s] || (d.t > 0xd1 && q.cpu && (q.ai.st === H_EVADE || q.ai.st === H_WANDER) && [1, 2, 3, 4, 7].includes(q.ch))) d.fid[s]++;
+  }
+  // one bear was left when this tick began: it is flagged 0x200 after the bears and before the objects (a carried bolt goes this tick)
+  if (!d.over && d.one === 1) { const st = d.P.filter((q): q is PoP => !!q && !(q.fl & F_ELIM)); if (st.length === 1) st[0].fl |= F_WON; }
+  // FUN_8007976c: level tick (8007906c), the bears (80083e8c), then the object list (mask, seal, MANIC bolts).
+  // Replay-confirmed: a mask pickup zeroes v after that tick's integration.
+  if (!poTest.noObjects) { maskTick(w, d); if (!poTest.noSeal) sealTick(w, d); boltTick(w, d); }
+  if (poTest.post) poTest.post(w, d);
+  d.t++;
+}
+
 export const pushOff: MiniGame = {
   id: 'pushOff',
   name: 'Polar Push',
-  description: 'Slide into the other bears to knock them off the ice. Last bear standing wins.',
-  controls: '{move} skate. {a} dash (needs gauge); mash {a} to climb back from the edge. Manic Panic: {b} throws the bolt you carry.',
+  description: 'Knock rivals off the tilting ice. Watch for the seal. Last standing wins.',
+  variantDescriptions: {
+    polar: 'Break the rim pillars to open gaps, then knock rivals off. Last standing wins.',
+    melt: 'Knock rivals off as Uka Uka melts the rim. Last standing wins.',
+    manic: 'Knock rivals off the ice. Bolts unseat riders and eliminate players on foot. Last standing wins.',
+  },
+  controls: '{move} skate. {a} dash (uses meter). Tap {a} repeatedly to climb if hanging.',
+  variantControls: { manic: '{move} move. {a} dash (uses meter). Tap {a} repeatedly to climb if hanging. {b} throw a bolt.' },
   variants: PO_VARIANTS,
+  settlesAfterTimeout: true,
   maxTime: 90, // FUN_800bafa0: FUN_8007b7fc(0x130) = 1:30 clock
 
   setup(w, slots) {
     const variant = pickVariant(w, PO_VARIANTS);
     const chars = w.data?.chars as number[] | undefined; // optional host override: roster index per slot
     const d: Data = {
+      random: discRandomState(w.rng),
       variant, radius: PO_RADIUS, tilt: [0, 0], tiltRad: [0, 0], meter: [0, 0, 0, 0], hang: [0, 0, 0, 0], item: [0, 0, 0, 0], itemT: [0, 0, 0, 0], scale: [1, 1, 1, 1],
       elim: [-1, -1, -1, -1], melt: new Array(SECTORS).fill(0), pillars: variant === 'polar' ? POLAR_PILLARS.map(([x, z]) => [x, z, 1]) : [],
       P: [null, null, null, null], ord: [], ax: 0, az: 0, rayLen: 0x658, over: false, t: 0, one: 0, flags: [0, 0, 0, 0], d5ffc: 1, d6004: 0, noHuman: false,
-      maskA: 0, mx: 0, mz: 0, beam: 0, ms: 1, m58: 0, m100: 210, mk: 0, mh: -1, k18: [-1, -1, -1, -1], k28: [-1, -1, -1, -1], t38: [0, 0, 0, 0], t68: 0, t70: 0, c6c: 5, cool: [0, 0, 0, 0], human: [false, false, false, false], seal: null,
-      sec: new Array(SECTORS).fill(0), secN: new Array(SECTORS).fill(0), secT: new Array(SECTORS).fill(0),
+      maskA: 0, mx: 0, mz: 0, beam: 0, maskView: newMaskPose(variant), ms: 1, m58: 0, m100: 210, mk: 0, mh: -1, k18: [-1, -1, -1, -1], k28: [-1, -1, -1, -1], t38: [0, 0, 0, 0], t68: 0, t70: 0, c6c: 5, cool: [0, 0, 0, 0], human: [false, false, false, false], seal: null,
+      sec: new Array(SECTORS).fill(0), secN: new Array(SECTORS).fill(0), secT: new Array(SECTORS).fill(0), secAnim: new Array(SECTORS).fill(0),
       mTarget: 0, mTx: 0, mTz: 0, mState: 4, m64: 0x5a, mb4: 300,
       sp: { st: 0, t: 0xb4, n: 0 }, bolts: [], foot: [0, 0, 0, 0], hold: [0, 0, 0, 0], fid: [0, 0, 0, 0], fxT: 0,
     };
@@ -1691,13 +1966,14 @@ export const pushOff: MiniGame = {
     // so at GO most CPUs are in attack (+0x30 = 1) on a random rival with part of their countdown used.
     d.noHuman = !d.P.some((q) => q && !q.cpu);
     if (variant === 'tilt') d.seal = newSeal(w); // made at level setup: its timer already runs during the intro
-    for (let t = 0; t < INTRO; t++) introTick(w, d);
+    for (let t = 0; t < POLAR_INTRO_TICKS; t++) introTick(w, d);
     for (const q of d.P) if (q) { q.nb = 0; q.pb = 0; }
-    const m = addBody(w, 'mask', -1, d.mx * U, d.mz * U, 0.5, 1); m.y = 0.3;
+    addBody(w, 'mask', -1, d.mx * U, d.mz * U, 0.5, 1);
     if (variant === 'tilt' && d.seal) {
       const sb = addBody(w, 'seal', -1, d.seal.x * U, d.seal.z * U, 0x100 * U, 4);
       sb.alive = false;
     }
+    updatePolarCamera(d, false, false, true);
     sync(w, d);
   },
 
@@ -1710,34 +1986,12 @@ export const pushOff: MiniGame = {
       if (!q) continue;
       if (poTest.pads) { const b = poTest.pads[s]; q.pressed = b.pressed; q.held = b.held; q.ang = b.ang; continue; }
       if (!q.cpu) {
-        const b = padOf(inputs[s] ?? IDLE, q.hold > 0);
+        const b = padOf(inputs[s] ?? IDLE);
         if (d.t === 0) q.pb = b; // the pad's previous bits keep tracking during the intro: a button held through GO is not a press (replay)
         q.pressed = b & ~q.pb; q.held = b; q.pb = b; q.ang = stickAngle(b);
       } else { q.pressed = q.nb & ~q.pb; q.held = q.nb; q.pb = q.nb; q.ang = stickAngle(q.nb); }
     }
-    d.noHuman = !d.P.some((q) => q && !q.cpu && !(q.fl & 0xfa00));
-    if (variant6004(d)) { if (d.d6004 === 0 && d.mh !== -1) d.d6004 = 1; if (d.d6004 === -1 && d.mh === -1) d.d6004 = 0; } // FUN_800bb810
-    tiltTick(d);
-    if (poTest.pre) poTest.pre(w, d);
-    ri(w, 0x100); // one engine rand per tick before the player loop (a pre-updated object, not identified; replay-verified count)
-    const oi = ri(w, 16);
-    const order = poTest.order ?? d.ord[oi];
-    for (const s of order) { const q = d.P[s]; if (q) playerTick(w, d, q, s); }
-    // FUN_800bcc9c (cosmetic): after 0xd1 level ticks a CPU standing idle in evade / wander starts its fidget script once
-    // (engine characters 1-4 and 7); it lasts until the bear leaves the idle state (the flag +0x50 clears)
-    d.fid ??= [0, 0, 0, 0];
-    for (let s = 0; s < 4; s++) {
-      const q = d.P[s];
-      if (!q || q.st !== S_IDLE) { d.fid[s] = 0; continue; }
-      if (!d.fid[s] && d.t > 0xd1 && q.cpu && (q.ai.h === H_EVADE || q.ai.h === H_WANDER) && [1, 2, 3, 4, 7].includes(q.ch)) d.fid[s] = 1;
-    }
-    // one bear was left when this tick began: it is flagged 0x200 after the bears and before the objects (a carried bolt goes this tick)
-    if (d.one === 1) { const st = d.P.filter((q): q is PoP => !!q && !(q.fl & F_ELIM)); if (st.length === 1) st[0].fl |= F_WON; }
-    // FUN_8007976c: level tick (8007906c), the bears (80083e8c), then the object list (mask, seal, MANIC bolts).
-    // Replay-confirmed: a mask pickup zeroes v after that tick's integration.
-    if (!poTest.noObjects) { maskTick(w, d); if (!poTest.noSeal) sealTick(w, d); boltTick(w, d); }
-    if (poTest.post) poTest.post(w, d);
-    d.t++;
+    advancePolarArena(w, d);
     // last bear standing (flag 0x200) / three out -> round over (DAT_800d4dec)
     // (the engine flags the survivor 0x200 one tick after the last elimination, see above; the round stops the tick after that)
     const all = d.P.filter((q): q is PoP => !!q);
@@ -1747,6 +2001,9 @@ export const pushOff: MiniGame = {
       if (d.one >= 3) d.over = true;
     }
     if (all.filter((q) => q.st === S_OUT).length >= all.length - 1) d.over = true;
+    if (w.tick + 1 >= POLAR_TIMEOUT_TICK) d.over = true;
+    const winner = standing.find(q => q.fl & F_WON);
+    updatePolarCamera(d, d.over || !!winner, winner?.st === S_WIN, winner?.st !== S_WIN);
     sync(w, d);
   },
 
@@ -1754,15 +2011,21 @@ export const pushOff: MiniGame = {
     return (w.data as Data).over;
   },
 
+  isDraw(w) {
+    const { P } = w.data as Data;
+    // FUN_80084788 compares the same 20 points for every surviving rider.
+    return !P.some(q => q && (q.fl & F_WON)) && P.filter(q => !elim(q)).length !== 1;
+  },
+
   placements(w) {
     const d = w.data as Data;
-    const R = (s: number) => { const q = d.P[s]; return q ? Math.hypot(q.x, q.z) : 1e9; };
     return [0, 1, 2, 3].sort((a, b) => {
       const pa = d.P[a], pb = d.P[b];
       if (!pa || !pb) return pa ? -1 : pb ? 1 : a - b;
+      if ((pa.fl ^ pb.fl) & F_WON) return pa.fl & F_WON ? -1 : 1;
       const ea = elim(pa), eb = elim(pb);
       if (ea !== eb) return ea ? 1 : -1;
-      if (!ea) return R(a) - R(b) || a - b;
+      if (!ea) return a - b;
       return d.elim[b] - d.elim[a] || a - b;
     });
   },
@@ -1779,7 +2042,7 @@ export const pushOff: MiniGame = {
       let h = (Math.imul(w.tick + 1, 0x9e3779b1) ^ Math.imul(slot + 1, 0x85ebca6b) ^ Math.imul(c, 0xc2b2ae35)) >>> 0;
       h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0;
       h = Math.imul(h ^ (h >>> 12), 0x297a2d39) >>> 0;
-      return n < 2 ? 0 : (h ^ (h >>> 15)) % n;
+      return n < 2 ? 0 : ((h ^ (h >>> 15)) >>> 0) % n;
     };
     try { q.ai.bits = 0; decide(w, d, q, slot); handler(w, d, q, slot); } finally { poTest.rng = saved; }
     const b = q.ai.bits | (q.pr === 8 ? 0x8000 : 0);
@@ -1799,7 +2062,7 @@ function sync(w: World, d: Data) {
       b.x = q.x * U; b.z = q.z * U; b.vx = q.vx * 30 * U; b.vz = q.vz * 30 * U; b.face = faceOf(q.yaw);
       const falling = q.st === S_OUT || q.st === S_BLAST || (q.st === S_SLIP && (q.ac !== 0 || q.af >= 0x21));
       b.fall = falling;
-      b.y = falling ? -(Math.max(q.y, (q.af - 0x21) * 0x30) * U) : 0;
+      b.y = -q.y * U;
       b.alive = q.st !== S_OUT && !(q.fl & F_OUT);
       b.dash = q.st === S_DASH ? 0.2 : 0;
       b.cd = 0;
@@ -1810,10 +2073,12 @@ function sync(w: World, d: Data) {
       d.itemT[b.slot] = Math.max(0, itT / 30);
       d.scale[b.slot] = q.sc / 0x1000;
       d.foot[b.slot] = q.md; d.hold[b.slot] = q.hold;
-    } else if (b.kind === 'mask') { b.x = d.mx * U; b.z = d.mz * U; }
+    } else if (b.kind === 'mask') {
+      b.x = d.mx * U; b.y = -(d.maskView?.y ?? MASK_HEIGHT[d.variant] ?? MASK_HEIGHT.tilt) * U; b.z = d.mz * U;
+    }
     else if (b.kind === 'seal' && d.seal) {
       const sl = d.seal;
-      b.x = sl.x * U; b.z = sl.z * U; b.y = -sl.y * U; b.face = faceOf(sl.yaw); b.alive = sl.st !== 0 && sl.st !== 2 && sl.st !== 6;
+      b.x = sl.x * U; b.z = sl.z * U; b.y = -sl.y * U; b.face = faceOf(sl.yaw); b.alive = sl.st !== 0 && sl.st !== 2;
     }
   }
   if (d.variant === 'manic') { // one 'bolt' body per pickup / thrown bolt (not while it explodes), 'flybear' for a knocked-off bear (0x1611)

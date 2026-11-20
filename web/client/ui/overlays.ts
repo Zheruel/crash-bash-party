@@ -1,10 +1,13 @@
-import { COLORS } from '../../shared/look';
-import type { ResultsMsg, RoundMsg, WheelMsg } from '../../shared/protocol';
-import { sfx } from '../shell/sound';
-import { ASSET_BASE } from '../crash';
-import { div, esc, face, icon, pop } from './dom';
+import * as THREE from 'three';
+import { ballistixSlidesHorizontally } from '../../shared/games/ballDefence';
+import { COUNT_FRAMES, COUNT_LABELS, type ResultsMsg, type RoundMsg, type WheelMsg } from '../../shared/protocol';
+import { sfx, sfxRate } from '../shell/sound';
+import { ASSET_BASE, ModelInstance, ready } from '../crash';
+import { div, esc, face, icon, MENU_PLAYERS, pop } from './dom';
 import type { SeatView } from './hud';
-import { KEYS } from '../input';
+import { padLayout, PAD_LABEL, type Button } from '../pad';
+import { keyLabels } from '../input';
+import './round-screens.css';
 
 const UKA = `${ASSET_BASE}ui/uka.png`;
 /** the level each mini-game's reel card shows before the pick (its first real level) */
@@ -14,22 +17,33 @@ export const thumb = (game: string, variant?: string | null) => {
   const v = variant ?? FIRST[game];
   return `${ASSET_BASE}ui/thumbs/${game}${v ? '_' + v : ''}.jpg`;
 };
-const kbd = (k: string, alt?: string) => `<kbd${alt ? ` title="or ${alt}"` : ''}>${k}</kbd>`;
-/** how-to-play key tokens: keyboard caps, or the touch stick / face buttons */
-const KEY_HTML: Record<string, [string, string]> = {
-  move: [`${kbd('W')}${kbd('A')}${kbd('S')}${kbd('D')}<i>/</i>${kbd('&larr;')}${kbd('&uarr;')}${kbd('&darr;')}${kbd('&rarr;')}`, '<kbd class="pad">STICK</kbd>'],
-  lr: [`${kbd('A')}${kbd('D')}<i>/</i>${kbd('&larr;')}${kbd('&rarr;')}`, '<kbd class="pad">STICK &harr;</kbd>'],
-  up: [`${kbd('W')}<i>/</i>${kbd('&uarr;')}`, '<kbd class="pad">STICK &uarr;</kbd>'],
-  a: [kbd(KEYS.a[0], KEYS.a[1]), '<kbd class="pad x">&#x2715;</kbd>'],
-  b: [kbd(KEYS.b[0], KEYS.b[1]), '<kbd class="pad o">&#x25CB;</kbd>'],
-  c: [kbd(KEYS.c[0], KEYS.c[1]), '<kbd class="pad t">&#x25B3;</kbd>'],
-  l: [kbd(KEYS.l[0]), ''],
-  r: [kbd(KEYS.r[0]), ''],
+const kbd = (key: string, alt?: readonly string[]) =>
+  `<kbd${alt?.length ? ` title="Also ${esc(alt.join(' / '))}"` : ''}>${esc(key)}</kbd>`;
+const movement: Record<string, [string, string]> = {
+  move: [kbd('←') + kbd('↑') + kbd('↓') + kbd('→'), 'STICK'],
+  lr: [kbd('←') + kbd('→'), 'STICK ↔'],
+  ud: [kbd('↑') + kbd('↓'), 'STICK ↕'],
+  up: [kbd('↑'), 'STICK ↑'],
 };
-/** a game's controls text ('{a} jump. Hold {b} to ...') as one line per sentence with key caps */
-export function controlsHtml(text: string, touch: boolean): string {
-  return text.split(/(?<=\.)\s+(?=[{A-Z])/).filter((s) => !(touch && /\{[lr]\}/.test(s))).map((s) =>
-    `<li>${esc(s).replace(/\{(\w+)\}/g, (_, k: string) => `<span class="keys">${KEY_HTML[k]?.[touch ? 1 : 0] ?? k}</span>`)}</li>`).join('');
+
+/** Render the current stage's actual bindings in the rules and the game menu. */
+export function controlsHtml(text: string, touch: boolean, game = '', variant?: string, slot: number | null = null): string {
+  const layout = padLayout(game, variant);
+  const key = (token: string) => {
+    const direction = token === 'move' && game === 'ballDefence' && slot !== null
+      ? movement[ballistixSlidesHorizontally(slot) ? 'lr' : 'ud']
+      : movement[token];
+    if (direction) return touch ? `<kbd class="pad">${direction[1]}</kbd>` : direction[0];
+    const button = token as Button;
+    // Earlier Ballistix hosts label the standard boost as {b}. The touch shoulder drives the same action.
+    const pad = layout[button] ?? (game === 'ballDefence' && button === 'b' ? layout.r : undefined);
+    if (touch && pad !== undefined) return `<kbd class="pad">${PAD_LABEL[pad]}</kbd>`;
+    if (!['a', 'b', 'c', 'd', 'l', 'r'].includes(token)) return esc(token);
+    const keys = keyLabels(button);
+    return kbd(keys[0], keys.slice(1));
+  };
+  return text.split(/(?<=\.)\s+(?=[{A-Z])/).map(s =>
+    `<li>${esc(s).replace(/\{(\w+)\}/g, (_, token: string) => `<span class="keys">${key(token)}</span>`)}</li>`).join('');
 }
 const MENU_MOVE = 'sfx/0272/7.mp3', MENU_SELECT = 'sfx/0272/9.mp3';
 
@@ -38,12 +52,13 @@ const MENU_MOVE = 'sfx/0272/7.mp3', MENU_SELECT = 'sfx/0272/9.mp3';
  * the picked card flips to its real level with the level name stamped on. A twist is announced by Uka Uka.
  */
 export class WheelOverlay {
-  readonly el = div('overlay wheelov hidden');
+  readonly el = div('overlay round-screen wheelov hidden');
   private raf = 0;
+  private resize?: ResizeObserver;
   private token = 0;
   private timers: number[] = [];
 
-  hide() { this.token++; cancelAnimationFrame(this.raf); this.timers.forEach(clearTimeout); this.timers = []; this.el.classList.add('hidden'); this.el.classList.remove('twisted', 'landed', 'showdown'); this.el.innerHTML = ''; }
+  hide() { this.token++; this.resize?.disconnect(); this.resize = undefined; cancelAnimationFrame(this.raf); this.timers.forEach(clearTimeout); this.timers = []; this.el.classList.add('hidden'); this.el.classList.remove('twisted', 'landed', 'showdown'); this.el.innerHTML = ''; }
 
   run(m: WheelMsg, turnLabel: string) {
     this.hide();
@@ -63,9 +78,7 @@ export class WheelOverlay {
     const strip = this.el.querySelector('.reel-strip') as HTMLElement;
     const reel = this.el.querySelector('.reel') as HTMLElement;
     const first = strip.firstElementChild as HTMLElement;
-    const step = first.offsetWidth + parseFloat(getComputedStyle(first).marginRight || '0') + parseFloat(getComputedStyle(first).marginLeft || '0');
-    const centre = (i: number) => reel.clientWidth / 2 - (i + 0.5) * step;
-    const x0 = centre(1.5), x1 = centre(LAND);
+    const second = first.nextElementSibling as HTMLElement;
     const spinMs = Math.max(600, m.ms * 0.62);
     const start = performance.now();
     let last = -1;
@@ -73,7 +86,9 @@ export class WheelOverlay {
       if (token !== this.token) return;
       const k = Math.min(1, (now - start) / spinMs);
       const e = 1 - Math.pow(1 - k, 4);
-      const x = x0 + (x1 - x0) * e;
+      const firstBox = first.getBoundingClientRect();
+      const step = second.getBoundingClientRect().left - firstBox.left;
+      const x = reel.clientWidth / 2 - firstBox.width / 2 - (1.5 + (LAND - 1.5) * e) * step;
       strip.style.transform = `translateX(${x}px)`;
       const under = Math.floor((reel.clientWidth / 2 - x) / step);
       if (under !== last) { last = under; if (!sfx.playFile(MENU_MOVE, 0.35 + 0.4 * (1 - k))) sfx.play('tick', 0.8 + 0.4 * (1 - k)); }
@@ -86,6 +101,14 @@ export class WheelOverlay {
   private land(m: WheelMsg, card: HTMLElement, token: number) {
     if (!sfx.playFile(MENU_SELECT, 0.8)) sfx.play('reveal');
     this.el.classList.add('landed');
+    const reel = card.closest<HTMLElement>('.reel')!;
+    const strip = card.parentElement!;
+    const align = () => {
+      strip.style.transform = `translateX(${reel.clientWidth / 2 - card.offsetLeft - card.offsetWidth / 2}px)`;
+    };
+    align();
+    this.resize = new ResizeObserver(align);
+    this.resize.observe(reel);
     card.classList.add('win');
     const img = card.querySelector('.rimg') as HTMLElement;
     const opt = m.options[m.pick];
@@ -95,7 +118,7 @@ export class WheelOverlay {
     }
     if (m.modifier) {
       const mod = this.el.querySelector('.wheel-mod') as HTMLElement;
-      mod.innerHTML = `<img class="uka" src="${UKA}" alt="" draggable="false"><div class="bubble pnl"><small class="sm">UKA UKA'S TWIST!</small><b class="gt red">${esc(m.modifier.name.toUpperCase())}</b><span class="sm">${esc(m.modifier.desc)}</span></div>`;
+      mod.innerHTML = `<img class="uka" src="${UKA}" alt="" draggable="false"><div class="bubble"><b class="gt red">${esc(m.modifier.name.toUpperCase())}</b><span class="sm">${esc(m.modifier.desc)}</span></div>`;
       this.timers.push(window.setTimeout(() => {
         if (token !== this.token) return;
         mod.classList.remove('hidden');
@@ -112,50 +135,162 @@ export class WheelOverlay {
  * challengers with their real HUD faces, the rules, and a fuse that burns down until the countdown.
  */
 export class IntroOverlay {
-  readonly el = div('overlay introov hidden');
+  readonly el = div('overlay round-screen introov hidden');
   show(m: RoundMsg, variant: { id: string; name: string } | null, mySlot: number | null, seats: SeatView[], touch: boolean, ms = 4000, gameId = '') {
     this.el.classList.remove('hidden');
     const players = [0, 1, 2, 3].map((slot) => {
       const s = seats[slot];
-      if (!s) return '<div class="vsp empty"></div>';
-      const col = COLORS[s.look.color % COLORS.length].hex;
+      if (!s) return '';
+      const col = MENU_PLAYERS[slot].color;
       return `<div class="vsp ${slot === mySlot ? 'me' : ''}" style="--c:${col};--d:${slot * 90}ms">${face(s.look.char, true)}<b class="nm">${esc(s.name.toUpperCase())}</b>${slot === mySlot ? '<i class="badge">YOU</i>' : s.bot ? '<i class="badge bot">CPU</i>' : ''}</div>`;
     });
     this.el.innerHTML = `
-      <div class="intro-bg" style="background-image:url('${thumb(gameId, variant?.id)}')"></div>
-      <div class="intro" role="dialog" aria-label="Rules">
-        <small class="sm">${m.showdown ? 'LAST ROUND - DOUBLE POINTS' : `ROUND ${m.round} OF ${m.total}`}</small>
-        <h1 class="gt red">${esc(m.gameName.toUpperCase())}</h1>
-        ${variant ? `<div class="variant"><span class="gt wh">${esc(variant.name.toUpperCase())}</span></div>` : ''}
-        <div class="vs">${players.slice(0, 2).join('')}<span class="vsx gt or">VS</span>${players.slice(2).join('')}</div>
-        <div class="rules pnl">
-          <p><b class="gt wh">GOAL</b> <span class="sm">${esc(m.desc)}</span></p>
-          <div class="ctl"><b class="gt wh">CONTROLS</b><ul class="sm">${controlsHtml(m.controls, touch)}</ul></div>
-          ${m.modifier ? `<p class="twist"><img src="${UKA}" alt=""><b class="gt red">${esc(m.modifier.name.toUpperCase())}</b> <span class="sm">${esc(m.modifier.desc)}</span></p>` : ''}
+      <div class="intro-bg" style="background-image:url('${thumb(gameId || m.gameId, variant?.id)}')"></div>
+      <div class="intro" role="region" aria-label="Minigame rules">
+        <div class="vs">${players.join('')}</div>
+        <div class="rules">
+          <header class="intro-heading">
+            <small class="round-kicker">${m.cupsToWin ? `First to ${m.cupsToWin} ${m.cupsToWin === 1 ? 'cup' : 'cups'}` : m.showdown ? 'Last round · Double points' : `Round ${m.round} of ${m.total}`}</small>
+            <h1 class="gt or">${esc((variant?.name ?? m.gameName).toUpperCase())}</h1>
+          </header>
+          <p>${esc(m.desc)}</p>
+          <ul class="ctl" aria-label="Controls">${controlsHtml(m.controls, touch, m.gameId, variant?.id, mySlot)}</ul>
+          ${m.modifier ? `<div class="twist"><img src="${UKA}" alt=""><p><strong>${esc(m.modifier.name)}</strong> ${esc(m.modifier.desc)}</p></div>` : ''}
         </div>
-        <div class="fuse"><i style="animation-duration:${Math.max(500, ms)}ms"></i><span class="sm">GET READY!</span></div>
+        <div class="fuse"><i style="animation-duration:${Math.max(500, ms)}ms"></i></div>
       </div>`;
   }
   hide() { this.el.classList.add('hidden'); this.el.innerHTML = ''; }
 }
 
+type CountLabel = typeof COUNT_LABELS[number] | 'GO!' | '';
+// The native countdown and TIE parts of 0732, packaged without the UI atlas.
+const COUNT_MODEL = { model: 9090, parts: ['part1'] };
+/** FUN_80082d90 selects these four parts and cues from the shared match assets. */
+const COUNT_CUES = {
+  '3': { mesh: 0x2004, file: 'sfx/0277/10.mp3' },
+  '2': { mesh: 0x2003, file: 'sfx/0277/9.mp3' },
+  '1': { mesh: 0x2002, file: 'sfx/0277/8.mp3' },
+  'GO!': { mesh: 0x2005, file: 'sfx/0277/11.mp3' },
+};
+// FUN_80082ac4 selects TIE (0x2006) for versus when mode bits 0x1e0 are clear.
+const DRAW_PART = 0x2006;
+const DRAW_AUDIO = 'sfx/0278/13.mp3';
+const GAME_DRAW_AUDIO = new Set(['tilePainter', 'ringDing', 'dragonDrop', 'kegKaboom']);
+
+interface DrawResult {
+  at: number;
+  phaseTick: number;
+  frame: number;
+  scale: number;
+  announced: boolean;
+  playCue: boolean;
+}
+
 export class CountOverlay {
-  readonly el = div('count hidden');
-  private last = '';
-  set(text: string) {
-    if (text === this.last) return;
-    this.last = text;
-    this.el.classList.toggle('hidden', !text);
-    this.el.textContent = text;
-    if (text) { pop(this.el, 'cpop'); this.el.classList.toggle('go', text === 'GO!'); }
+  readonly el = div('count');
+  private readonly scene = new THREE.Scene();
+  private readonly camera = new THREE.PerspectiveCamera(2 * Math.atan(120 / 160) * 180 / Math.PI, 4 / 3, 0.1, 20);
+  private readonly mesh = new ModelInstance(COUNT_MODEL);
+  private loaded = false;
+  private label: CountLabel = '';
+  private voice: ReturnType<typeof sfx.startSample> = null;
+  private frame = 0;
+  private result?: DrawResult;
+
+  constructor() {
+    this.el.setAttribute('role', 'status');
+    // The HUD camera (L0 RAM 0x8009f734) projects at depth 0x800 with vertical scale 0.5 and H = 320.
+    // FUN_8007eb68 puts the pivot at (320, 180); the NTSC capture's active picture starts 16 display pixels down.
+    this.camera.position.z = 2;
+    this.camera.projectionMatrix.elements[0] = 320 * (3276 / 4096) / 256;
+    this.camera.projectionMatrix.elements[9] = (180 + 16) / 240 - 1;
+    this.scene.add(this.mesh.root);
+  }
+
+  async preload() {
+    await ready([COUNT_MODEL]);
+    this.loaded = this.mesh.build();
+  }
+
+  preloadVoices() {
+    for (const cue of Object.values(COUNT_CUES)) sfx.preloadFile(cue.file);
+  }
+
+  set(label: CountLabel, frame = 0) {
+    this.frame = frame;
+    if (label === this.label && !this.result) return;
+    this.label = label;
+    this.result = undefined;
+    this.el.textContent = label;
+    this.voice?.stop();
+    this.voice = label ? sfx.startSample(COUNT_CUES[label].file, null, 0.9, 1) : null;
+  }
+
+  showDraw(at: number, playAt: number, gameId: string) {
+    // L29 leaves the TIE object at state 5 for two updates before FUN_80082d90 starts the scale-in.
+    const startsAt = at + ((gameId === 'malletMash' || gameId === 'tankArena' || gameId === 'pushOff') ? 2 * 1000 / 30 : 0);
+    const phaseTick = Math.floor((startsAt - playAt) * 30 / 1000);
+    this.set('');
+    this.result = { at: startsAt, phaseTick, frame: -1, scale: 0x100, announced: false, playCue: !GAME_DRAW_AUDIO.has(gameId) && performance.now() - at < 700 };
+    this.el.textContent = 'DRAW!';
+    sfx.preloadFile(DRAW_AUDIO);
+  }
+
+  advanceGo(frame: number) {
+    if (this.label === 'GO!') this.set(frame >= COUNT_FRAMES ? '' : 'GO!', frame);
+  }
+
+  private poseDraw(draw: DrawResult, now: number) {
+    const frame = Math.max(0, Math.floor((now - draw.at) * 30 / 1000 + 1e-7));
+    // FUN_80082d90 advances the fixed-point ease a second time on the tick that fires 0x1af.
+    while (draw.frame < frame && 0x1000 - draw.scale >= 8) {
+      draw.frame++;
+      const error = 0x1000 - draw.scale;
+      draw.scale += error >> 3;
+      if (!draw.announced && error < 0x100) {
+        draw.announced = true;
+        draw.scale += (0x1000 - draw.scale) >> 3;
+        if (draw.playCue) sfx.playFile(DRAW_AUDIO, 0.9, true, sfxRate('0278', 0x1af));
+      }
+    }
+    // The disc's running game tick indexes a 128-tick sine. Use the local play clock as its phase origin.
+    const sin = Math.round(4096 * Math.sin(((draw.phaseTick + frame) & 127) * Math.PI / 64));
+    const yaw = -Math.trunc((sin * 3 >> 9) * 4096 / 360) * Math.PI / 2048;
+    this.mesh.nativePose(DRAW_PART);
+    this.mesh.root.scale.setScalar(draw.scale / 4096);
+    this.mesh.root.rotation.set(0, yaw, 0, 'XYZ');
+  }
+
+  draw(renderer: THREE.WebGLRenderer | null, now: number, arenaResult: boolean) {
+    if (this.result) {
+      if (!renderer || !arenaResult) { this.set(''); return; }
+      if (now + 1e-6 < this.result.at) return;
+      this.poseDraw(this.result, now);
+    } else {
+      if (!renderer || !this.loaded || !this.label || this.frame >= COUNT_FRAMES - 1) return;
+      // FUN_80082c34 holds the new glyph three ticks, then shrinks it through 25 steps with pitch and yaw.
+      const turn = Math.max(0, this.frame - 2);
+      const remaining = 25 - Math.max(0, this.frame - 3);
+      const pitch = (Math.floor(remaining * 1024 / 25) - 1024) * Math.PI / 2048;
+      const yaw = (this.label === '2' || this.label === 'GO!' ? 1 : -1) * turn * Math.PI / 16;
+      this.mesh.nativePose(COUNT_CUES[this.label].mesh);
+      this.mesh.root.scale.setScalar(Math.floor(remaining * 4096 / 25) / 4096);
+      this.mesh.root.rotation.set(pitch, yaw, 0, 'XYZ');
+    }
+    if (!this.loaded) return;
+    const autoClear = renderer.autoClear;
+    renderer.autoClear = false;
+    renderer.clearDepth();
+    try { renderer.render(this.scene, this.camera); }
+    finally { renderer.autoClear = autoClear; }
   }
 }
 
-const CROWN = `<span class="crown">${icon('cup')}</span>`;
 
 /** Between-rounds leaderboard: placement pops, counting points, re-sorting rows, crown, streak flames. */
 export class ResultsOverlay {
-  readonly el = div('overlay resultsov hidden');
+  readonly el = div('overlay round-screen resultsov hidden');
   private timers: number[] = [];
   private raf = 0;
 
@@ -163,51 +298,70 @@ export class ResultsOverlay {
 
   private later(ms: number, fn: () => void) { this.timers.push(window.setTimeout(fn, ms)); }
 
+  private showCups(m: ResultsMsg, seats: SeatView[], background?: string) {
+    const cup = icon('cup');
+    const rows = seats.map((s, i) => `<li>${face(s.look.char, true)}
+      <span class="cup-name">${esc(s.name)}</span><strong class="gt or">${m.stars[i]}</strong>
+      <span class="times" aria-hidden="true">×</span>${cup}</li>`).join('');
+    this.el.innerHTML = `${background ? `<div class="intro-bg" style="background-image:url('${background}')"></div>` : ''}
+      <section class="cup-board" aria-label="Cup standings">
+        <h2 class="gt wh">First to ${m.cupsToWin} ${m.cupsToWin === 1 ? 'cup' : 'cups'}</h2>
+        <ol>${rows}</ol></section>`;
+  }
+
   show(m: ResultsMsg, seats: SeatView[], mySlot: number | null, streaks: number[], bg?: string, champ = false) {
     this.hide();
     this.el.classList.remove('hidden');
     this.el.classList.toggle('champ', champ);
+    this.el.classList.toggle('cup-battle', !!m.cupsToWin);
+    if (m.cupsToWin) { this.showCups(m, seats, bg); return; }
     if (champ) bg = undefined;
-    const order = (pts: number[], tr: number[]) => [0, 1, 2, 3].sort((a, b) => pts[b] - pts[a] || tr[b] - tr[a] || a - b);
-    const prevTrophies = m.stars.map((s, i) => s - (m.placements[0] === i ? 1 : 0));
+    const slots = [0, 1, 2, 3].filter((slot) => seats[slot]);
+    const order = (pts: number[], tr: number[]) => [...slots].sort((a, b) => pts[b] - pts[a] || tr[b] - tr[a] || a - b);
+    const prevTrophies = m.stars.map((s, i) => s - (!m.draw && m.placements[0] === i ? 1 : 0));
     const before = order(m.prev, prevTrophies);
     const after = order(m.scores, m.stars);
     const winner = m.placements[0];
     const lastNext = !m.final && m.round + 1 === m.total;
-    const rows = [0, 1, 2, 3].map((slot) => {
+    const cup = icon('cup');
+    const rows = slots.map((slot) => {
       const s = seats[slot];
-      if (!s) return '';
-      const col = COLORS[s.look.color % COLORS.length].hex;
+      const col = MENU_PLAYERS[slot].color;
       return `<div class="lrow ${slot === mySlot ? 'me' : ''}" data-slot="${slot}" style="--c:${col}">
         <div class="lk">1</div>
-        <div class="la">${face(s.look.char)}${CROWN}</div>
-        <div class="ln">${esc(s.name)}${slot === mySlot ? ' <i class="badge">YOU</i>' : ''}<span class="streak hidden"></span></div>
+        <div class="la">${face(s.look.char, true)}<span class="crown">${cup}</span></div>
+        <div class="ln"><div class="row-name">${esc(s.name)}${slot === mySlot ? ' <i class="badge">YOU</i>' : ''}</div><div class="row-note"><span class="streak hidden"></span></div></div>
         <div class="lg hidden"><b class="gt grn">+${m.gained[slot] + (m.bonus[slot] || 0)}</b>${m.bonus[slot] ? '<em class="sm">COMEBACK</em>' : ''}</div>
-        <div class="lt gt or">${icon('wumpa')}<b>${m.prev[slot]}</b></div>
-        <div class="ls gt wh">${icon('cup')}<b>${prevTrophies[slot]}</b></div>
+        <div class="lt"><b>${m.prev[slot]}</b></div>
+        <div class="ls"><b>${prevTrophies[slot]}</b></div>
       </div>`;
     }).join('');
-    const ws = seats[winner];
+    const ws = m.draw ? null : seats[winner];
     this.el.innerHTML = `${bg ? `<div class="intro-bg res-bg" style="background-image:url('${bg}')"></div>` : ''}
-    ${ws ? `<div class="res-hero" style="--c:${COLORS[ws.look.color % COLORS.length].hex}">${champ ? '' : face(ws.look.char, true)}<div class="rh-txt"><b class="gt wh">${esc(ws.name.toUpperCase())}</b><span class="stamp2"><span class="gt or">WINS!</span></span></div></div>` : ''}
-    <div class="results pnl">
-      <div class="band"><h2 class="gt or">${m.final ? 'FINAL ROUND' : `ROUND ${m.round} OF ${m.total}`}</h2>${m.showdown ? '<div class="sm">DOUBLE POINTS</div>' : ''}</div>
-      <div class="pbody"><div class="lboard">${rows}</div>
-      ${lastNext ? '<div class="lastround gt wh">LAST ROUND - DOUBLE POINTS!</div>' : m.final ? '' : `<div class="hint sm">NEXT: ROUND ${m.round + 1} OF ${m.total}</div>`}</div>
+    <div class="results">
+      <header class="res-hero"${ws ? ` style="--c:${MENU_PLAYERS[winner].color}"` : ''}>
+        ${ws && !champ ? face(ws.look.char, true) : ''}
+        <div class="rh-txt">
+          <small class="round-kicker">${m.final ? 'Final round' : `Round ${m.round} of ${m.total}`}${m.showdown ? ' · Double points' : ''}</small>
+          <h2 class="gt or">${m.draw ? 'Draw!' : ws ? `${esc(ws.name)} wins!` : 'Round results'}</h2>
+        </div>
+      </header>
+      <div class="score-head round-kicker"><span>Player</span><span>${icon('wumpa')} Points</span><span>${cup} Wins</span></div>
+      <div class="lboard" style="--rows:${slots.length}">${rows}</div>
+      ${lastNext ? '<div class="lastround round-kicker">Next: Final round · Double points</div>' : m.final ? '' : `<div class="hint round-kicker">Next: Round ${m.round + 1} of ${m.total}</div>`}
     </div>`;
     const q = (slot: number) => this.el.querySelector<HTMLElement>(`.lrow[data-slot="${slot}"]`)!;
     const place = (ord: number[]) => ord.forEach((slot, i) => { const r = q(slot); r.style.setProperty('--i', String(i)); r.querySelector('.lk')!.textContent = String(i + 1); });
     place(before);
-    const crownTo = (slot: number | null, ord: number[], pts: number[]) => {
-      const lead = Math.max(...pts);
-      [0, 1, 2, 3].forEach((i) => q(i).classList.toggle('lead', lead > 0 && pts[i] === lead));
-      void slot; void ord;
+    const crownTo = (pts: number[]) => {
+      const lead = Math.max(...slots.map((slot) => pts[slot]));
+      slots.forEach((slot) => q(slot).classList.toggle('lead', lead > 0 && pts[slot] === lead));
     };
-    crownTo(null, before, m.prev);
+    crownTo(m.prev);
     sfx.play('whoosh');
     // +N pops, last place first
-    const rev = [...m.placements].reverse();
-    rev.forEach((slot, k) => this.later(250 + k * 180, () => {
+    const rev = m.placements.filter((slot) => seats[slot]).reverse();
+    if (!m.draw) rev.forEach((slot, k) => this.later(250 + k * 180, () => {
       const g = q(slot).querySelector('.lg') as HTMLElement;
       g.classList.remove('hidden'); pop(g, 'pop');
       sfx.play(k === 3 ? 'lucky' : 'coin', 0.8 + k * 0.12);
@@ -218,22 +372,24 @@ export class ResultsOverlay {
       const start = performance.now();
       const step = (now: number) => {
         const k = Math.min(1, (now - start) / dur), e = 1 - Math.pow(1 - k, 3);
-        for (let i = 0; i < 4; i++) {
+        for (const i of slots) {
           const b = q(i).querySelector('.lt b');
           if (b) b.textContent = String(Math.round(m.prev[i] + (m.scores[i] - m.prev[i]) * e));
         }
         if (k < 1) this.raf = requestAnimationFrame(step);
       };
       this.raf = requestAnimationFrame(step);
-      sfx.play('coin');
+      if (!m.draw) sfx.play('coin');
     });
     // re-sort + crown + trophy + streaks
     this.later(t0 + dur + 100, () => {
       place(after);
-      crownTo(null, after, m.scores);
-      const t = q(winner).querySelector('.ls b') as HTMLElement;
-      t.textContent = String(m.stars[winner]);
-      pop(t.parentElement!, 'bump');
+      crownTo(m.scores);
+      if (!m.draw && ws) {
+        const t = q(winner).querySelector('.ls b') as HTMLElement;
+        t.textContent = String(m.stars[winner]);
+        pop(t.parentElement!, 'bump');
+      }
       const leadSlot = after[0];
       if (after[0] !== before[0] && m.scores[leadSlot] > 0) {
         // a new leader takes the crown: stinger + tag on the row
@@ -242,10 +398,10 @@ export class ResultsOverlay {
         const tag = document.createElement('span');
         tag.className = 'newlead gt or';
         tag.textContent = 'NEW LEADER!';
-        q(leadSlot).querySelector('.ln')!.appendChild(tag);
+        q(leadSlot).querySelector('.row-note')!.appendChild(tag);
         pop(tag, 'stamped');
       }
-      for (let i = 0; i < 4; i++) {
+      for (const i of slots) {
         const st = q(i).querySelector('.streak') as HTMLElement;
         if ((streaks[i] ?? 0) >= 2) { st.textContent = `${streaks[i]} IN A ROW!`; st.classList.remove('hidden'); pop(st, 'pop'); }
       }

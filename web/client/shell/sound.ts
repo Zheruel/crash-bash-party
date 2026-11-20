@@ -5,6 +5,10 @@ type Wave = OscillatorType;
 interface MusicMeta { file: string; loopStart: number | null; loopEnd: number | null }
 interface AudioIndex { music: Record<string, MusicMeta>; sfx?: { ui?: { guesses?: Record<string, string> }; banks?: Record<string, { samples: { file?: string | null }[] }> } }
 
+// FUN_8002bea8 changes SEQ volume from 0x7f to 0x55. FUN_800447dc squares it for the SPU.
+const RESULT_MUSIC_GAIN = (0x55 / 0x7f) ** 2;
+const DRAW_DUCK_MS = 2 * 1000 / 30;
+
 export type Sfx =
   | 'click' | 'pop' | 'turn' | 'roll' | 'land' | 'step' | 'coin' | 'bad' | 'lucky' | 'chaos' | 'crystal'
   | 'beep' | 'go' | 'tick' | 'whoosh' | 'win' | 'lose' | 'thud' | 'boom' | 'emote' | 'reveal' | 'drum';
@@ -20,7 +24,9 @@ class SoundSystem {
   private lastPlay = new Map<string, number>();
   // music
   private want: string | null = null;
-  private cur: { key: string; src: AudioBufferSourceNode; gain: GainNode } | null = null;
+  private wantRoundMusic = false;
+  private cur: { key: string; src: AudioBufferSourceNode; gain: GainNode; resultGain: GainNode } | null = null;
+  private resultDuckUntil: number | null = null;
   private buffers = new Map<string, Promise<AudioBuffer | null>>();
   private index: Promise<AudioIndex | null> | null = null;
   private applying = false;
@@ -70,10 +76,38 @@ class SoundSystem {
     return keys.find((k) => norm(k) === w) ?? keys.find((k) => norm(k).startsWith(w)) ?? null;
   }
 
-  /** Switch background music (null = silence). Crossfades; loads on demand. Safe to call before unlock(). */
-  music(key: string | null) {
+  /** Switch background music (null = silence). Only arena music takes the round-result gain. */
+  music(key: string | null, scope?: 'round') {
     this.want = key;
+    this.wantRoundMusic = scope === 'round';
+    this.updateResultGain();
     void this.applyMusic();
+  }
+
+  /** An individual win ducks until the round leaves. A draw may specify its own duck duration. */
+  enterRoundResult(outcome: 'winner' | 'draw', at = performance.now(), drawDuckMs = DRAW_DUCK_MS) {
+    if (this.resultDuckUntil !== null) return;
+    this.resultDuckUntil = outcome === 'draw' ? at + drawDuckMs : Infinity;
+    this.updateResultGain();
+  }
+
+  /** Start a fresh round, including a replay of the same arena track. */
+  clearRoundResult() {
+    if (this.resultDuckUntil === null) return;
+    this.resultDuckUntil = null;
+    this.updateResultGain();
+  }
+
+  private updateResultGain() {
+    if (this.cur && this.cur.key === this.want) this.setResultGain(this.cur.resultGain.gain);
+  }
+
+  private setResultGain(gain: AudioParam) {
+    const t = this.ctx!.currentTime;
+    const remaining = this.wantRoundMusic && this.resultDuckUntil !== null ? this.resultDuckUntil - performance.now() : 0;
+    gain.cancelScheduledValues(t);
+    gain.setValueAtTime(remaining > 0 ? RESULT_MUSIC_GAIN : 1, t);
+    if (remaining > 0 && Number.isFinite(remaining)) gain.setValueAtTime(1, t + remaining / 1000);
   }
 
   private async applyMusic() {
@@ -112,11 +146,13 @@ class SoundSystem {
     src.buffer = buf;
     if (meta.loopStart != null && meta.loopEnd != null) { src.loop = true; src.loopStart = meta.loopStart; src.loopEnd = meta.loopEnd; }
     const g = c.createGain();
+    const resultGain = c.createGain();
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(1, t + fade);
-    src.connect(g).connect(bus);
+    this.setResultGain(resultGain.gain);
+    src.connect(g).connect(resultGain).connect(bus);
     src.start(t);
-    this.cur = { key, src, gain: g };
+    this.cur = { key, src, gain: g, resultGain };
     src.onended = () => { if (this.cur?.src === src) this.cur = null; };
   }
 
@@ -145,6 +181,78 @@ class SoundSystem {
       s.start();
     });
     return true;
+  }
+
+  /** Decode once while the arena loads so the first cue keeps its place in the sequence. */
+  preloadFile(path: string) {
+    if (this.ctx) void this.loadBuffer(path);
+  }
+
+  /** Start a disc sample with its loop point. The returned function also cancels a pending load. */
+  loopFile(path: string, loopStart: number, vol = 0.8, rate = 1): () => void {
+    return this.startSample(path, loopStart, vol, rate)?.stop ?? (() => {});
+  }
+
+  /** The offset is in source seconds. While decoding, keep the latest requested playback position. */
+  startSample(path: string, loopStart: number | null, vol: number, rate: number, offset = 0, stereo?: [number, number]) {
+    const ctx = this.ctx, bus = this.sfxBus;
+    if (!ctx || !bus) return null;
+    let stopped = false;
+    let source: AudioBufferSourceNode | undefined;
+    let channels: [GainNode, GainNode] | undefined;
+    const setStereo = (levels: [number, number]) => {
+      stereo = levels;
+      if (channels) {
+        channels[0].gain.value = levels[0];
+        channels[1].gain.value = levels[1];
+      }
+    };
+    void this.loadBuffer(path).then((buffer) => {
+      if (stopped || !buffer || (loopStart ?? offset) >= buffer.duration) { stopped = true; return; }
+      const gain = ctx.createGain();
+      gain.gain.value = vol;
+      source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.loop = loopStart !== null;
+      if (loopStart !== null) source.loopStart = loopStart;
+      source.playbackRate.value = rate;
+      let merger: ChannelMergerNode | undefined;
+      source.connect(gain);
+      if (stereo) {
+        // The disc sends a mono voice to two independently controlled SPU channels.
+        merger = ctx.createChannelMerger(2);
+        channels = [ctx.createGain(), ctx.createGain()];
+        channels.forEach((channel, i) => gain.connect(channel).connect(merger!, 0, i));
+        setStereo(stereo);
+        merger.connect(bus);
+      } else gain.connect(bus);
+      source.onended = () => {
+        stopped = true;
+        source?.disconnect();
+        gain.disconnect();
+        channels?.forEach(channel => channel.disconnect());
+        merger?.disconnect();
+        source = undefined;
+      };
+      const position = loopStart !== null && offset >= buffer.duration
+        ? loopStart + (offset - loopStart) % (buffer.duration - loopStart) : offset;
+      source.start(0, position);
+    });
+    return {
+      get ended() { return stopped; },
+      setStereo,
+      update(nextRate: number, nextOffset: number) {
+        offset = nextOffset;
+        if (nextRate === rate) return;
+        rate = nextRate;
+        if (source) source.playbackRate.value = rate;
+      },
+      stop() {
+        if (stopped) return;
+        stopped = true;
+        source?.stop();
+      },
+    };
   }
 
   /** Call from a user gesture. */

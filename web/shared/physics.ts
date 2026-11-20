@@ -1,4 +1,4 @@
-import type { Body, InputState, World } from './types';
+import type { Body, GameEvent, InputState, World } from './types';
 
 export const GRAVITY = 20;
 export const JUMP_SPEED = 7;
@@ -11,9 +11,32 @@ export function rand(w: World): number {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
+/** The two starting words in the USA executable. Online rooms mix their round seed into the first. */
+export function discRandomState(seed: number): [number, number] {
+  return [(0x00c587c1 ^ seed) >>> 0, 0x0573cec9];
+}
+
+/** FUN_80015590. Original snapshots without this pair keep their previous deterministic stream. */
+export function discRandomInt(w: World, limit: number): number {
+  const state: [number, number] | undefined = w.data.random;
+  if (!state) return Math.floor(rand(w) * limit);
+  return drawDiscRandom(state, limit);
+}
+
+export function drawDiscRandom(state: [number, number], limit: number): number {
+  if (limit < 2) return 0;
+  const sum = (state[0] + state[1]) >>> 0;
+  state[0] = sum;
+  state[1] = (state[1] + sum + (sum >>> 31)) >>> 0;
+  return sum % limit;
+}
+
 /** Record a one-shot event for clients (sound / particles / shake). */
-export function emit(w: World, k: string, x: number, z: number, s = -1, v = 1, o = -1): void {
-  w.ev.push({ id: w.evId++, t: w.tick, k, x, z, s, o, v });
+export function emit(w: World, k: string, x: number, z: number, s = -1, v = 1, o = -1, yaw?: number, y?: number): void {
+  const event: GameEvent = { id: w.evId++, t: w.tick, k, x, z, s, o, v };
+  if (yaw !== undefined) event.yaw = yaw;
+  if (y !== undefined) event.y = y;
+  w.ev.push(event);
 }
 
 export function addBody(w: World, kind: string, slot: number, x: number, z: number, r: number, m: number): Body {

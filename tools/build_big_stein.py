@@ -12,6 +12,15 @@ from collections import defaultdict
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'assets/models'
 portrait = ROOT / 'assets/portraits/big-stein.png'
+# All eight disc HUD portraits occupy the upper 25 rows of a 64x32 CLUT texture.
+hud_dir = ROOT / 'assets/hud'
+subprocess.run([
+    'magick', str(hud_dir / 'big-stein.png'), '-trim', '+repage', '-filter', 'Lanczos',
+    '-resize', '61x25!', '-channel', 'A', '-threshold', '50%', '+channel', '-background', 'none',
+    '-gravity', 'North', '-extent', '64x32', '+dither', '-colors', '248',
+    '-channel', 'RGB', '-fx', 'round(u*31)/31', '+channel', '-strip',
+    '-define', 'png:exclude-chunk=time,date', str(hud_dir / 'big-stein-ps1.png')
+], check=True)
 blob = bytearray()
 g = dict(asset={'version': '2.0', 'generator': 'tools/build_big_stein.py'}, scene=0,
          scenes=[{'nodes': [0]}], nodes=[], meshes=[], materials=[], animations=[],
@@ -111,6 +120,13 @@ p=[(.099,.34,.151),(.181,.344,.132),(.181,.43,.132),(.099,.426,.151)]
 uv=[(779/1254,1146/1254),(939/1254,1146/1254),(939/1254,968/1254),(779/1254,968/1254)]
 for ii in [(0,1,2),(0,2,3)]: tri(chest,[p[i] for i in ii],'ffffff',[uv[i] for i in ii])
 
+# The back repeats the jacket's red diamond so the motif is readable while racing.
+crest = [(0,.409,-.148),(.084,.325,-.151),(0,.243,-.153),(-.084,.325,-.151)]
+for a,b in zip(crest, crest[1:]+crest[:1]):
+    band(chest,a,b,.011,'d32d3c')
+for x,y0,y1 in [(-.026,.287,.362),(0,.270,.380),(.026,.287,.362)]:
+    band(chest,(x,y0,-.153),(x,y1,-.153),.008,'d32d3c')
+
 # A closed cranial volume. Trace the portrait silhouette and place relief landmarks at
 # the brows, nose, lips and chin. UVs stay registered even from a three-quarter view.
 outline=[(502,20),(613,38),(655,90),(737,112),(770,232),(797,273),(780,378),
@@ -205,6 +221,7 @@ for s,label in [(-1,'R'),(1,'L')]:
     lathe(elbow,[(-.205,.065,.070,.025,s*.009),(-.16,.082,.086,.025,s*.009),
                  (-.041,.091,.088,.002,0),(.038,.079,.078,0,0)],navy)
     lathe(elbow,[(-.211,.066,.073,.025,s*.009),(-.177,.069,.075,.024,s*.009)],piping)
+    lathe(elbow,[(-.208,.067,.074,.025,s*.009),(-.199,.068,.075,.024,s*.009)],gold)
     lathe(elbow,[(-.327,.051,.057,.052,0),(-.292,.076,.082,.05,0),
                  (-.236,.077,.077,.04,0),(-.194,.053,.054,.027,0)],skin)
     lathe(elbow,[(-.295,.029,.036,.093,-s*.033),(-.264,.039,.040,.094,-s*.043),
@@ -251,12 +268,44 @@ def clip(name,times,poses):
     anim=dict(name=name,channels=[],samplers=[]); g['animations'].append(anim)
     time=accessor([(t,) for t in times],1)
     for n,values in poses.items():
-        pos=n=='lift'; values=[(0,.67+v,0) for v in values] if pos else [quat(*r) for r in values]
+        if n == 'lift':
+            target, path, values = hips, 'translation', [(0,.67+v,0) for v in values]
+        elif n == crate_grip:
+            target, path = n, 'translation'
+        else:
+            target, path, values = n, 'rotation', [quat(*r) for r in values]
         assert len(values)==len(times)
-        anim['channels'].append(dict(sampler=len(anim['samplers']),target=dict(node=hips if pos else n,path='translation' if pos else 'rotation')))
-        anim['samplers'].append(dict(input=time,output=accessor(values,3 if pos else 4),interpolation='LINEAR'))
+        anim['channels'].append(dict(sampler=len(anim['samplers']),target=dict(node=target,path=path)))
+        anim['samplers'].append(dict(input=time,output=accessor(values,len(values[0])),interpolation='LINEAR'))
+
+
+def rotated(point, angles):
+    x,y,z,w = quat(*angles)
+    a,b,c = point
+    u,v,k = 2*(y*c-z*b), 2*(z*a-x*c), 2*(x*b-y*a)
+    return (a+w*u+y*k-z*v, b+w*v+z*u-x*k, c+w*k+x*v-y*u)
+
+
+def crate_clip(name, times, pose):
+    # Derive the crate pivot from the centers of the palms, in jacket space.
+    # The base of the box lies below the grip, with its near face at the hands.
+    pivots = []
+    for frame in range(len(times)):
+        palms = []
+        for arm, elbow in zip(arms, elbows):
+            palm = rotated((0,-.272,.045),pose[elbow][frame])
+            offset = g['nodes'][elbow]['translation']
+            wrist = rotated(tuple(a+b for a,b in zip(palm,offset)),pose[arm][frame])
+            palms.append(tuple(a+b for a,b in zip(wrist,g['nodes'][arm]['translation'])))
+        pivots.append(tuple((a+b)/2+offset for a,b,offset in zip(*palms,(0,-.29,.39))))
+    if name == 'carry':
+        g['nodes'][crate_grip]['translation'] = pivots[0]
+    clip(name, times, {**pose, crate_grip:pivots})
+
+
 geometry_views = len(g['bufferViews'])
 geometry_accessors = len(g['accessors'])
+crate_grip = node('CrateGrip',chest)
 Z=(0,0,0)
 clip('idle',[0,.65,1.3,1.95,2.6],{chest:[Z,(-2,0,1),Z,(1,0,-1),Z],head:[(0,-4,3),(0,0,3),(-2,5,2),(0,0,2),(0,-4,3)],
     elbows[0]:[(-12,0,0),(-15,0,0),(-12,0,0),(-9,0,0),(-12,0,0)]})
@@ -278,20 +327,50 @@ clip('lose',[0,.38,.77,1.25,1.8],{chest:[Z,(15,0,0),(21,0,3),(19,0,2),Z],head:[Z
 # Crate Crush holds the box in front of the chest. Keep that grip through each stride.
 grip = {arms[i]: [(-62, 0, (1 if i else -1)*12)]*5 for i in range(2)}
 grip.update({elbows[i]: [(-45, 0, 0)]*5 for i in range(2)})
-clip('carry', [0,.25,.5,.75,1], {**grip, chest:[Z,(-2,0,0),Z,(-2,0,0),Z]})
-clip('carryRun', [0,.15,.3,.45,.6], {**run, **grip})
-for name, times, reach, bend, lean in [
-    ('lift', [0,.10,.20,.32], [0,-26,-52,-62], [-12,-17,-34,-45], [0,26,18,0]),
-    ('throw', [0,.12,.29,.48], [-62,-91,-108,-12], [-45,-72,-6,-12], [0,-14,17,0]),
+crate_clip('carry', [0,.25,.5,.75,1], {**grip, chest:[Z,(-2,0,0),Z,(-2,0,0),Z]})
+crate_clip('carryRun', [0,.15,.3,.45,.6], {**run, **grip,
+    chest:[(4,-3,0),(6,0,0),(4,3,0),(6,0,0),(4,-3,0)]})
+# Crate Crush samples the Cortex-family pickup (8 ticks), throw (13 ticks,
+# release at tick 2) and spin (19 ticks) on the simulation counters.
+for name, frames, reach, bend, lean, lift in [
+    ('lift', [0,2,4,7], [-5,-25,-51,-62], [-7,-15,-34,-45], [16,42,21,0], [-.08,-.23,-.1,0]),
+    ('throw', [0,1,2,6,12], [-62,-72,-96,-50,0], [-45,-51,-14,-16,-12], [0,-6,12,11,0], [0,-.03,.04,.02,0]),
 ]:
-    pose = {chest: [(x,0,0) for x in lean]}
+    pose = {chest: [(x,0,0) for x in lean], 'lift':lift}
     for i in range(2):
         pose[arms[i]] = [(x,0,(1 if i else -1)*12) for x in reach]
         pose[elbows[i]] = [(x,0,0) for x in bend]
-    clip(name, times, pose)
-clip('jump', [0,.15,.4,.65], {chest:[Z,(7,0,0),(5,0,0),Z],
+        pose[thighs[i]] = [(v*152,0,0) for v in lift]
+        pose[knees[i]] = [(-v*245,0,0) for v in lift]
+    crate_clip(name, [f/30 for f in frames], pose)
+jump_times = [0,.15,.4,.65]
+jump = {chest:[Z,(7,0,0),(5,0,0),Z],
     thighs[0]:[Z,(-42,0,0),(-31,0,0),Z], thighs[1]:[Z,(-29,0,0),(-37,0,0),Z],
-    knees[0]:[Z,(58,0,0),(48,0,0),Z], knees[1]:[Z,(50,0,0),(54,0,0),Z]})
+    knees[0]:[Z,(58,0,0),(48,0,0),Z], knees[1]:[Z,(50,0,0),(54,0,0),Z]}
+clip('jump', jump_times, jump)
+clip('spin', [f/30 for f in (0,3,6,10,15,18)], {
+    'lift': [0,-.08,.055,.02,-.055,0],
+    chest: [Z,(12,24,-6),(9,-10,9),(6,-16,7),(16,-8,-3),Z],
+    head: [Z,(4,16,-3),(-5,-12,0),(-4,-8,1),(6,-8,1),Z],
+    arms[0]: [Z,(-32,0,-23),(-30,0,-70),(-12,0,-53),(-9,0,-16),Z],
+    arms[1]: [Z,(-20,0,13),(8,0,46),(19,0,57),(-13,0,20),Z],
+    elbows[0]: [Z,(-65,0,0),(-10,0,0),(-25,0,0),(-39,0,0),Z],
+    elbows[1]: [Z,(-50,0,0),(-24,0,0),(-38,0,0),(-33,0,0),Z],
+    thighs[0]: [Z,(-18,0,0),(-14,-5,-25),(-16,-5,-19),(-12,0,-8),Z],
+    thighs[1]: [Z,(-18,0,0),(-42,9,48),(-28,15,36),(-13,3,6),Z],
+    knees[0]: [Z,(33,0,0),(14,0,0),(16,0,0),(23,0,0),Z],
+    knees[1]: [Z,(33,0,0),(9,0,0),(23,0,0),(23,0,0),Z],
+})
+crate_clip('carryJump', jump_times, {**jump, **{part: angles[:4] for part, angles in grip.items()}})
+# Triangle on foot lasts 40 ticks in Stein's movement family. He taps his
+# temple twice, then lowers his arm. Entering another action cancels the clip.
+clip('taunt', [f/30 for f in (0,5,11,15,20,24,31,39)], {
+    chest: [Z,(3,-4,2),(-3,-13,4),(-4,-14,4),(-2,-11,3),(-4,-14,4),(-2,-6,2),Z],
+    head: [Z,(-3,6,-2),(-7,18,-8),(-5,16,-4),(-7,19,-9),(-5,16,-4),(0,9,-3),Z],
+    arms[1]: [Z,(-28,4,-16),(-66,3,-30),(-63,3,-31),(-70,2,-32),(-64,3,-31),(-35,3,-17),Z],
+    elbows[1]: [Z,(-41,0,2),(-108,-6,0),(-122,-5,0),(-105,-6,1),(-122,-5,0),(-64,0,1),Z],
+    arms[0]: [Z,(2,0,5),(7,0,9),(8,0,9),(7,0,9),(8,0,9),(3,0,4),Z],
+})
 g['buffers']=[dict(uri='9001.bin',byteLength=len(blob))]
 OUT.mkdir(parents=True,exist_ok=True)
 (OUT/'9001.bin').write_bytes(blob)
@@ -299,6 +378,8 @@ OUT.mkdir(parents=True,exist_ok=True)
 
 # The podium has its own performance on Stein's hinged rig. Reuse his mesh
 # buffer so his jacket, face and proportions stay identical to the lobby model.
+g['nodes'][chest]['children'].remove(crate_grip)
+g['nodes'].pop()
 del g['bufferViews'][geometry_views:]
 del g['accessors'][geometry_accessors:]
 g['animations'] = []

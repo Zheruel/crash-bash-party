@@ -1,42 +1,128 @@
+import { padLayout, type Button } from './pad';
 import type { InputState } from '../shared/types';
 
-const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyJ', 'KeyK', 'KeyF', 'KeyL', 'KeyQ', 'KeyE']);
+const MOVE_CODES = {
+  left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
+  up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'],
+};
 
-/**
- * Keyboard (WASD/arrows; Space or J = A, Shift or K = B, F or L = C, Q / E = shoulders), Gamepad (stick/dpad, A/B, Y, LB/RB)
- * and an optional touch source. KEYS is what the how-to-play text shows.
- * `consumeAction()` reports a fresh press of Space / Enter / gamepad A.
- */
-/** keyboard keys per button, as shown in the how-to-play cards (first = main key) */
-export const KEYS = { a: ['Space', 'J'], b: ['Shift', 'K'], c: ['F', 'L'], l: ['Q'], r: ['E'] } as const;
+const ACTION_CODES = {
+  a: ['KeyZ', 'Space', 'KeyJ'],
+  b: ['KeyX', 'KeyK', 'ShiftLeft', 'ShiftRight'],
+  c: ['KeyC', 'KeyL', 'KeyF'],
+  d: ['KeyV', 'KeyH'],
+  l: ['KeyQ', 'KeyI'],
+  r: ['KeyE', 'KeyO'],
+};
+
+const GAME_KEYS = new Set([...Object.values(MOVE_CODES).flat(), ...Object.values(ACTION_CODES).flat()]);
+
+const keyLegends = new Map<string, string>();
+type KeyboardLayouts = EventTarget & { getLayoutMap(): Promise<ReadonlyMap<string, string>> };
+
+/** Physical bindings keep chords together even when the printed key changes (e.g. QWERTZ). */
+export function keyLabels(button: Button): string[] {
+  return [...new Set(ACTION_CODES[button].map(code =>
+    keyLegends.get(code) ?? (code.startsWith('Shift') ? 'Shift' : code.replace(/^Key/, ''))))];
+}
+
+export function watchKeyboardLayout(refresh: () => void) {
+  const layouts = (navigator as Navigator & { keyboard?: KeyboardLayouts }).keyboard;
+  const read = async () => {
+    if (!layouts?.getLayoutMap) return;
+    try {
+      const map = await layouts.getLayoutMap();
+      for (const code of GAME_KEYS) {
+        const legend = map.get(code);
+        if (code.startsWith('Key') && legend?.length === 1) keyLegends.set(code, legend.toLocaleUpperCase());
+      }
+      refresh();
+    } catch { /* Embedded pages can restrict access to keyboard layouts. */ }
+  };
+  void read();
+  layouts?.addEventListener?.('layoutchange', read);
+  window.addEventListener('keydown', e => {
+    if (!e.code.startsWith('Key') || !GAME_KEYS.has(e.code) || e.key.length !== 1 ||
+        e.isComposing || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+    const label = e.key.toLocaleUpperCase();
+    if (label === (keyLegends.get(e.code) ?? e.code.slice(3))) return;
+    keyLegends.set(e.code, label);
+    refresh();
+  });
+}
+
+function isEditing(target: EventTarget | null) {
+  return target instanceof HTMLElement && (target.isContentEditable || target.matches('input, select, textarea'));
+}
+
+function activatesControl(target: EventTarget | null, code: string) {
+  return target instanceof Element && !!target.closest(code === 'Enter' ? 'button, summary, a[href]' : 'button, summary');
+}
 
 export class InputManager {
   private keys = new Set<string>();
+  private pressed = new Set<string>();
+  private menuButtons = new Set<number>();
+  game = '';
+  variant?: string;
+  clearPresses() { this.pressed.clear(); }
+  releaseMenuInput() {
+    this.releaseKeyboard();
+    this.menuButtons.clear();
+    this.pad()?.buttons.forEach((button, i) => { if (button.pressed) this.menuButtons.add(i); });
+  }
+  private suppressSplashHop = false;
+  enterDashPlay() {
+    this.clearPresses();
+    this.suppressSplashHop = false;
+    if (this.variant === 'splash') this.suppressSplashHop = this.sample().b;
+  }
   private action = false;
   private padA = false;
-  /** When true, game keys are swallowed (prevents page scroll / button activation during play). */
-  capture = false;
+  private capturing = false;
+  /** While playing, gameplay keys are captured outside editable fields and native activation. */
+  get capture() { return this.capturing; }
+  set capture(value: boolean) {
+    this.capturing = value;
+    if (!value) this.releaseKeyboard();
+  }
   touch: (() => InputState | null) | null = null;
 
   constructor() {
     addEventListener('keydown', (e) => {
-      if (this.typing(e)) return;
-      if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) this.action = true;
-      if (GAME_KEYS.has(e.code)) {
-        this.keys.add(e.code);
-        if (this.capture) e.preventDefault();
+      if (e.altKey || e.ctrlKey || e.metaKey) {
+        this.releaseKeyboard();
+        return;
       }
+      if (e.defaultPrevented || e.isComposing || isEditing(e.target)) return;
+      if (e.code === 'Space' || e.code === 'Enter') {
+        if (activatesControl(e.target, e.code)) return;
+        if (!e.repeat) this.action = true;
+      }
+      if (!this.capture || !GAME_KEYS.has(e.code)) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      this.keys.add(e.code);
+      this.pressed.add(e.code);
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('blur', () => this.keys.clear());
+    addEventListener('blur', () => this.releaseKeyboard());
+    addEventListener('focusin', (e) => {
+      if (isEditing(e.target) || activatesControl(e.target, 'Enter')) this.releaseKeyboard();
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.releaseKeyboard();
+    });
   }
 
-  private typing(e: Event) {
-    const t = e.target as HTMLElement | null;
-    return !!t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA');
+  private releaseKeyboard() {
+    this.keys.clear();
+    this.clearPresses();
+    this.action = false;
+    this.suppressSplashHop = false;
   }
 
-  /** True once per fresh action press since the last call. */
+  /** True once per fresh Space, Enter, or gamepad A press since the last call. */
   consumeAction(): boolean {
     const pad = this.pad();
     const a = !!pad?.buttons[0]?.pressed;
@@ -52,13 +138,18 @@ export class InputManager {
   }
 
   sample(): InputState {
-    const k = this.keys;
-    let x = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
-    let y = (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) - (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0);
-    let a = k.has('Space') || k.has('KeyJ');
-    let b = k.has('ShiftLeft') || k.has('ShiftRight') || k.has('KeyK');
-    let c = k.has('KeyF') || k.has('KeyL');
-    let tl = k.has('KeyQ'), tr = k.has('KeyE');
+    const axis = (negative: string[], positive: string[]) => {
+      const neg = negative.some(code => this.keys.has(code));
+      const pos = positive.some(code => this.keys.has(code));
+      if (neg || pos) return Number(pos) - Number(neg);
+      return Number(positive.some(code => this.pressed.has(code))) - Number(negative.some(code => this.pressed.has(code)));
+    };
+    let x = axis(MOVE_CODES.left, MOVE_CODES.right);
+    let y = axis(MOVE_CODES.up, MOVE_CODES.down);
+    const down = (button: Button) => ACTION_CODES[button].some(code => this.keys.has(code) || this.pressed.has(code));
+    let a = down('a'), b = down('b'), c = down('c'), d = down('d');
+    let tl = down('l'), tr = down('r');
+    this.pressed.clear();
     const l = Math.hypot(x, y);
     if (l > 1) { x /= l; y /= l; }
 
@@ -66,27 +157,32 @@ export class InputManager {
     if (pad) {
       const dz = (v: number) => (Math.abs(v) < 0.18 ? 0 : v);
       let px = dz(pad.axes[0] ?? 0), py = dz(pad.axes[1] ?? 0);
-      const bt = (i: number) => !!pad.buttons[i]?.pressed;
+      for (const i of this.menuButtons) if (!pad.buttons[i]?.pressed) this.menuButtons.delete(i);
+      const bt = (i: number) => !!pad.buttons[i]?.pressed && !this.menuButtons.has(i);
       if (bt(14)) px -= 1;
       if (bt(15)) px += 1;
       if (bt(12)) py -= 1;
       if (bt(13)) py += 1;
       if (Math.hypot(px, py) > Math.hypot(x, y)) { x = px; y = py; }
-      a = a || bt(0);
-      b = b || bt(1) || bt(2) || bt(7);
-      c = c || bt(3);
-      tl = tl || bt(4);
-      tr = tr || bt(5);
+      const layout = padLayout(this.game, this.variant);
+      const button = (key: Button) => layout[key] !== undefined && bt(layout[key]!);
+      a ||= button('a'); b ||= button('b'); c ||= button('c'); d ||= button('d');
+      tl ||= button('l'); tr ||= button('r');
+      if (this.game === 'ballDefence') tr ||= bt(4) || bt(5) || bt(6) || bt(7);
+      if (this.game === 'tankArena') { tl ||= bt(6); tr ||= bt(7); }
+      if (this.game === 'dashRace' && this.variant !== 'splash') b ||= bt(7);
     }
     const t = this.touch?.();
     if (t) {
       if (Math.hypot(t.x, t.y) > Math.hypot(x, y)) { x = t.x; y = t.y; }
       a = a || t.a;
       b = b || t.b;
-      c = c || !!t.c;
+      c ||= !!t.c; d ||= !!t.d; tl ||= !!t.l; tr ||= !!t.r;
     }
+    if (!b || this.game !== 'dashRace') this.suppressSplashHop = false;
+    if (this.suppressSplashHop) b = false;
     const m = Math.hypot(x, y);
     if (m > 1) { x /= m; y /= m; }
-    return { x, y, a, b, ...(c ? { c } : {}), ...(tl ? { l: true } : {}), ...(tr ? { r: true } : {}) };
+    return { x, y, a, b, ...(c ? { c } : {}), ...(d ? { d } : {}), ...(tl ? { l: true } : {}), ...(tr ? { r: true } : {}) };
   }
 }

@@ -1,0 +1,370 @@
+/* Round overlays use the disc's menu and rules typefaces, translucent black panels
+   and narrow yellow-green borders. The arena remains visible behind the rules and scores. */
+.round-screen {
+  --round-amber: #ffc52c;
+  --round-paper: #fff2b5;
+  --round-muted: #e7ce8b;
+  --round-edge: #a7a334;
+  --round-panel: rgba(0, 3, 4, .82);
+  color: var(--round-paper);
+}
+.round-screen .round-kicker {
+  color: var(--round-amber);
+  font: 400 clamp(10px,1.2vw,14px)/1.25 var(--rules);
+  letter-spacing: 0;
+}
+.round-screen .badge {
+  background: var(--round-amber);
+  border: 0;
+  padding: 3px 4px;
+}
+
+/* Roulette */
+.round-screen.wheelov {
+  background: radial-gradient(ellipse at 50% 45%, #163533df, #061319f7 76%);
+  grid-template-rows: auto auto minmax(68px, auto);
+  gap: clamp(10px, 3vh, 32px);
+  padding: calc(66px + var(--safe-t)) 0 calc(10px + var(--safe-b));
+}
+
+.round-screen.showdown::before { background: repeating-conic-gradient(#ffb43a12 0 7deg, transparent 7deg 18deg); }
+.round-screen .wheel-head { position: relative; z-index: 1; gap: 5px; }
+.round-screen .wheel-head .sm { color: var(--round-amber); font: 400 clamp(11px,1.5vw,16px)/1.2 var(--rules); letter-spacing: 0; }
+.round-screen .wheel-head h2 { font-size: clamp(33px, 7vw, 78px); }
+.round-screen .wheel-head em { font-size: clamp(14px, 3vw, 22px); }
+.round-screen .reel {
+  --cw: min(clamp(224px, 33vw, 408px), 71vw, max(224px, 58vh));
+  width: 100%;
+  height: calc(var(--cw) * .66 + 38px);
+  background: var(--round-panel);
+  border-block: 2px solid var(--round-edge);
+  box-shadow: 0 10px 35px #0009, inset 0 0 18px #000d;
+}
+.round-screen .reel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #071719 0%, transparent 24% 76%, #071719);
+  pointer-events: none;
+}
+.round-screen .reel-strip { top: 17px; gap: clamp(8px, 1.5vw, 22px); }
+.round-screen .rcard {
+  aspect-ratio: auto;
+  height: calc(var(--cw) * .66);
+  margin: 0;
+  border: 2px solid #30231a;
+  box-shadow: 0 5px 14px #0009;
+  isolation: isolate;
+  grid-template-rows: 1fr;
+}
+.round-screen .rcard::after {
+  content: "";
+  position: absolute;
+  inset: 30% 0 0;
+  background: linear-gradient(transparent, #060d12ec 95%);
+  pointer-events: none;
+}
+.round-screen .rcard > b {
+  grid-area: 1 / 1;
+  z-index: 1;
+  align-self: end;
+  padding: 0 5px 9px;
+  border: 0;
+  background: none;
+  color: var(--round-amber);
+  -webkit-text-fill-color: currentColor;
+  -webkit-text-stroke: 0;
+  white-space: normal;
+  font-size: clamp(16px, 2.6vw, 27px);
+  line-height: 1;
+}
+.round-screen .reel-frame {
+  z-index: 1;
+  top: 12px;
+  bottom: 12px;
+  width: calc(var(--cw) + 10px);
+  border: 2px solid #ffe742;
+  box-shadow: 0 0 16px #f9984a90;
+}
+.round-screen .reel-frame .ar { width: 28px; height: 14px; background: #ffd08b; }
+.round-screen .reel-frame .t { top: -11px; }
+.round-screen .reel-frame .b { bottom: -11px; }
+.round-screen.landed .reel-frame { animation: none; }
+.round-screen .rcard.win, .round-screen.twisted .rcard.win { transform: none; box-shadow: 0 0 20px #ffab5b69; }
+.round-screen .stamp {
+  z-index: 2;
+  top: 44%;
+  width: max-content;
+  max-width: 92%;
+  white-space: normal;
+  text-align: center;
+  background: #050604ea;
+  border: 1px solid var(--round-edge);
+  box-shadow: 0 4px 14px #000a;
+}
+.round-screen .stamp .gt { line-height: 1; }
+.round-screen .wheel-mod { position: relative; z-index: 1; gap: 6px; grid-row: 3; }
+.round-screen .uka { width: clamp(55px, 12vw, 100px); }
+.round-screen .bubble { padding: 0; }
+.round-screen .bubble::before { content: none; }
+.round-screen .bubble b { font-size: clamp(19px, 4.5vw, 31px); line-height: 1.05; }
+.round-screen .bubble .sm { color: var(--round-paper); text-transform: none; }
+
+/* The original rules screen floats the player HUD and instructions over the level. */
+.round-screen.introov {
+  padding: calc(55px + var(--safe-t)) max(12px,var(--safe-l),var(--safe-r)) calc(10px + var(--safe-b));
+  overflow-y: auto; place-items: safe center; pointer-events: auto;
+}
+.round-screen .intro-bg { animation: none; transform: none; filter: brightness(.76); }
+.round-screen .intro-bg::after { background: radial-gradient(ellipse, transparent 40%, #0006); }
+.round-screen .intro { width: min(740px,95%); gap: 0; }
+.round-screen .vs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); width: 100%; margin: 0 0 14px; gap: 8px; }
+.round-screen .vsp { min-width: 0; width: 100%; }
+.round-screen .vsp .face { width: min(90px,90%); }
+.round-screen .vsp .nm { font: 400 clamp(13px,1.7vw,20px)/1 var(--display); }
+.round-screen .vsp .badge { left: 10%; right: auto; top: 1px; }
+.round-screen .rules {
+  width: 100%; padding: clamp(12px,2.8vh,28px) clamp(12px,3.5vw,44px);
+  display: grid; align-content: center; gap: clamp(10px,2.4vh,22px); text-align: center;
+  border: 2px solid var(--round-edge); border-bottom: 0; background: var(--round-panel);
+  color: #ffd264; font: 400 clamp(13px,1.55vw,18px)/1.4 var(--rules); animation: none;
+}
+.round-screen .rules p { line-height: 1.4; }
+.round-screen .intro-heading { display: grid; justify-items: center; gap: 5px; }
+.round-screen .intro h1 { font-size: clamp(32px,5.8vw,65px); line-height: 1.05; animation: round-heading-in .22s ease-out both; }
+@keyframes round-heading-in { from { opacity: 0; transform: translateY(5px); } }
+.round-screen .rules .ctl { max-width: 100%; margin: 0; padding: 0; display: grid; gap: 6px; list-style: none; font-size: .9em; color: var(--round-paper); }
+.round-screen .rules .ctl li { display: block; line-height: 1.5; }
+.round-screen .rules .keys { vertical-align: middle; }
+.round-screen .rules .twist { display: flex; gap: 8px; justify-content: center; font-size: .85em; border-top: 1px solid #c3b04170; }
+.round-screen .rules .twist strong { color: var(--round-amber); font-weight: 400; }
+.round-screen .fuse { width: 100%; margin: 0; display: block; padding: 0; border: 2px solid var(--round-edge); border-top: 0; background: var(--round-panel); }
+.round-screen .fuse i { height: 3px; border: 0; box-shadow: none; background: linear-gradient(90deg,#ffad20,#ffea69) left / 100% 100% no-repeat; }
+
+/* Standings */
+.round-screen.resultsov {
+  place-items: center;
+  padding: calc(78px + var(--safe-t)) max(12px, var(--safe-l), var(--safe-r)) calc(40px + var(--safe-b));
+  background: #0007;
+  overflow: hidden;
+}
+.round-screen.resultsov.champ {
+  justify-items: end;
+  padding-right: max(5vw, var(--safe-r));
+  background: linear-gradient(90deg, transparent 45%, #0006);
+}
+.round-screen .res-bg { filter: brightness(.72); opacity: 1; }
+.round-screen .results {
+  --score-cols: 76px 64px;
+  width: min(640px, 100%);
+  isolation: isolate;
+  border: 2px solid var(--round-edge);
+  background: var(--round-panel);
+  box-shadow: 0 18px 48px #0009;
+}
+.round-screen.resultsov.champ .results { width: min(610px, 59vw); }
+.round-screen .res-hero, .round-screen.resultsov.champ .res-hero {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 12px;
+  min-height: 83px;
+  padding: 12px 18px;
+  background: transparent;
+  border-bottom: 1px solid var(--round-edge);
+  animation: none;
+}
+.round-screen .res-hero .face { flex: none; width: clamp(56px, 11vw, 102px); }
+.round-screen .res-hero h2 {
+  font-size: clamp(26px, 5vw, 52px);
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+  line-height: .98;
+}
+.round-screen .score-head {
+  display: grid;
+  grid-template-columns: 1fr var(--score-cols);
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #ffe5aa28;
+}
+.round-screen .score-head span + span { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.round-screen .score-head .ico { width: 15px; height: 15px; }
+.round-screen .lboard { --rh: 57px; height: calc(var(--rh) * var(--rows)); }
+.round-screen .lrow {
+  grid-template-columns: 23px 44px minmax(0, 1fr) minmax(38px, max-content) var(--score-cols);
+  height: var(--rh);
+  gap: 8px;
+  padding: 0 12px 0 6px;
+  border: 0;
+  border-left: 3px solid var(--c);
+  border-bottom: 1px solid #ffe5aa25;
+  background: transparent;
+}
+.round-screen .lrow.me { background: #ffee9a0d; }
+.round-screen .lrow.lead { box-shadow: none; }
+.round-screen .lrow.lead .lk { color: var(--round-amber); }
+.round-screen .la { width: 100%; }
+.round-screen .crown { right: -4px; top: -8px; }
+.round-screen .crown, .round-screen .crown .ico { width: 19px; height: 19px; }
+.round-screen .lk { font-size: 21px; color: var(--round-muted); }
+.round-screen .ln { font: 400 clamp(15px,2vw,23px)/1.12 var(--display); }
+.round-screen .row-name { overflow: hidden; text-overflow: ellipsis; }
+.round-screen .row-note { display: flex; flex-wrap: wrap; gap: 0 6px; }
+.round-screen .streak, .round-screen .newlead {
+  margin: 0;
+  font: 400 9px/1.2 var(--rules);
+  transform: none;
+}
+.round-screen .newlead {
+  color: var(--round-amber);
+  -webkit-text-fill-color: currentColor;
+  -webkit-text-stroke: 0;
+  background: none;
+  filter: none;
+}
+.round-screen .lg { grid-column: 4; font-size: 20px; line-height: .95; }
+.round-screen .lg b { color: #b4ed99; -webkit-text-fill-color: currentColor; -webkit-text-stroke: 0; font: 400 1em var(--display); background: none; }
+.round-screen .lg em { color: var(--round-muted); font-size: 9px; }
+.round-screen .lt, .round-screen .ls {
+  justify-self: end;
+  min-width: 0;
+  font: 400 27px/1 var(--display);
+  font-variant-numeric: tabular-nums;
+}
+.round-screen .lt { grid-column: 5; color: var(--round-amber); }
+.round-screen .ls { grid-column: 6; color: var(--round-paper); font-size: 22px; }
+.round-screen .lt b, .round-screen .ls b { font-weight: 400; }
+.round-screen .hint, .round-screen .lastround {
+  margin: 0;
+  border: 0;
+  background: none;
+  animation: none;
+  padding: 9px;
+  text-align: center;
+  -webkit-text-fill-color: currentColor;
+}
+
+/* Ceremony. The scene supplies the podium, winner poses and score strip. */
+.round-screen.finalov { padding: 0; }
+.round-screen .award-in { animation: round-heading-in .28s ease-out both; }
+.round-screen .award-slot { top: max(12%, calc(48px + var(--safe-t))); }
+.round-screen .award {
+  grid-template-columns: auto minmax(0, 1fr) minmax(44px, 22%);
+  gap: clamp(8px, 2.5vw, 18px);
+  padding: clamp(10px, 2vw, 20px);
+  border-bottom: 2px solid var(--round-edge);
+  background: var(--round-panel);
+  box-shadow: 0 10px 25px #0009;
+}
+.round-screen .award .ai .ico { width: clamp(27px, 8vw, 52px); height: auto; }
+.round-screen .award .at b { margin-block: 3px; font-size: clamp(20px, 4.5vw, 36px); }
+.round-screen .award .at span { color: var(--round-paper); text-transform: none; text-shadow: none; }
+.round-screen .award .ap { display: grid; min-width: 0; text-align: center; overflow-wrap: anywhere; line-height: 1; }
+.round-screen .award .ap b { border-bottom: 2px solid var(--c); padding-bottom: 3px; }
+.round-screen .award .ap .face { width: min(56px, 100%); }
+.round-screen .winner-slot {
+  top: auto;
+  bottom: calc(82px + var(--safe-b));
+}
+body.podstrip .round-screen .winner-slot {
+  top: calc(44px + var(--safe-t));
+  bottom: auto;
+}
+.round-screen .winner {
+  max-width: 100%;
+  transform: none;
+  padding: 8px 20px 11px;
+  background: radial-gradient(ellipse, #07171ce8, #07171ca6 58%, transparent 75%);
+}
+.round-screen .winner small { font-family: var(--rules); margin: 0 0 3px; }
+.round-screen .winner h2, .round-screen .drum {
+  font-size: clamp(23px, 5.2vw, 50px);
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.round-screen .drum { animation: none; }
+.round-screen .final-actions {
+  width: min(420px, 92vw);
+  inset-inline: 0;
+  margin-inline: auto;
+  transform: none;
+  bottom: calc(44px + var(--safe-b));
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+.round-screen .final-actions .menu { grid-auto-flow: column; gap: 6px; border: 2px solid var(--round-edge); background: var(--round-panel); }
+.round-screen .final-actions .mi {
+  min-height: 44px; padding: 7px 10px; font: 400 clamp(17px,2.4vw,25px)/1 var(--display);
+  -webkit-text-stroke: 0; letter-spacing: 0;
+}
+.round-screen .final-actions .mi:disabled { color: #cec793; }
+.round-screen .final-actions .mi::before { display: none; }
+.round-screen .final-actions .mi:focus-visible { outline: 2px solid #ffe4ad; outline-offset: -2px; }
+
+@media (max-width: 670px) and (orientation: portrait) {
+  .round-screen .intro { width: 100%; }
+  .round-screen .intro h1 { font-size: clamp(29px, 8.4vw, 47px); }
+  .round-screen .vsp .face { width: min(64px, 100%); }
+  .round-screen .rules { padding: 12px 14px; gap: 9px; }
+  .round-screen .results { --score-cols: 54px 42px; }
+  .round-screen .score-head { letter-spacing: 0; }
+  .round-screen .lrow, .round-screen .score-head { gap: 5px; padding-right: 8px; }
+  .round-screen .lrow { grid-template-columns: 18px 31px minmax(0, 1fr) auto var(--score-cols); }
+  .round-screen .lg { font-size: 15px; }
+  .round-screen .lg em { font-size: 8px; }
+  .round-screen .lt { font-size: 24px; }
+}
+
+@media (max-height: 490px) {
+  .round-screen.wheelov { padding-top: 46px; gap: 8px; grid-template-rows: auto auto minmax(50px, auto); }
+  .round-screen .wheel-head h2 { font-size: clamp(29px, 8vh, 45px); }
+  .round-screen .reel { --cw: min(64vw, 50vh, 300px); }
+  .round-screen .uka { width: 49px; }
+  .round-screen.introov, .round-screen.resultsov { padding-top: 50px; padding-bottom: 8px; }
+  .round-screen .intro h1 { font-size: clamp(26px, 8.6vh, 47px); }
+  .round-screen .rules { padding: 10px 12px; gap: 7px; font-size: 14px; }
+  .round-screen .vs { margin-bottom: 5px; }
+  .round-screen .vsp .face { width: 52px; }
+  .round-screen .res-hero { min-height: 48px; padding-block: 6px; }
+  .round-screen .res-hero .face { width: 55px; }
+  .round-screen .res-hero h2 { font-size: clamp(23px, 7vh, 39px); }
+  .round-screen .lboard { --rh: 38px; }
+  .round-screen .la .face { width: min(36px, 100%); }
+  .round-screen .score-head, .round-screen .hint, .round-screen .lastround { padding-block: 5px; }
+
+}
+
+@media (max-height: 490px) and (orientation: landscape) {
+  .round-screen.introov { padding: max(6px,var(--safe-t)) max(76px,var(--safe-r)) max(6px,var(--safe-b)) max(10px,var(--safe-l)); }
+  .round-screen .intro { width: min(850px,100%); grid-template-columns: minmax(84px,.31fr) minmax(0,1fr); align-items: center; }
+  .round-screen .vs { grid-column: 1; grid-row: 1 / 3; grid-template-columns: repeat(2,minmax(0,1fr)); align-content: center; gap: 12px 2px; margin: 0; padding-right: 7px; }
+  .round-screen .vsp .badge { font-size: 8px; left: 0; }
+  .round-screen .vsp .nm { font-size: 12px; }
+  .round-screen .rules { grid-column: 2; padding: 10px; gap: 8px; font-size: 12px; }
+  .round-screen .fuse { grid-column: 2; }
+  .round-screen .intro h1 { font-size: clamp(23px,6.8vh,36px); }
+  .round-screen .ctl .keys kbd { min-width: 19px; height: 19px; padding: 0 3px; box-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .round-screen .res-hero .face, .round-screen .vsp, .round-screen .wheel-head,
+  .round-screen.showdown .wheel-head h2, .round-screen.showdown .wheel-head em,
+  .round-screen .award-in, .round-screen .intro h1 { animation: none; }
+  .round-screen .lrow { transition: none; }
+}
+
+/* Versus battles show the four competitors in seat order over the arena. */
+.round-screen.resultsov.cup-battle { background: none; padding: 10vh max(8px,var(--safe-r),var(--safe-l)) 3vh; }
+.cup-board {
+  position: relative; width: min(92vw,74vh,520px); padding: clamp(8px,2vh,22px) clamp(10px,2.4vw,26px);
+  border: 2px solid var(--round-edge); background: var(--round-panel); text-align: center;
+}
+.cup-board h2 { font: 400 clamp(18px,3vh,30px)/1.1 var(--display); margin-bottom: 6px; }
+.cup-board ol { list-style: none; margin: 0; padding: 0; }
+.cup-board li { display: grid; grid-template-columns: clamp(36px,7vh,72px) minmax(0,1fr) auto auto clamp(27px,4.6vh,50px); align-items: center; gap: 8px; min-height: clamp(38px,8vh,78px); }
+.cup-board .face { aspect-ratio: 1.6; }
+.cup-board .cup-name { text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 400 clamp(14px,2.3vh,23px)/1.1 var(--display); }
+.cup-board .gt.or { font-size: clamp(26px,5vh,48px); }
+.cup-board .times { color: var(--round-amber); font-family: var(--display); font-size: 20px; }
+.cup-board .ico { width: 100%; height: auto; }

@@ -62,7 +62,7 @@ a.send({ t: 'ready', ready: true });
 b.send({ t: 'ready', ready: true });
 
 await until(() => a.rounds.length >= 1, 3000, 'round 1 start');
-ok('round has game + modifier', a.rounds[0].gameId && a.rounds[0].modifier.id);
+ok('standard round has a game and original rules', a.rounds[0].gameId && a.rounds[0].modifier === null);
 await until(() => a.phases.includes('play'), 3000, 'play phase');
 spec = client('Spec');
 await spec.open;
@@ -70,20 +70,20 @@ spec.send({ t: 'join', name: 'Spec', room: a.code });
 await until(() => a.results.length >= 1, 15000, 'round 1 results');
 ok('snapshots arrived', a.snaps > 20 && b.snaps > 20);
 ok('input acks advance', a.lastAck > 0);
-ok('players moved from spawn', a.firstWorld && a.lastWorld && JSON.stringify(a.firstWorld.bodies.filter((x) => x.kind === 'player')) !== JSON.stringify(a.lastWorld.bodies.filter((x) => x.kind === 'player')));
+ok('players moved from spawn', a.firstWorld && a.lastWorld && JSON.stringify(a.firstWorld.bodies.filter((x) => x.kind === 'player' || x.kind === 'tank')) !== JSON.stringify(a.lastWorld.bodies.filter((x) => x.kind === 'player' || x.kind === 'tank')));
 ok('results have 4 placements', a.results[0].placements.length === 4 && new Set(a.results[0].placements).size === 4);
-ok('points awarded', a.results[0].gained.reduce((x, y) => x + y, 0) === 10);
+ok('points awarded', a.results[0].gained.reduce((x, y) => x + y, 0) === (a.results[0].draw ? 0 : 10));
 ok('spectator got snapshots + no seat', spec.snaps > 5 && !spec.room.seats.some((s) => s.clientId === spec.id));
 
-await until(() => a.results.some((r) => r.final), 20000, 'final results');
+await until(() => a.results.some((r) => r.final) && a.phases.includes('final'), 20000, 'final results and phase');
 const fin = a.results.at(-1);
 ok(`played ${ROUNDS} rounds`, a.rounds.length === ROUNDS && fin.round === ROUNDS);
 ok('winner(s) declared', fin.winners.length >= 1);
-ok('phases in order', ['intro', 'countdown', 'play', 'results', 'intro', 'countdown', 'play', 'final'].every((p, i) => a.phases.filter((x, j) => j === 0 || x !== a.phases[j - 1])[i] === p));
+ok('phases in order', ['wheel', 'intro', 'countdown', 'play', 'results', 'wheel', 'intro', 'countdown', 'play', 'final'].every((p, i) => a.phases.filter((x, j) => j === 0 || x !== a.phases[j - 1])[i] === p));
 await until(() => a.room.phase === 'lobby' && a.phases.at(-1) === 'lobby', 3000, 'back to lobby');
 ok('ready reset in lobby', a.room.seats.filter((s) => s.clientId != null).every((s) => !s.ready));
 
 clearInterval(driver);
-console.log(`PASS (${checks.length} checks). games: ${a.rounds.map((r) => r.gameId + '/' + r.modifier.id).join(', ')}; winners: ${fin.winners}; scores: ${fin.scores}`);
+console.log(`PASS (${checks.length} checks). games: ${a.rounds.map((r) => r.gameId + '/' + (r.modifier?.id ?? '-')).join(', ')}; winners: ${fin.winners}; scores: ${fin.scores}`);
 for (const c of [a, b, spec]) c.ws.close();
 setTimeout(() => process.exit(0), 100);

@@ -3,24 +3,26 @@
 // (docs/reference/malletMash).
 import * as THREE from 'three';
 import { CHARACTERS } from '../../shared/look';
-import { MM_R, MM_S, MM_SLOTS, animStart, animStep, mmPose, mmX, mmZ, type MMData, type MMPlayer } from '../../shared/games/malletMash';
+import { MM_S, MM_SLOTS, createMalletMashResult, mmFace, mmOpeningPose, mmPose, mmX, mmZ, type MMData } from '../../shared/games/malletMash';
+import type { GameEvent } from '../../shared/types';
 import { createCharacter } from '../characters';
-import { getCatalog } from '../crash';
+import { charEntry, getCatalog } from '../crash';
+import { charVoice, winnerVoice } from '../shell/voice';
 import { sfx, sfxRate } from '../shell/sound';
 import { Kit, catalogInstance, preloadCatalogFor } from './kit';
 import { preloadFx } from './realFx';
-import { easeOutBack } from './partyBits';
-import { applyPose as applyCam, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type Placements } from './ps1cam';
+import { applyPose as applyCam, FitCam, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type Placements } from './ps1cam';
 let placements: Placements | null = null;
-import { scoreHud } from '../ui/ps1hud';
-import { getGame } from '../../shared/registry';
+import { arenaClockSprites, scoreHud } from '../ui/ps1hud';
 import type { ClientMiniGame } from './types';
 
 const S = 3.398;
 /** Object pack 0343: effect scripts 0 mushroom blast, 1 smoke + stars, 2 crate shards, 3 gold sparkle (re/notes/malletMash.md). */
 const PACK = 343;
 /** Held-item height per look (table 0x800b9594 by engine char: crash coco tiny dingodile cortex brio koala rilla), game units. */
-const HEAD = [576, 640, 768, 704, 512, 608, 640, 832, 608];
+const HEAD: Partial<Record<string, number>> = {
+  crash: 576, coco: 640, tiny: 768, dingodile: 704, cortex: 512, brio: 608, koala: 640, rilla: 832, 'big-stein': 608,
+};
 
 /** Camera fitted to the real frame (image-difference search on the disc's own intro frame), in sim units (raw x 3.398). */
 export const MM_CAM = { pos: [0.325, 8.477, 17.894] as [number, number, number], look: [0.339, 1.173, -0.106] as [number, number, number], fov: 43.2, aspect: 4 / 3 };
@@ -37,27 +39,13 @@ const PROPS = [
   'mmBannerBlue', 'mmBannerRed', 'mmLid', 'mmAura_crash', 'mmAura_coco', ...CHARACTERS.map((c) => 'mmMallet_' + c.id),
 ];
 
-/**
- * Level sound bank 0178: the game's sound ids (FUN_80022660) map through the VAB tone table to sample n of this bank:
- * windup 0x719+p -> 7+p, swing event 0xc 0x721+p -> 15+p, swing lands 0x710+p -> 2+p, mushroom hit 0x71d+p -> 11+p (gold +0x72b -> 20),
- * wave 0x72f+p -> 23+p (power wave +0x72d -> 21), normal pop 0x528 -> 34, gold pop 0x72a -> 19, explosion 0x733.. -> 27,
- * hurt 0x446 -> 28, boots 0x41c -> 33, shock power 0x72e -> 22, crate smash 0x3f5.. -> 30/31.
- */
+/** Zero-based sample index in the level VAB (0178). */
 const BANK = (n: number) => `sfx/0178/${n}.mp3`;
 
-interface MushV { group: THREE.Group; red: THREE.Object3D; gold: THREE.Object3D; gld: boolean }
+/** The native draw runs for 120 ticks. A hurt winner can deliver the final cue past four seconds. */
+export const malletMashResultHoldMs = (draw: boolean) => draw ? 4000 : 4500;
 
-/** Drive a model instance to an exact keyframe: clip = gltf animation (group), frame = logic frame (the clips are sampled at 30 fps). */
-function applyPose(inst: { root: THREE.Object3D }, clip: number, frame: number) {
-  const o = inst as unknown as { mixer: THREE.AnimationMixer | null; clips: THREE.AnimationClip[] };
-  const mx = o.mixer, c = o.clips?.[clip];
-  if (!mx || !c) return;
-  const act = mx.clipAction(c);
-  for (const a of (mx as unknown as { _actions: THREE.AnimationAction[] })._actions) if (a !== act) a.setEffectiveWeight(0);
-  act.enabled = true; act.setEffectiveWeight(1); act.play();
-  act.time = Math.min(c.duration, frame / 30);
-  mx.update(0);
-}
+interface MushV { group: THREE.Group; red: THREE.Object3D; gold: THREE.Object3D; gld: boolean }
 
 export function createMalletMashView(): ClientMiniGame {
   let kit: Kit;
@@ -66,12 +54,16 @@ export function createMalletMashView(): ClientMiniGame {
   const crates: (THREE.Object3D | null)[] = [];
   /** held power-up over the head (the game's held-item node): boots = pack part 18, shock = shared pack 0736 part 11 */
   const auras: { boots: THREE.Object3D; shock: THREE.Object3D | null }[] = [];
-  const lost = new Set<number>();
   const charge = new Map<number, THREE.Object3D | null>();
   const waves: { obj: THREE.Object3D; t: number; s: number; target: number; yaw: number; done: boolean }[] = [];
-  /** after the round ends the sim stops: the view keeps the winners cheering / losers shrinking with the real scripts */
-  let endP: MMPlayer[] | null = null;
-  let endAcc = 0;
+  let result: {
+    scene: ReturnType<typeof createMalletMashResult>;
+    camera: FitCam;
+    at: number;
+    frame: number;
+    renderedAt: number;
+    winnerAt: number;
+  } | undefined;
 
   const prop = (name: string, scale = 1): THREE.Object3D | null => {
     const ref = getCatalog().props[name];
@@ -146,7 +138,20 @@ export function createMalletMashView(): ClientMiniGame {
   }
 
   function placeCamera(ctx: { camera: THREE.PerspectiveCamera }) {
-    applyCam(ctx.camera, ps1Pose(LEVEL_CAMS[29], getCatalog().arenas.malletMash)); // the real camera (level 0x1d)
+    applyCam(ctx.camera, ps1Pose(result?.camera.c ?? LEVEL_CAMS[29], getCatalog().arenas.malletMash));
+  }
+
+  function mushroomEvent(e: GameEvent, delay: number, audio: boolean) {
+    if (e.k === 'rise') {
+      if (e.v) kit.real.play(PACK, 3, e.x, 0x100 / MM_S, e.z, { delay: delay + 13 });
+      if (audio) sfx.playFile(BANK(e.v ? 18 : 33), 0.7, true, sfxRate('0178', e.v ? 0x72a : 0x528));
+    } else {
+      kit.real.play(PACK, 0, e.x, 0, e.z, { delay });
+      if (audio) {
+        const take = Math.floor(Math.random() * 4);
+        sfx.playFile(BANK(26), 0.8, true, sfxRate('0178', 0x733 + take));
+      }
+    }
   }
 
   return {
@@ -156,44 +161,58 @@ export function createMalletMashView(): ClientMiniGame {
     init(ctx, world) {
       kit = new Kit(ctx, 'malletMash', { bg: 0x000000, hemi: [0xffffff, 0x888888, 1.6], sun: [4, 18, 8] });
       kit.realFx(S);
-      lost.clear();
+      result = undefined;
       build();
       placeCamera(ctx);
-      endP = null; endAcc = 0;
       void world;
       if (!loaded) this.preload!().then(() => { if (kit) { kit.reset(); charge.clear(); kit.root.remove(built); build(); } });
     },
 
     render(ctx, w, dt) {
-      kit.checkOver(w);
-      const d = w.data as MMData;
+      kit.checkOver(w, false, malletMashResultHoldMs(true));
       const t = ctx.time;
-      // round over: continue the end animations locally (winner cheer script 0x39, losers idle script + shrink)
-      if (d.over && !endP) {
-        endP = d.p.map((P) => {
-          const c = structuredClone(P);
-          if (d.winner === -1) return c;
-          const win = (c.fl & 0x200) !== 0;
-          c.st = win ? 0x47 : 0x48;
-          animStart(c, win ? 0x39 : 0x33);
-          return c;
-        });
-        endAcc = 0;
-      } else if (!d.over) endP = null;
-      if (endP) {
-        endAcc += dt * 30;
-        while (endAcc >= 1) {
-          endAcc -= 1;
-          for (const c of endP) { if (c.st === 0x48 && c.sc !== 0) c.sc -= 0x80; if (c.st === 0x47 || c.st === 0x48) animStep(c); }
+      let fxDt = dt;
+      if (!kit.over.done) result = undefined;
+      else {
+        const winner = kit.over.winners.values().next().value;
+        const at = result?.at ?? ctx.resultReplayAt ?? t;
+        const frame = Math.max(0, Math.floor((t - at) * 30 + 1e-7));
+        const audioFrom = result ? 0 : frame + 1;
+        result ??= { scene: createMalletMashResult(w, winner), camera: new FitCam(LEVEL_CAMS[29]), at, frame: 0, renderedAt: t - dt, winnerAt: -1 };
+        fxDt = Math.max(0, t - result.renderedAt);
+        result.renderedAt = t;
+        while (result.frame < frame) {
+          const tick = ++result.frame;
+          const audio = tick >= audioFrom;
+          const delay = fxDt * 30 - (frame - tick);
+          for (const e of result.scene.step()) {
+            if (e.k === 'resultWinner') {
+              result.winnerAt = tick;
+              if (!audio) sfx.enterRoundResult('winner');
+            } else if (e.k === 'resultBurst') kit.real.play(PACK, 1, e.x, 0, e.z, { delay });
+            else if (e.k === 'rise' || e.k === 'boom') mushroomEvent(e, delay, audio);
+          }
+          if (audio && winner !== undefined && result.winnerAt >= 0) {
+            const age = tick - result.winnerAt;
+            winnerVoice('malletMash', kit.look(winner).char, age - 1, age);
+          }
+          if (result.scene.cameraActive) {
+            // FUN_80078dd4 uses half width and 3/4 height on results. Loser entry removes the actor from the tracked list.
+            const boxes = result.scene.data.p.filter(p => p.st !== 0x48).map(p => ({
+              x: p.x, y: -16, z: p.z, xl: 256, xr: 256, zn: 0, zf: 0, h: 960,
+            }));
+            result.camera.update(boxes, false, false);
+          }
         }
       }
+      const d = result?.scene.data ?? w.data as MMData;
       const seen = new Set<number>();
       for (const b of w.bodies) {
         if (b.kind !== 'player') continue;
         seen.add(b.id);
         const s = b.slot;
-        const P: MMPlayer = d.p[s];
-        const Pv: MMPlayer = endP && d.over ? endP[s] : P;
+        const Pv = result ? d.p[s] : (kit.playerWorld(s).data as MMData).p[s];
+        const body = result ? { ...b, x: mmX(Pv.x), z: mmZ(Pv.z), face: mmFace(Pv.yaw), vx: 0, vz: 0 } : b;
         const a = kit.actor(b, () => {
           const id = CHARACTERS[kit.look(s).char % CHARACTERS.length].id;
           const inst = catalogInstance(getCatalog().props['mmMallet_' + id]);
@@ -206,23 +225,30 @@ export function createMalletMashView(): ClientMiniGame {
           charge.set(b.id, au);
         }
         const gone = Pv.st === 0x48 && Pv.sc < 1;
-        a.update(b, dt, { role: 'idle', freeze: true, keepYaw: false, hidden: gone || P.hid });
-        const [clip, frame] = mmPose(Pv.an);
-        applyPose(a.inst, clip, frame);
-        a.holder.scale.setScalar(Pv.st === 0x48 ? Math.max(0.001, Pv.sc / 0x1000) : 1);
+        // Keep a stationary local actor on the arena clock until its predicted action starts.
+        const idle = Pv.st === 0x40 && d.p[s].st === 0x40;
+        const [clip, frame] = w.tick === 0 && ctx.countdownTicksLeft !== undefined
+          ? mmOpeningPose(Pv.ch, ctx.countdownTicksLeft) : mmPose(idle ? d.p[s].an : Pv.an);
+        if (result) a.face = body.face;
+        a.update(body, dt, { pose: { clip, frame }, role: 'idle', freeze: true, keepYaw: !!result, hidden: gone || Pv.hid });
+        a.holder.scale.setScalar(Pv.sc / 0x1000);
+        if (result && Pv.hid && !gone) {
+          a.shadow.set(body.x, body.z, body.y);
+          a.shadow.visible = true;
+        }
         const ch = charge.get(b.id);
-        if (ch) ch.visible = P.st === 0x44;
+        if (ch) ch.visible = Pv.st === 0x44;
         // power-up marker over the head (FUN_800b6e1c: at the player, y - HEAD[char], spins 0x38 per frame)
         const au = auras[s];
-        const yaw = (d.g * 0x38 * Math.PI * 2) / 4096, hy = b.y + HEAD[kit.look(s).char % HEAD.length] / MM_S;
-        for (const [o, on] of [[au.boots, P.pw === 0], [au.shock, P.pw === 1]] as const) {
+        const id = CHARACTERS[kit.look(s).char].id;
+        const nativeHeight = HEAD[id];
+        const hy = body.y + (nativeHeight == null ? (charEntry(id)?.height ?? a.headY) + 0.1 : nativeHeight / MM_S);
+        const yaw = (d.g * 0x38 * Math.PI * 2) / 4096;
+        for (const [o, on] of [[au.boots, Pv.pw === 0], [au.shock, Pv.pw === 1]] as const) {
           if (!o) continue;
-          o.visible = on && !P.hid;
-          if (o.visible) { o.position.set(b.x, hy, b.z); o.rotation.y = -yaw; }
+          o.visible = on && !Pv.hid;
+          if (o.visible) { o.position.set(body.x, hy, body.z); o.rotation.y = -yaw; }
         }
-        // a loser shrinks away (0x80 / frame) and leaves the smoke-and-stars puff (script 1) when gone
-        if (gone && !lost.has(s)) { lost.add(s); kit.real.play(PACK, 1, b.x, b.y, b.z); }
-        else if (!gone) lost.delete(s);
       }
       kit.prune(seen);
       for (const id of charge.keys()) if (!seen.has(id)) charge.delete(id);
@@ -252,7 +278,7 @@ export function createMalletMashView(): ClientMiniGame {
         wv.obj.rotation.y = -(wv.yaw * Math.PI * 2) / 4096;
       }
       placeCamera(ctx);
-      kit.real.update(dt, ctx.camera);
+      kit.real.update(fxDt, ctx.camera);
       kit.fx.update(dt);
     },
 
@@ -261,19 +287,21 @@ export function createMalletMashView(): ClientMiniGame {
       const real = kit.real;
       if (kit.baseEvent(e)) return;
       switch (e.k) {
-        case 'rise': // a gold one sparkles (script 3, 256 u up) once it is fully out, 13 ticks later
-          if (e.v) real.play(PACK, 3, e.x, 0x100 / MM_S, e.z, { delay: 13 });
-          if (!sfx.playFile(BANK(e.v ? 19 : 34), 0.7)) sfx.play(e.v ? 'tick' : 'whoosh', 0.5);
+        case 'rise': // a gold one sparkles when it is fully out, 13 ticks later
+          mushroomEvent(e, 0, true);
+          break;
+        case 'footstep':
+          charVoice('c', ctx.seats[e.s]?.look.char, e.v);
           break;
         case 'swing': // windup starts
           kit.actorForSlot(e.s)?.action();
-          sfx.playFile(BANK(7 + (e.s & 3)), 0.6);
+          sfx.playFile(BANK(6 + (e.s & 3)), 0.6, true);
           break;
         case 'strike':
-          sfx.playFile(BANK(15 + (e.s & 3)), 0.6);
+          sfx.playFile(BANK(14 + (e.s & 3)), 0.6, true);
           break;
         case 'hit': // mallet lands
-          sfx.playFile(BANK(2 + (e.s & 3)), 0.8);
+          sfx.playFile(BANK(1 + (e.s & 3)), 0.8, true);
           break;
         case 'smash': { // mushroom state 4: script 1 (two smoke puffs + eight stars), its points float up (FUN_800b6b04)
           const gold = e.o === 1;
@@ -281,54 +309,54 @@ export function createMalletMashView(): ClientMiniGame {
           real.number(e.v, e.x, 0, e.z);
           kit.shake(gold ? 0.35 : 0.14);
           kit.actorForSlot(e.s)?.squash.kick(0.2);
-          sfx.playFile(BANK(11 + (e.s & 3)), 0.8);
-          if (gold) sfx.playFile(BANK(20), 0.6);
+          sfx.playFile(BANK(10 + (e.s & 3)), 0.8, true);
+          if (gold) sfx.playFile(BANK(19), 0.6, true);
           break;
         }
         case 'boom': // a mushroom explodes (state 5): script 0 (green ring, flash, green smoke)
-          real.play(PACK, 0, e.x, 0, e.z);
+          mushroomEvent(e, 0, true);
           kit.shake(0.3);
-          { const i = Math.floor(Math.random() * 4); sfx.playFile(BANK(27), 0.8, false, sfxRate('0178', 0x733 + i)); } // 0x733-0x736: one sample, four pitches
           break;
         case 'wave': { // object 0x1a03: the blue ring (part 19) 128 u over the floor, target scale 4 (power wave 8)
           const power = e.o === 1;
           const ring = prop('mmRingB');
           if (ring) { ring.position.set(e.x, 0x80 / MM_S, e.z); ring.scale.set(0.001, 1, 0.001); kit.root.add(ring); waves.push({ obj: ring, t: 0, s: 0, target: power ? 0x8000 : 0x4000, yaw: 0, done: false }); }
           kit.shake(power ? 0.8 : 0.6);
-          if (power) sfx.playFile(BANK(21), 0.8);
-          sfx.playFile(BANK(23 + (e.s & 3)), 0.8);
+          if (power) sfx.playFile(BANK(20), 0.8, true);
+          sfx.playFile(BANK(22 + (e.s & 3)), 0.8, true);
           break;
         }
         case 'stun':
           kit.actorForSlot(e.s)?.hit();
-          sfx.playFile(BANK(28), 0.7);
+          sfx.playFile(BANK(27), 0.7, true);
           break;
         case 'cbreak': // crate state 4: script 2 (purple shards, smoke, stars)
           real.play(PACK, 2, e.x, 0, e.z);
-          { const i = Math.floor(Math.random() * 4); sfx.playFile(BANK(30 + (i & 1)), 0.8, false, sfxRate('0178', 0x3f5 + i)); } // 0x3f5-0x3f8: two samples, two pitches
+          { const i = Math.floor(Math.random() * 4); sfx.playFile(BANK(29 + (i & 1)), 0.8, true, sfxRate('0178', 0x3f5 + i)); } // 0x3f5-0x3f8: two samples, two pitches
           break;
         case 'crate':
-          sfx.playFile(BANK(e.v === 0 ? 33 : 22), 0.8);
+          sfx.playFile(BANK(e.v === 0 ? 32 : 21), 0.8, true);
           break;
       }
-      void ctx;
     },
 
     /** Real HUD: faces, three-digit scores, clock. */
     ps1Hud(w, ctx) {
-      return scoreHud(ctx.seats, (s) => (w.data as MMData).p?.[s]?.score ?? 0, (getGame('malletMash')?.maxTime ?? 90) - w.time, w.time);
+      const d = w.data as MMData;
+      return scoreHud(ctx.seats, s => d.shown?.[s] ?? d.p[s]?.score ?? 0, arenaClockSprites('malletMash', w));
     },
 
     hud(w, slot) {
       const d = w.data as MMData;
       const P = d.p?.[slot];
-      return `${String(P?.score ?? 0).padStart(3, '0')}${P?.pw === 0 ? ' ›' : ''}${P?.pw === 1 ? ' ◎' : ''}`;
+      return `${String(d.shown?.[slot] ?? P?.score ?? 0).padStart(3, '0')}${P?.pw === 0 ? ' ›' : ''}${P?.pw === 1 ? ' ◎' : ''}`;
     },
 
     dispose(ctx) {
-      mush.length = 0; crates.length = 0; auras.length = 0; waves.length = 0; lost.clear();
+      mush.length = 0; crates.length = 0; auras.length = 0; waves.length = 0; charge.clear();
+      result = undefined;
       kit.dispose();
-      void ctx; void MM_R;
+      void ctx;
     },
   };
 }

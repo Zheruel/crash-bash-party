@@ -7,7 +7,7 @@ type R = [number, number, number];
 const TABLE: Record<string, Record<string, R>> = {
   tankArena: { hit: [0, 10, 0xf0] }, // FUN_800b6354 damage
   dashRace: { hit: [10, 10, 0xff] }, // FUN_800bba04 enter of the hit state 0x5d
-  ringDing: { recoil: [10, 10, 0xff] }, // FUN_800b9e68 recoil enter (anim 0x4d)
+  dragonDrop: { recoil: [10, 10, 0xff] }, // FUN_800b9e68 recoil enter (anim 0x4d)
   pushOff: { hit: [10, 10, 0xff] }, // FUN_800bbf2c collision with impact > 0x1000
   malletMash: { stun: [15, 0, 0] }, // FUN_800b4910 shock wave on a player
   kegKaboom: { stun: [0, 10, 0xf0] }, // FUN_800bb010 shock wave stun

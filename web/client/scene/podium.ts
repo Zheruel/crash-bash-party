@@ -379,6 +379,7 @@ export class PodiumScene implements Mode {
   private reset(d: PodiumData) {
     this.cam = new PodiumCam(d.camera);
     this.prev = { ...this.cam.out };
+    this.frame = 0;
     this.acc = 0;
     this.live = false;
     this.auto = false;
@@ -414,7 +415,7 @@ export class PodiumScene implements Mode {
   }
 
   /** The scene exactly as the game plays it: everyone in place from the first frame, camera and fireworks on the game's clock. */
-  playReal() {
+  playReal(elapsedFrames = 0) {
     if (!data) return;
     this.reset(data);
     for (const e of this.entries) {
@@ -424,7 +425,8 @@ export class PodiumScene implements Mode {
     this.auto = true;
     this.live = true;
     this.fwTimer = data.fireworks.first;
-    if (this.cheer) sfx.playFile(this.cheer, 0.7, true);
+    if (this.cheer && elapsedFrames < 2) sfx.playFile(this.cheer, 0.7, true);
+    for (let i = 0; i < elapsedFrames; i++) this.tick(data, false);
   }
 
   /** The engine's level fade-in: black, then 19 / 37 / 58 / 74 / 93 / 100 % over six 30 Hz frames (emulator capture). */
@@ -457,7 +459,7 @@ export class PodiumScene implements Mode {
   private poseOf(e: Entry, a: number) { if (e.actor) e.mi.pose(e.actor.clip, e.actor.at(a)); }
 
   /** One 30 Hz game frame. */
-  private tick(d: PodiumData) {
+  private tick(d: PodiumData, audible = true) {
     this.frame++;
     this.prev = { ...this.cam!.out };
     this.cam!.step(this.auto);
@@ -486,8 +488,10 @@ export class PodiumScene implements Mode {
       this.fwGroup.add(f.group);
       const a = rnd(6), b = rnd(6);
       // six ids each over three samples: the second three are the same bangs pitched down (tone centre notes, VAB 0181)
-      sfx.playFile(fw.bang[a % 3], 0.45, false, fw.bangRate?.[a] ?? 1);
-      sfx.playFile(fw.crackle[b >> 1], 0.45, false, fw.crackleRate?.[b] ?? 1);
+      if (audible) {
+        sfx.playFile(fw.bang[a % 3], 0.45, false, fw.bangRate?.[a] ?? 1);
+        sfx.playFile(fw.crackle[b >> 1], 0.45, false, fw.crackleRate?.[b] ?? 1);
+      }
       this.fwTimer = rnd(fw.wait[0]) + fw.wait[1];
     }
   }

@@ -1,7 +1,8 @@
 // Headless client state machine: talks to any ClientTransport, tracks the party, runs prediction
 // and snapshot interpolation. No DOM / three.js, so tests drive it directly.
+import type { RenderWorld } from './games/types';
 import { DT, type Body, type GameEvent, type InputState, type World } from '../shared/types';
-import type { C2S, Phase, ResultsMsg, RoomState, RoundMsg, S2C, WheelMsg } from '../shared/protocol';
+import type { C2S, MatchConfig, Phase, ResultsMsg, RoomState, RoundMsg, S2C, WheelMsg } from '../shared/protocol';
 import { getGame } from '../shared/registry';
 import { sanitizeLook, type Look } from '../shared/look';
 import { Predictor } from './predict';
@@ -52,6 +53,7 @@ export class GameClient {
   wheel: WheelMsg | null = null;
   results: ResultsMsg | null = null;
   phase: Phase = 'lobby';
+  phaseStartedAt = 0;
   phaseEnds = 0;
   playStartedAt = 0;
   scores = [0, 0, 0, 0];
@@ -131,7 +133,7 @@ export class GameClient {
   ready(ready: boolean) { this.rawSend({ t: 'ready', ready }); }
   seat(take: boolean) { this.rawSend({ t: 'seat', take }); }
   setLook(look: Look) { this.profile.look = look; this.rawSend({ t: 'look', look }); }
-  config(c: { rounds?: number; botLevel?: number }) { this.rawSend({ t: 'config', ...c }); }
+  config(c: MatchConfig) { this.rawSend({ t: 'config', ...c }); }
   emote(id: number) { this.rawSend({ t: 'emote', id }); }
   rematch() { this.rawSend({ t: 'rematch' }); }
   skip() { this.rawSend({ t: 'skip' }); }
@@ -141,11 +143,17 @@ export class GameClient {
     return i >= 0 ? i : null;
   }
 
-  /** Call once per sim tick (30 Hz) while playing. */
+  /** Countdown samples stage held race controls at the host without predicting movement. */
   sendInput(s: InputState) {
-    if (this.phase !== 'play' || !this.predictor || this.roundSlot == null) return;
+    if (!this.predictor || this.roundSlot == null) return;
+    const opening = this.phase === 'countdown' && this.round?.gameId === 'dashRace';
+    if (!opening && this.phase !== 'play') return;
     const inp = { seq: ++this.predictor.seq, ...s };
-    this.rawSend({ t: 'input', ...inp }, true);
+    if (opening) {
+      this.rawSend({ t: 'input', round: this.round?.round, ...inp, opening: true }, true);
+      return;
+    }
+    this.rawSend({ t: 'input', round: this.round?.round, ...inp }, true);
     this.predictor.push(inp);
   }
 
@@ -193,16 +201,18 @@ export class GameClient {
       }
       case 'phase':
         this.phase = m.phase;
+        this.phaseStartedAt = now - (m.elapsedMs ?? 0);
         this.phaseEnds = now + m.ms;
-        if (m.phase === 'play') this.playStartedAt = now;
+        if (m.phase === 'play') this.playStartedAt = this.phaseStartedAt;
         if (m.phase === 'lobby') { this.round = null; this.results = null; this.predictor = null; this.snaps = []; this.wheel = null; }
         this.h.phase?.(m.phase, m.ms);
         break;
       case 'snap': {
+        if (m.round !== undefined && m.round !== this.round?.round) break;
         this.snapCount++;
-        this.lastAck = m.ack;
         const last = this.snaps[this.snaps.length - 1];
         if (last && m.tick <= last.tick) break; // reordered/stale
+        this.lastAck = m.ack;
         this.snaps.push({ tick: m.tick, w: m.w, at: now });
         if (this.snaps.length > 24) this.snaps.shift();
         this.predictor?.onSnapshot(m.w, m.ack);
@@ -222,31 +232,59 @@ export class GameClient {
 
   // ---- rendering helper ----
   /** Latest world for display: interpolated others + predicted local player. */
-  renderWorld(now: number): World | null {
+  renderWorld(now: number): RenderWorld | null {
     const snaps = this.snaps;
     if (!snaps.length) return null;
     const last = snaps[snaps.length - 1];
-    let world = last.w;
+    if (last.w.finished) return last.w;
+    let world: RenderWorld = last.w;
     if (this.phase === 'play' && snaps.length > 1) {
       const rt = Math.min(last.tick, last.tick + (now - last.at) / 1000 / DT - INTERP_TICKS);
       let i = snaps.length - 1;
       while (i > 0 && snaps[i - 1].tick > rt) i--;
       const b = snaps[i], a = snaps[Math.max(0, i - 1)];
       const t = b.tick === a.tick ? 1 : Math.min(1, Math.max(0, (rt - a.tick) / (b.tick - a.tick)));
-      const prev = new Map<number, Body>(a.w.bodies.map((x) => [x.id, x]));
+      const base = t < 1 ? a.w : b.w;
+      let data = base.data;
+      if (this.round?.gameId === 'pushOff' && t < 1 && a.w.data.camera && b.w.data.camera) {
+        const camera = a.w.data.camera.map((axis: number, j: number) => lerp(axis, b.w.data.camera[j], t));
+        data = { ...data, camera };
+      }
+      const next = new Map<number, Body>(b.w.bodies.map(body => [body.id, body]));
       world = {
-        ...last.w,
-        bodies: b.w.bodies.map((bb) => {
-          const aa = prev.get(bb.id);
-          if (!aa) return bb;
-          return { ...bb, x: lerp(aa.x, bb.x, t), y: lerp(aa.y, bb.y, t), z: lerp(aa.z, bb.z, t), face: lerpAngle(aa.face, bb.face, t) };
+        ...base, data, time: lerp(a.w.time, b.w.time, t),
+        bodies: base.bodies.map(aa => {
+          const bb = next.get(aa.id);
+          if (!bb || t >= 1) return aa;
+          return { ...aa, x: lerp(aa.x, bb.x, t), y: lerp(aa.y, bb.y, t), z: lerp(aa.z, bb.z, t), face: lerpAngle(aa.face, bb.face, t) };
         }),
       };
+      if (this.round?.gameId === 'ballDefence' && t < 1 && (data.variant === 'crashball' || data.variant === 'nballism')) {
+        const elapsed = Math.floor(t * (b.tick - a.tick) + 1e-7);
+        const ahead = b.tick - a.tick - elapsed;
+        const future = b.w.data;
+        const lights = ahead < 8 && future.bumperFrames !== undefined
+          ? (future.bumperFrames >>> (4 * ahead)) & 15
+          : (data.bumperFrames ?? (data.post ? 1 << data.post.i : 0)) & 15;
+        const cool = data.cool.map((timer: number, i: number) => {
+          const next = future.cool[i];
+          return next > 0 && next + ahead <= 31 ? next + ahead : Math.max(0, timer - elapsed);
+        });
+        const flashes = ahead <= 8 ? future.flashes : data.flashes;
+        world.ballistixMarkers = { lights, cool, tick: data.f + elapsed, flashes };
+      }
     }
     const pw = this.predictor?.pred;
     if (this.phase === 'play' && pw && this.roundSlot != null) {
       const mine = pw.bodies.find((b) => (b.kind === 'player' || b.kind === 'tank') && b.slot === this.roundSlot);
-      if (mine) world = { ...world, bodies: world.bodies.map((b) => (b.id === mine.id ? { ...mine } : b)) };
+      if (mine) {
+        const slot = this.roundSlot, game = this.round?.gameId;
+        const carried = (b: Body) => game === 'dragonDrop' ? b.kind === 'jewel' && b.cd === slot
+          : game === 'crateToss' && ['crate', 'tnt', 'nitro', 'chest'].includes(b.kind) && b.cd === slot + 1;
+        const local = new Map(pw.bodies.filter(b => b.id === mine.id || carried(b)).map(b => [b.id, b]));
+        world = { ...world, predicted: pw, bodies: world.bodies.map(b =>
+          local.get(b.id) ?? (carried(b) ? pw.bodies.find(p => p.id === b.id) : undefined) ?? b) };
+      }
     }
     return world;
   }

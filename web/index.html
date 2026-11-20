@@ -6,14 +6,12 @@
   <meta name="theme-color" content="#04161a" />
   <title>Crash Bash Party</title>
   <link rel="icon" href="./client/ui/img/logo.png" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Almendra+SC&family=Barlow+Semi+Condensed:wght@600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./client/style.css" />
+  <link rel="stylesheet" href="./client/ui/party-menu.css" />
 </head>
 <body data-screen="title">
   <div id="vortex" aria-hidden="true"><i></i><i></i><i></i></div>
-  <canvas id="c"></canvas>
+  <canvas id="c" tabindex="-1" aria-label="Game arena"></canvas>
   <canvas id="confetti"></canvas>
   <div id="ui"></div>
   <script type="module" src="./client/main.ts"></script>

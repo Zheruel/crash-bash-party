@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import type { GameEvent } from '../shared/types';
+import { nativeRaster } from './crash';
 import { HttpAssetSource } from './assets';
 import type { ClientMiniGame, RenderContext, RenderWorld } from './games/types';
-import { sfx } from './shell/sound';
+import { arenaClock } from './ui/ps1hud';
+import { sfx, sfxRate } from './shell/sound';
 import { rumbleFor } from './shell/rumble';
 
 /** One "place" the canvas can show outside of a mini-game (title, lobby, board, podium). */
@@ -29,17 +31,15 @@ export class Stage {
   private gameRadius = 12;
   private token = 0;
   private shakeAmt = 0;
-  private hitUntil = 0;
+  private lastClock: number | null = null;
   private lastWorld: RenderWorld | null = null;
   private gameBg: THREE.Color | THREE.Texture | null = null;
   onResize: (() => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.setClearColor(0x000000, 0);
-    const mobile = matchMedia('(pointer: coarse)').matches;
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.75 : 2));
     this.ctx = {
       scene: this.scene, camera: this.camera, assets: this.assets, mySlot: null, seats: [], time: 0,
       frame: (r) => this.frame(r),
@@ -55,10 +55,13 @@ export class Stage {
 
   private resize() {
     const w = innerWidth, h = innerHeight;
-    this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / Math.max(1, h);
+    const native = this.gameShown;
+    this.renderer.domElement.classList.toggle('native-frame', native);
+    const ratio = native ? 1 : Math.min(devicePixelRatio, matchMedia('(pointer: coarse)').matches ? 1.75 : 2);
+    this.renderer.setDrawingBufferSize(native ? 512 : w, native ? 240 : h, ratio);
+    this.camera.aspect = native ? 4 / 3 : w / Math.max(1, h);
+    this.camera.userData.frameAspect = native ? 4 / 3 : undefined;
     this.camera.updateProjectionMatrix();
-    if (this.gameShown) this.frame(this.gameRadius);
     this.onResize?.();
   }
 
@@ -75,6 +78,7 @@ export class Stage {
     this.mode?.leave?.(this);
     for (const x of this.modes) x.root.visible = x === m;
     this.mode = m;
+    this.camera.up.set(0, 1, 0);
     this.camera.clearViewOffset();
     this.camera.fov = 40;
     this.camera.updateProjectionMatrix();
@@ -107,7 +111,6 @@ export class Stage {
   }
 
   shake(a: number) { this.shakeAmt = Math.min(1.5, Math.max(this.shakeAmt, a)); }
-  hitStop(ms: number) { this.hitUntil = performance.now() + Math.min(ms, 250); }
 
   // ---- mini-game view ----
   /** Load and show a mini-game view. Resolves false if superseded by a newer load/unload. */
@@ -120,19 +123,22 @@ export class Stage {
       await Promise.all([this.assets.preload(view.assets ?? {}), view.preload?.().catch(() => {})]);
     } catch { /* placeholders */ }
     if (token !== this.token) return false;
+    const previous = this.mode;
+    this.gameBg = this.scene.background;
+    this.preGame = new Set(this.scene.children);
+    this.showGame();
+    this.game = view;
     try {
-      this.gameBg = this.scene.background;
-      this.preGame = new Set(this.scene.children);
       view.init(this.ctx, world);
     } catch (e) {
       console.error('mini-game init failed', e);
+      this.unloadGame();
+      this.show(previous);
       return false;
     }
-    this.game = view;
     // A round announcement can precede the first snapshot, so game-specific data
     // (laps, lives, etc.) may not exist until render() receives a real world.
     this.lastWorld = world.bodies.length ? world : null;
-    this.showGame();
     return true;
   }
 
@@ -141,6 +147,8 @@ export class Stage {
     for (const x of this.modes) x.root.visible = false;
     this.mode = null;
     this.gameShown = true;
+    this.resize();
+    this.camera.up.set(0, 1, 0);
     this.camera.clearViewOffset();
     this.camera.fov = 40;
     this.camera.updateProjectionMatrix();
@@ -148,7 +156,7 @@ export class Stage {
     this.frame(this.gameRadius);
   }
   private preGame: Set<THREE.Object3D> | null = null;
-  private hideGame() { this.gameShown = false; }
+  private hideGame() { this.gameShown = false; this.resize(); }
 
   unloadGame() {
     this.token++;
@@ -156,13 +164,14 @@ export class Stage {
       try { this.game.dispose(this.ctx); } catch (e) { console.error(e); }
     }
     this.game = null;
+    this.lastClock = null;
     this.lastWorld = null;
     // Safety net: drop anything a view left in the scene after dispose.
     if (this.preGame) {
       for (const c of [...this.scene.children]) if (!this.preGame.has(c)) { this.scene.remove(c); }
       this.preGame = null;
     }
-    if (this.gameShown) { this.gameShown = false; this.scene.background = this.gameBg; }
+    if (this.gameShown) { this.hideGame(); this.scene.background = this.gameBg; }
   }
 
   get activeGame() { return this.gameShown ? this.game : null; }
@@ -174,19 +183,25 @@ export class Stage {
     if (this.game.onEvent) {
       try { this.game.onEvent(this.ctx, e); } catch (err) { console.error(err); }
     } else if (e.k === 'hit') { sfx.play('thud'); this.shake(0.2 * (e.v || 0.5)); }
-    else if (e.k === 'ko') { sfx.play('boom'); this.shake(0.7); this.hitStop(70); }
-    if (e.k === 'ko' && this.game.onEvent) this.hitStop(60);
+    else if (e.k === 'ko') { sfx.play('boom'); this.shake(0.7); }
     rumbleFor(this.game.id, e, this.ctx.mySlot);
   }
 
   // ---- frame ----
   render(world: RenderWorld | null, dt: number, t: number) {
     this.ctx.time = t;
-    const frozen = performance.now() < this.hitUntil;
     if (this.gameShown && this.game) {
       if (world) this.lastWorld = world;
       const w = this.lastWorld;
-      if (w && !frozen) {
+      if (w) {
+        if (this.game.id !== 'ballDefence') {
+          const seconds = arenaClock(this.game.id, w);
+          if (seconds <= 5 && this.lastClock !== null && seconds < this.lastClock) {
+            const horn = seconds === 0;
+            sfx.playFile(horn ? 'sfx/0277/5.mp3' : 'sfx/0277/4.mp3', 0.9, true, sfxRate('0277', horn ? 0x19c : 0x19b));
+          }
+          this.lastClock = seconds;
+        }
         try { this.game.render(this.ctx, w, dt); } catch (e) { console.error('mini-game render failed', e); }
       }
     } else if (this.mode) {
@@ -199,6 +214,7 @@ export class Stage {
       this.camera.position.add(off);
       this.shakeAmt *= Math.exp(-dt * 7);
     } else this.shakeAmt = 0;
+    nativeRaster.value = this.gameShown;
     this.renderer.render(this.scene, this.camera);
     if (off) this.camera.position.sub(off);
   }

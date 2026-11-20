@@ -1,12 +1,16 @@
 // Shared machinery for the 3D mini-game views: scene setup, player actors, catalog helpers,
 // procedural textures/props. Games compose these; they do not subclass.
 import * as THREE from 'three';
-import { CHARACTERS, colorHex, type Look } from '../../shared/look';
+import { CHARACTERS, DISC_CHARACTER, colorHex, type Look } from '../../shared/look';
 import { getGame } from '../../shared/registry';
 import { SLOT_COLORS, type Body, type GameEvent, type MiniGame } from '../../shared/types';
 import { characterRefs, createCharacter, isProcedural } from '../characters';
 import { getCatalog, loadCatalog, ModelInstance, ready, type ModelRef } from '../crash';
 import { Fx, lerpAngle, Squash, type BlobShadow } from '../fx';
+import { winnerVoice } from '../shell/voice';
+import { roundOver } from '../../shared/sim';
+import { sfx } from '../shell/sound';
+import { playerPose } from './playerPose';
 import { RealFx } from './realFx';
 import type { RenderContext, RenderWorld } from './types';
 
@@ -156,57 +160,6 @@ export function makeBall(r: number): THREE.Object3D {
   return g;
 }
 
-// ---------------------------------------------------------------- labels
-
-const labelCache = new Map<string, THREE.CanvasTexture>();
-export function labelSprite(text: string, color = '#ffffff', size = 0.6): THREE.Sprite {
-  const key = text + color;
-  let t = labelCache.get(key);
-  if (!t) {
-    const c = document.createElement('canvas');
-    c.width = 256; c.height = 96;
-    const g = c.getContext('2d')!;
-    g.font = '900 60px system-ui, "Arial Black", sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.lineWidth = 12; g.lineJoin = 'round'; g.strokeStyle = 'rgba(15,10,25,0.95)';
-    g.strokeText(text, 128, 50);
-    g.fillStyle = color;
-    g.fillText(text, 128, 50);
-    t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.SRGBColorSpace;
-    labelCache.set(key, t);
-  }
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthTest: false, depthWrite: false }));
-  s.userData.keepMap = true;
-  s.scale.set(size * (256 / 96), size, 1);
-  s.renderOrder = 40;
-  return s;
-}
-
-/** Bobbing arrow + "YOU" for the local player. */
-export function youMarker(hex: string): THREE.Group {
-  const g = new THREE.Group();
-  const col = new THREE.Color(hex);
-  const arrow = new THREE.Mesh(
-    new THREE.ConeGeometry(0.28, 0.5, 4).rotateX(Math.PI),
-    new THREE.MeshBasicMaterial({ color: col, depthTest: false, transparent: true }),
-  );
-  arrow.renderOrder = 41;
-  arrow.rotation.y = Math.PI / 4;
-  arrow.position.y = 0;
-  const outline = new THREE.Mesh(
-    new THREE.ConeGeometry(0.4, 0.68, 4).rotateX(Math.PI),
-    new THREE.MeshBasicMaterial({ color: 0x120a1c, depthTest: false, transparent: true, opacity: 0.85 }),
-  );
-  outline.rotation.y = Math.PI / 4;
-  outline.position.y = -0.04;
-  outline.renderOrder = 40;
-  const label = labelSprite('YOU', '#ffffff', 0.5);
-  label.position.y = 0.6;
-  g.add(outline, arrow, label);
-  return g;
-}
-
 // ---------------------------------------------------------------- kit
 
 export interface KitOpts {
@@ -216,7 +169,7 @@ export interface KitOpts {
   hemi?: [number, number, number];
 }
 
-export class Over { done = false; winners = new Set<number>(); }
+export class Over { done = false; frame = 0; winners = new Set<number>(); }
 
 /** Per-view toolkit: root group, lights, fx, actors for players, round-over detection. */
 export class Kit {
@@ -230,7 +183,8 @@ export class Kit {
   world!: RenderWorld;
   private bg: THREE.Scene['background'];
   private fog: THREE.Scene['fog'];
-  private overChecked = 0;
+  private overAt = 0;
+  private endTick = 0;
 
   constructor(public ctx: RenderContext, public id: string, opts: KitOpts) {
     this.game = getGame(id);
@@ -282,17 +236,38 @@ export class Kit {
   hex(slot: number): string { const s = this.ctx.seats[slot]; return s ? colorHex(s.look) : SLOT_COLORS[slot] ?? '#ffffff'; }
   shake(a: number) { this.ctx.shake?.(a); }
 
+  playerWorld(slot: number) {
+    return slot === this.ctx.mySlot && this.world.predicted ? this.world.predicted : this.world;
+  }
+
+  poseTick(slot: number) {
+    return this.over.done ? this.endTick + this.over.frame : this.playerWorld(slot).tick;
+  }
+
   /** Round-over detection: sets this.over (winners = best placement(s)). */
-  checkOver(w: RenderWorld) {
+  checkOver(w: RenderWorld, automaticWinnerVoice = true, drawDuckMs?: number) {
     this.world = w;
     if (!this.game) return;
-    const done = this.game.isOver(w) || w.time >= this.game.maxTime;
+    const done = w.finished || roundOver(this.game, w);
     if (done && !this.over.done) {
       this.over.done = true;
       const pl = this.game.placements(w);
-      this.over.winners = new Set([pl[0]]);
-      this.overChecked = w.tick;
-    } else if (!done) this.over.done = false;
+      const draw = this.game.isDraw?.(w, pl) ?? false;
+      this.over.winners = new Set(draw ? [] : [pl[0]]);
+      if (draw) sfx.enterRoundResult('draw', this.ctx.resultReplayAt === undefined ? undefined : this.ctx.resultReplayAt * 1000, drawDuckMs);
+      else if (automaticWinnerVoice && this.id !== 'tilePainter') winnerVoice(this.id, this.look(pl[0]).char, -1, 0);
+      this.over.frame = 0;
+      this.endTick = w.tick;
+      this.overAt = this.ctx.time;
+    } else if (done) {
+      const frame = Math.max(this.over.frame, Math.floor((this.ctx.time - this.overAt) * 30 + 1e-7));
+      if (frame !== this.over.frame) {
+        if (automaticWinnerVoice) {
+          for (const slot of this.over.winners) winnerVoice(this.id, this.look(slot).char, this.over.frame, frame);
+        }
+        this.over.frame = frame;
+      }
+    } else this.over.done = false;
   }
 
   /** Get-or-create the actor for a player body; the factory builds the model once. */
@@ -363,6 +338,13 @@ export interface ActorParts {
 }
 
 export interface ActorState {
+  /** Exact glTF clip/frame for an authored animation. */
+  pose?: { clip: number; frame: number; loop?: boolean };
+  /** PS1 player script and optional elapsed logic frames supplied by the simulation. */
+  script?: number;
+  scriptFrame?: number;
+  /** Direct render word used by a state that bypasses the animation script VM. */
+  renderWord?: number;
   /** override anim role */
   role?: string;
   /** vertical hop added on top of body.y */
@@ -379,6 +361,9 @@ export interface ActorState {
   keepYaw?: boolean;
 }
 
+const SPIN_WIDTH = [3686,3839,3993,4146,4300,4453,4608,4453,4300,4146,3993,3839];
+const SPIN_HEIGHT = [4096,3942,3788,3635,3481,3328,3174,3328,3481,3635,3788,3942];
+
 export class Actor {
   readonly holder = new THREE.Group();
   readonly yaw = new THREE.Group();
@@ -388,7 +373,6 @@ export class Actor {
   readonly squash: Squash;
   readonly shadow: BlobShadow;
   readonly headY: number;
-  marker: THREE.Group | null = null;
   hitT = 0;
   private actionT = 0;
   face: number;
@@ -398,11 +382,17 @@ export class Actor {
   private proc: boolean;
   private steady: boolean;
   private tumbleA = 0;
+  private script: number | undefined;
+  private scriptStart = 0;
+  private readonly engineChar: number;
+  private readonly baseScale: number;
   readonly extra?: THREE.Object3D;
   private t = Math.random() * 6;
 
   constructor(private kit: Kit, b: Body, parts: ActorParts) {
     this.slot = b.slot;
+    this.engineChar = DISC_CHARACTER[kit.look(b.slot).char] ?? 1;
+    this.baseScale = parts.scale ?? 1.25;
     this.inst = parts.inst;
     this.fx = kit.fx;
     this.proc = isProcedural(parts.inst);
@@ -419,10 +409,6 @@ export class Actor {
     this.shadow = kit.fx.shadow(parts.shadow ?? b.r * 1.1, 0.42);
     const box = new THREE.Box3().setFromObject(parts.inst.root);
     this.headY = (parts.headY ?? (box.isEmpty() ? 1.8 : THREE.MathUtils.clamp(box.max.y, 1.2, 3.6))) * (parts.scale ?? 1.25);
-    if (kit.ctx.mySlot === b.slot && b.slot >= 0) {
-      this.marker = youMarker(kit.hex(b.slot));
-      kit.root.add(this.marker);
-    }
     this.holder.position.set(b.x, b.y, b.z);
     this.yaw.rotation.y = b.face;
   }
@@ -434,7 +420,6 @@ export class Actor {
     const hidden = !!st.hidden;
     this.holder.visible = !hidden;
     this.shadow.visible = !hidden;
-    if (this.marker) this.marker.visible = !hidden;
     if (hidden) { this.px = b.x; this.pz = b.z; this.py = b.y; return; }
 
     const hop = st.hop ?? 0;
@@ -445,34 +430,55 @@ export class Actor {
     this.speed += (speed - this.speed) * Math.min(1, dt * 14);
     const grounded = b.y <= 0.06 && !b.fall;
 
-    if (!st.keepYaw && !over.done) {
-      this.face = lerpAngle(this.face, b.face, 1 - Math.exp(-18 * dt));
-    } else if (over.done && grounded) {
-      // celebrate / sulk facing the camera
-      this.face = lerpAngle(this.face, 0.35 * Math.sin(this.t * 1.4), 1 - Math.exp(-8 * dt));
+    if (!st.keepYaw) {
+      this.face = this.proc ? lerpAngle(this.face, b.face, 1 - Math.exp(-18 * dt)) : b.face;
+      if (grounded && over.done && over.winners.has(b.slot)) {
+        // The winner turns toward yaw zero by a quarter of the signed error per logic tick.
+        let yaw = Math.round(-b.face * 4096 / (2 * Math.PI)) & 4095;
+        for (let i = 0; i < Math.min(over.frame, 32); i++) {
+          const diff = (-yaw) & 4095;
+          yaw = (yaw + ((diff > 2048 ? diff - 4096 : diff) >> 2)) & 4095;
+        }
+        this.face = -yaw * (2 * Math.PI / 4096);
+      }
     }
     this.yaw.rotation.y = this.face;
 
     // role
     let role = st.role ?? (!grounded ? 'jump' : this.speed > 0.7 ? 'run' : 'idle');
-    if (over.done) role = over.winners.has(b.slot) ? 'win' : 'lose';
+    if (over.done) role = over.winners.size === 0 ? 'idle' : over.winners.has(b.slot) ? 'win' : 'lose';
     else if (this.hitT > 0 || role === 'hit') role = 'hit';
     else if (!this.steady && (role === 'idle' || role === 'run' || role === 'jump') && this.inst.ref?.anims?.action != null
-      && (this.actionT > 0 || b.dash > 0 || role === 'jump')) role = 'action';
+      && (this.actionT > 0 || b.dash > 0) && !(role === 'jump' && this.inst.ref.anims.jump != null)) role = 'action';
     this.hitT = Math.max(0, this.hitT - dt);
     this.actionT = Math.max(0, this.actionT - dt);
-    this.inst.play(role);
-    // vehicles play their clips at the game's fixed rate; walkers scale the run cycle with speed
-    this.inst.update(dt * (role === 'run' && !this.steady ? Math.min(1.6, Math.max(0.7, this.speed / 5)) : 1));
+    const tick = this.kit.poseTick(this.slot);
+    if (st.script !== this.script) {
+      this.script = st.script;
+      this.scriptStart = tick;
+    }
+    const word = st.renderWord ?? (this.script === undefined ? undefined : playerPose(this.script, this.engineChar, st.scriptFrame ?? tick - this.scriptStart));
+    if (st.pose) this.inst.pose(st.pose.clip, st.pose.frame, st.pose.loop);
+    else if (word === undefined || !this.inst.nativePose(word)) {
+      this.inst.play(role);
+      this.inst.update(dt * (role === 'run' && !this.steady ? Math.min(1.6, Math.max(0.7, this.speed / 5)) : 1));
+    }
 
-    // squash & stretch
-    if (!grounded && b.vy > 0.5 && this.py <= 0.06) { this.squash.kick(-0.45); }
-    if (grounded && this.py > 0.12) this.squash.kick(0.55);
-    if (b.dash > 0) this.squash.set(-0.12);
-    this.squash.update(dt);
+    // The original poses already contain their own squash, anticipation and follow-through.
+    if (this.proc) {
+      if (!grounded && b.vy > 0.5 && this.py <= 0.06) this.squash.kick(-0.45);
+      if (grounded && this.py > 0.12) this.squash.kick(0.55);
+      if (b.dash > 0) this.squash.set(-0.12);
+      this.squash.update(dt);
+    } else if (st.script === 10 && this.engineChar <= 2) {
+      // FUN_80088794 changes Crash and Coco's spin silhouette as the model turns.
+      const phase = Math.floor(((-Math.round(b.face * 4096 / (2*Math.PI))) & 4095) / 0x155) % 12;
+      const width = SPIN_WIDTH[phase] * this.baseScale / 4096;
+      this.pivot.scale.set(width, SPIN_HEIGHT[phase] * this.baseScale / 4096, width);
+    } else this.pivot.scale.setScalar(this.baseScale);
 
     // lean into the run, tumble when falling
-    const lean = st.freeze || this.steady || over.done ? 0 : Math.min(this.speed * 0.035, 0.22) * (this.proc ? 0.5 : 1);
+    const lean = !this.proc || st.freeze || this.steady || over.done ? 0 : Math.min(this.speed * 0.035, 0.22) * (this.proc ? 0.5 : 1);
     this.pivot.rotation.x += ((st.tumble ? 0 : lean) - this.pivot.rotation.x) * Math.min(1, dt * 12);
     if (st.tumble) {
       this.tumbleA += dt * 7;
@@ -480,14 +486,11 @@ export class Actor {
       this.pivot.rotation.z = Math.sin(this.tumbleA * 0.7) * 0.6;
     } else { this.pivot.rotation.z *= Math.exp(-10 * dt); this.tumbleA = 0; }
 
-    if (st.blink) this.pivot.visible = Math.floor(this.t * 14) % 2 === 0;
+    if (st.blink) this.pivot.visible = (tick & 2) === 0;
     else this.pivot.visible = true;
     void this.extra;
 
     this.shadow.set(b.x, b.z, Math.max(0, b.y + hop));
-    if (this.marker) {
-      this.marker.position.set(b.x, b.y + hop + this.headY + 0.55 + Math.sin(this.t * 5) * 0.08, b.z);
-    }
     this.px = b.x; this.pz = b.z; this.py = b.y;
   }
 
@@ -501,10 +504,8 @@ export class Actor {
 
   dispose() {
     this.kit.root.remove(this.holder);
-    if (this.marker) this.kit.root.remove(this.marker);
     this.kit.fx.removeShadow(this.shadow);
     disposeTree(this.holder);
-    if (this.marker) disposeTree(this.marker);
   }
 }
 

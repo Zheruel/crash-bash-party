@@ -15,11 +15,21 @@ export const CHARACTERS = [
   { id: 'brio', name: 'N. Brio', blurb: 'Bubbling with bad ideas' },
   { id: 'koala', name: 'Koala Kong', blurb: 'Muscles first, questions later' },
   { id: 'rilla', name: 'Rilla Roo', blurb: 'Bouncy, bonkers, unstoppable' },
-  { id: 'big-stein', name: 'Big Stein', blurb: 'Silver hair, crooked grin', portrait: 'portraits/big-stein.png' },
+  { id: 'big-stein', name: 'Big Stein', blurb: 'Silver hair, crooked grin', portrait: 'portraits/big-stein.png', hud: 'hud/big-stein-ps1.png' },
+  { id: 'top-g', name: 'Top G', blurb: 'Andrew Tate in silver aviators', portrait: 'portraits/top-g.png', hud: 'hud/top-g-ps1.png' },
 ] as const;
 
-/** Roster index to disc character for movement tables and sounds. Big Stein uses Cortex. */
-export const DISC_CHARACTER = [1, 2, 5, 7, 3, 4, 8, 6, 3] as const;
+/** Roster index to disc character for movement and animation tables. Both custom characters use Cortex. */
+export const DISC_CHARACTER = [1, 2, 5, 7, 3, 4, 8, 6, 3, 3] as const;
+
+/** Individual versus speaks the name at tick 31, then "wins", then the character reaction. */
+export const WINNER_NAME_FRAME = 31;
+export function winnerCheerFrame(char: number) {
+  const id = CHARACTERS[char]?.id;
+  const recordedWait = id === 'big-stein' ? 35 : id === 'top-g' ? 36 : undefined;
+  const stockWait = [25, 24, 27, 24, 24, 24, 27, 27][(DISC_CHARACTER[char] ?? 1) - 1];
+  return WINNER_NAME_FRAME + (recordedWait ?? stockWait) + 31;
+}
 
 export const COLORS = [
   { name: 'Tomato', hex: '#ff5a4f' },
@@ -40,4 +50,5 @@ export function sanitizeLook(l: unknown): Look {
   return { char: n(o.char, CHARACTERS.length), color: n(o.color, COLORS.length) };
 }
 
+export const EMOTE_LABELS = ['Thumbs up', 'Laugh', 'Angry', 'Wave'];
 export const EMOTES = ['👍', '😂', '😡', '👋'];

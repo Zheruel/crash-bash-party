@@ -58,7 +58,15 @@ export function propIcon(name: string): string {
   if (ref) {
     try {
       const mi = new ModelInstance(ref);
-      if (mi.build()) url = shot(mi.root, 'prop');
+      if (mi.build()) {
+        // A single trophy is part 0 of the entire HUD mesh pack. Frame that part alone.
+        const part = ref.parts?.length === 1 ? mi.root.getObjectByName(ref.parts[0]) : null;
+        if (part) {
+          const group = new THREE.Group();
+          group.attach(part);
+          url = shot(group, 'prop');
+        } else url = shot(mi.root, 'prop');
+      }
     } catch (e) { console.warn('icon failed', name, e); }
   }
   if (url) iconCache.set(name, url);

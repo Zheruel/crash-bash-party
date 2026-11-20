@@ -633,7 +633,10 @@
     "carryRun": 7,
     "lift": 8,
     "throw": 9,
-    "jump": 10
+    "jump": 10,
+    "spin": 11,
+    "carryJump": 12,
+    "taunt": 13
    },
    "variants": {
     "pogo": {
@@ -663,11 +666,109 @@
      "yaw": 0,
      "anims": {
       "idle": 0,
-      "push": 0
+      "push": 0,
+      "hit": 6
+     }
+    },
+    "polarFoot": {
+     "model": 9008,
+     "scale": 3.2
+    },
+    "polarMelt": {
+     "model": 9013,
+     "scale": 3.2,
+     "anims": {
+      "idle": 0,
+      "push": 0,
+      "hit": 6,
+      "frozen": 7
      }
     },
     "tank": {
      "model": 9004,
+     "scale": 2.6,
+     "offset": [
+      0,
+      0.472,
+      0
+     ],
+     "yaw": 0,
+     "anims": {
+      "idle": 4
+     }
+    }
+   }
+  },
+  {
+   "id": "top-g",
+   "name": "Top G",
+   "model": 9101,
+   "portrait": "portraits/top-g.png",
+   "height": 1.88,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "hit": 3,
+    "win": 4,
+    "lose": 5,
+    "carry": 6,
+    "carryRun": 7,
+    "lift": 8,
+    "throw": 9,
+    "jump": 10,
+    "spin": 11,
+    "carryJump": 12,
+    "taunt": 13
+   },
+   "variants": {
+    "pogo": {
+     "model": 9102,
+     "scale": 3.048,
+     "offset": [
+      0,
+      -0.119,
+      0
+     ],
+     "yaw": 0,
+     "anims": {
+      "idle": 2,
+      "hop": 2,
+      "jump": 3,
+      "action": 3
+     }
+    },
+    "polarBear": {
+     "model": 9103,
+     "scale": 3.048,
+     "offset": [
+      0,
+      0.0,
+      0
+     ],
+     "yaw": 0,
+     "anims": {
+      "idle": 0,
+      "push": 0,
+      "hit": 6
+     }
+    },
+    "polarFoot": {
+     "model": 9108,
+     "scale": 3.2
+    },
+    "polarMelt": {
+     "model": 9113,
+     "scale": 3.2,
+     "anims": {
+      "idle": 0,
+      "push": 0,
+      "hit": 6,
+      "frozen": 7
+     }
+    },
+    "tank": {
+     "model": 9104,
      "scale": 2.6,
      "offset": [
       0,
@@ -1304,6 +1405,157 @@
   },
   "podiumChar_big-stein": {
    "model": 9012,
+   "scale": 0.9
+  },
+  "dashRace.kart.top-g": {
+   "model": 9105,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "dashRace.sea.top-g": {
+   "model": 9106,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 3,
+    "hit": 4,
+    "win": 0,
+    "lose": 4
+   }
+  },
+  "rdRider_top-g": {
+   "model": 9107,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 1,
+    "run": 0,
+    "action": 2,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
+    "lose": 4
+   }
+  },
+  "ddChar_top-g": {
+   "model": 9108,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "jump": 2,
+    "hit": 3,
+    "win": 4,
+    "lose": 4
+   }
+  },
+  "mmMallet_top-g": {
+   "model": 9109,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "hit": 2,
+    "action": 3,
+    "win": 4,
+    "charge": 5,
+    "lose": 2,
+    "jump": 3
+   }
+  },
+  "kkCarry_top-g": {
+   "model": 9110,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 3,
+    "hit": 2,
+    "jump": 1,
+    "action": 4,
+    "win": 1,
+    "lose": 2
+   }
+  },
+  "mmAura_top-g": {
+   "model": 862,
+   "scale": 3.398,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part1"
+   ]
+  },
+  "bdPilot.top-g": {
+   "model": 9111,
+   "scale": 4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 4,
+    "hit": 3,
+    "action": 2,
+    "lose": 5,
+    "win": 1
+   }
+  },
+  "podiumChar_top-g": {
+   "model": 9112,
    "scale": 0.9
   }
  }

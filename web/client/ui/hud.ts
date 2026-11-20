@@ -1,5 +1,5 @@
-import { COLORS, EMOTES, type Look } from '../../shared/look';
-import { div, esc, face, icon, pop } from './dom';
+import { EMOTES, type Look } from '../../shared/look';
+import { div, esc, face, icon, MENU_PLAYERS, pop } from './dom';
 
 export interface SeatView { name: string; look: Look; bot: boolean }
 
@@ -31,7 +31,7 @@ export class Hud {
     this.cardsEl.innerHTML = '';
     this.cards = seats.map((s, i) => {
       const el = div(`pcard ${i === me ? 'me' : ''} ${s.bot ? 'bot' : ''}`);
-      el.style.setProperty('--c', COLORS[s.look.color % COLORS.length].hex);
+      el.style.setProperty('--c', MENU_PLAYERS[i].color);
       el.innerHTML = `<div class="pc-av">${face(s.look.char, true)}${i === me ? '<i class="badge">YOU</i>' : ''}</div>
         <div class="pc-info"><div class="pc-name">${esc(s.name)}</div>
         <div class="pc-bar"></div>
@@ -79,7 +79,8 @@ export class Hud {
   /** Skip the coin counter animation (e.g. when a screen first appears). */
   snapCounters(coins: number[]) { this.cards.forEach((c, i) => { c.disp = coins[i] ?? 0; }); }
 
-  setRound(round: number, total: number) {
+  setRound(round: number, total: number, cupsToWin?: number) {
+    if (cupsToWin) { this.setPillText('Cup battle', `First to ${cupsToWin}`); return; }
     const last = round >= total;
     this.pill.innerHTML = `<small class="sm">ROUND</small><b class="gt or">${round}<i>/${total}</i></b>${last ? '<em>DOUBLE POINTS!</em>' : ''}`;
     this.pill.classList.toggle('last', last);

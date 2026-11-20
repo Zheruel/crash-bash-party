@@ -1,16 +1,16 @@
-import { COLORS, EMOTES, type Look } from '../../shared/look';
-import type { RoomState } from '../../shared/protocol';
+import { EMOTES, EMOTE_LABELS, type Look } from '../../shared/look';
+import { DEFAULT_CUPS_TO_WIN, MAX_CUPS_TO_WIN, MIN_CUPS_TO_WIN, type MatchConfig, type RoomState } from '../../shared/protocol';
 import { sfx } from '../shell/sound';
-import { $, esc, face, icon, pop } from './dom';
+import { $, esc, icon, MENU_PLAYERS, selectFace, pop } from './dom';
+import { thumb } from './overlays';
 import { LookPicker } from './picker';
 
 export interface LobbyHandlers {
   ready(r: boolean): void;
   seat(take: boolean): void;
-  config(c: { rounds?: number; botLevel?: number }): void;
+  config(c: MatchConfig): void;
   look(l: Look): void;
   emote(id: number): void;
-  leave(): void;
   copy(): void;
 }
 
@@ -18,123 +18,159 @@ const LEVELS = ['Easy', 'Normal', 'Hard'];
 
 export class LobbyScreen {
   readonly el = document.createElement('div');
-  private tags: HTMLElement[] = [];
+  private content = document.createElement('div');
+  private dialog = document.createElement('dialog');
   private room: RoomState | null = null;
   private me = 0;
-  private link = '';
-  private modal: HTMLElement | null = null;
+  private openedBy = '';
+  private copyTimer = 0;
 
   constructor(private h: LobbyHandlers) {
     this.el.className = 'screen lobby hidden';
-    this.el.addEventListener('click', (e) => this.onClick(e));
-  }
-
-  show(on: boolean) { this.el.classList.toggle('hidden', !on); if (!on) this.closeModal(); }
-
-  update(room: RoomState, me: number, link: string) {
-    this.room = room;
-    this.me = me;
-    this.link = link;
-    const mySeat = room.seats.findIndex((s) => s.clientId === me);
-    const isHost = room.hostId === me;
-    const humans = room.seats.filter((s) => s.clientId != null);
-    const readyN = humans.filter((s) => s.ready).length;
-    const freeSeat = room.seats.some((s) => s.clientId == null);
-    const my = mySeat >= 0 ? room.seats[mySeat] : null;
-    const stepper = (act: string, label: string, val: string, ic = '') => `
-      <div class="opt"><span class="sm">${label}</span>
-        <div class="stepper"><button class="arr" data-act="${act}" data-d="-1" aria-label="Fewer ${label.toLowerCase()}">&#9664;</button><b class="gt or" id="${act}">${val}${ic}</b><button class="arr" data-act="${act}" data-d="1" aria-label="More ${label.toLowerCase()}">&#9654;</button></div></div>`;
-    const settings = isHost
-      ? `${stepper('rounds', 'ROUNDS', String(room.totalRounds), icon('cup'))}${stepper('bot', 'BOTS', LEVELS[room.botLevel]?.toUpperCase() ?? '')}`
-      : `<div class="opt"><span class="sm">ROUNDS</span><b class="gt or">${room.totalRounds}${icon('cup')}</b></div><div class="opt"><span class="sm">BOTS</span><b class="gt or">${(LEVELS[room.botLevel] ?? '').toUpperCase()}</b></div>`;
-    const main = my
-      ? `<button class="mi big ${my.ready ? 'on' : ''}" data-act="ready" aria-pressed="${my.ready}">${my.ready ? 'READY!' : 'READY UP'}</button>`
-      : `<button class="mi big" data-act="sit" ${freeSeat ? '' : 'disabled'}>${freeSeat ? 'TAKE A SEAT' : 'PARTY IS FULL'}</button>`;
-    const specs = room.spectators.length ? ` &middot; WATCHING: ${room.spectators.map((s) => esc(s.name)).join(', ')}` : '';
-    this.el.innerHTML = `
-      <div class="lb-top">
-        <div class="roomcode pnl"><span class="sm">ROOM CODE</span><b class="gt wh">${esc(room.code)}</b></div>
-        <button class="mi small" data-act="copy"><span id="copylbl">COPY INVITE LINK</span></button>
-      </div>
-      <div class="tags">${room.seats.map((s, i) => `
-        <div class="seat-tag ${s.ready ? 'ready' : ''} ${s.clientId == null ? 'bot' : ''} ${s.clientId === me ? 'me' : ''} ${s.connected ? '' : 'lost'}" style="--c:${COLORS[s.look.color % COLORS.length].hex}">
-          <div class="emo" aria-hidden="true"></div>
-          ${face(s.look.char)}
-          <div class="st-txt"><div class="nm">${esc(s.name)}</div>
-          <div class="stt">${s.clientId === room.hostId ? '<i class="badge">HOST</i> ' : ''}${s.clientId == null ? 'BOT' : !s.connected ? 'LOST' : s.ready ? 'READY' : 'WAITING'}</div></div>
-        </div>`).join('')}</div>
-      <div class="lb-bottom pnl">
-        <div class="band"><h2 class="gt or">GAME OPTIONS</h2></div>
-        <div class="pbody">
-          <div class="lb-settings">${settings}</div>
-          <div class="lb-main menu">${main}</div>
-          <div class="lb-row">
-            ${my ? `<button class="mi small" data-act="look">CHANGE HERO</button><button class="mi small" data-act="sit-out">SIT OUT</button>` : ''}
-            <div class="emotes">${EMOTES.map((e, i) => `<button class="emo-btn" data-act="emote" data-i="${i}" aria-label="Emote ${i + 1}">${e}</button>`).join('')}</div>
-            <button class="mi small" data-act="leave">LEAVE</button>
-          </div>
-          <div class="lb-hint sm" aria-live="polite">${humans.length > 1 ? `${readyN}/${humans.length} READY` : 'SHARE THE CODE OR LINK &middot; EMPTY SEATS BECOME BOTS'}${specs}</div>
-        </div>
-      </div>`;
-    this.tags = [...this.el.querySelectorAll<HTMLElement>('.seat-tag')];
-    // keep the modal across re-renders
-    if (this.modal) this.el.appendChild(this.modal);
-  }
-
-  /** Position the name tags under the 3D characters (CSS px). */
-  placeTags(pts: { x: number; y: number }[]) {
-    this.tags.forEach((t, i) => {
-      const p = pts[i];
-      if (!p) return;
-      t.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, 0)`;
+    this.dialog.className = 'party-dialog';
+    this.dialog.setAttribute('aria-labelledby', 'party-dialog-heading');
+    this.el.append(this.content, this.dialog);
+    this.el.addEventListener('click', e => this.onClick(e));
+    this.dialog.addEventListener('change', (e) => {
+      const select = e.target as HTMLSelectElement;
+      if (select.id !== 'party-stage' || this.room?.hostId !== this.me) return;
+      sfx.play('click');
+      this.h.config({ stage: select.value || null });
+    });
+    this.dialog.addEventListener('close', () => {
+      // The close event can arrive after another lobby dialog has already opened.
+      if (this.dialog.open) return;
+      const focus = document.activeElement;
+      if (focus === document.body || this.dialog.contains(focus)) {
+        this.content.querySelector<HTMLButtonElement>(`[data-act="${this.openedBy}"]`)?.focus({ preventScroll: true });
+      }
+      this.openedBy = '';
     });
   }
 
-  emote(slot: number, id: number) {
-    const t = this.tags[slot];
-    if (!t) return;
-    const e = $('.emo', t);
-    e.textContent = EMOTES[id] ?? '';
-    pop(e, 'emo-pop');
+  show(on: boolean) {
+    this.el.classList.toggle('hidden', !on);
+    if (!on && this.dialog.open) this.dialog.close();
   }
 
-  flashCopied(ok: boolean) {
-    const l = $('#copylbl', this.el);
-    if (!l) return;
-    l.textContent = ok ? 'LINK COPIED!' : 'COPY FAILED';
-    setTimeout(() => { const x = $('#copylbl', this.el); if (x) x.textContent = 'COPY INVITE LINK'; }, 1800);
-  }
-
-  private closeModal() { this.modal?.remove(); this.modal = null; }
-
-  private onClick(e: MouseEvent) {
-    const t = (e.target as HTMLElement).closest<HTMLElement>('[data-act]');
-    if (!t || !this.room) return;
-    const room = this.room;
-    const mySeat = room.seats.findIndex((s) => s.clientId === this.me);
-    sfx.play('click');
-    switch (t.dataset.act) {
-      case 'ready': this.h.ready(!room.seats[mySeat]?.ready); break;
-      case 'sit': this.h.seat(true); break;
-      case 'sit-out': this.h.seat(false); break;
-      case 'rounds': this.h.config({ rounds: Math.max(3, Math.min(20, room.totalRounds + Number(t.dataset.d))) }); break;
-      case 'bot': this.h.config({ botLevel: Math.max(0, Math.min(LEVELS.length - 1, room.botLevel + Number(t.dataset.d))) }); break;
-      case 'copy': this.h.copy(); break;
-      case 'emote': this.h.emote(Number(t.dataset.i)); break;
-      case 'leave': this.h.leave(); break;
-      case 'look': this.openPicker(room.seats[mySeat].look); break;
-      case 'close': this.closeModal(); break;
+  update(room: RoomState, me: number) {
+    const before = this.room;
+    const wasHost = before?.hostId === this.me;
+    this.room = room;
+    this.me = me;
+    const focus = document.activeElement as HTMLElement | null;
+    const my = room.seats.find(s => s.clientId === me);
+    const humans = room.seats.filter(s => s.clientId != null);
+    const canSit = humans.length < room.seats.length;
+    const readyLabel = my?.ready ? 'Cancel ready' : room.hostId === me && humans.length === 1 ? 'Start party' : 'Ready up';
+    const roster = room.seats.map((s, slot) => {
+      const status = s.clientId == null ? 'CPU' : !s.connected ? 'Disconnected' :
+        [s.clientId === me ? 'You' : '', s.clientId === room.hostId ? 'Host' : '', s.ready ? 'Ready' : ''].filter(Boolean).join(' · ') || 'Waiting';
+      return `<li class="party-seat" style="--seat:${MENU_PLAYERS[slot].color}">
+        <span class="emo" aria-hidden="true"></span>${selectFace(s.look.char)}<div><b>${esc(s.name)}</b><small>${status}</small></div></li>`;
+    }).join('');
+    this.content.innerHTML = `<header class="party-head"><h1 class="gt or">Party lobby</h1>
+      <button class="invite" data-act="copy" aria-label="Copy invite link for room ${esc(room.code)}"><span>Room code</span><strong>${esc(room.code)}</strong><span id="copylbl" aria-live="polite">Copy invite</span></button></header>
+      <div class="party-dock"><ul class="party-roster" aria-label="Party seats">${roster}</ul>
+        <div class="party-bar"><button class="quiet" data-act="settings">Match settings</button>
+        ${my ? '<button class="quiet" data-act="look">Change hero</button>' : ''}
+        <button class="quiet" data-act="more" aria-label="More party options">•••</button>
+        <span class="ready-count">${humans.length > 1 ? humans.filter(s => s.ready).length + '/' + humans.length + ' ready' : ''}</span>
+        <button class="primary" data-act="${my ? 'ready' : 'sit'}" ${!my && !canSit ? 'disabled' : ''}>${my ? readyLabel : canSit ? 'Take a seat' : 'Party full'}</button></div>
+        ${room.spectators.length ? `<p class="watching">Watching · ${room.spectators.map(s => esc(s.name)).join(', ')}</p>` : ''}</div>`;
+    if (this.dialog.open && this.openedBy === 'settings' && (
+      !before || before.code !== room.code || wasHost !== (room.hostId === me)
+      || before.totalRounds !== room.totalRounds || before.botLevel !== room.botLevel
+      || before.twists !== room.twists || before.stage !== room.stage
+      || before.winCondition !== room.winCondition || before.cupsToWin !== room.cupsToWin
+      || !!before.stages?.length !== !!room.stages?.length
+    )) this.renderSettings();
+    if (focus?.dataset.act && !focus.isConnected) {
+      const root = this.dialog.open ? this.dialog : this.content;
+      const action = `[data-act="${focus.dataset.act}"]:not(:disabled)`;
+      const delta = focus.dataset.d ? `[data-d="${focus.dataset.d}"]` : '';
+      // If a stepper reaches its limit, keep focus on its other button.
+      const next = root.querySelector<HTMLElement>(action + delta) ?? root.querySelector<HTMLElement>(action);
+      next?.focus({ preventScroll: true });
     }
   }
 
-  private openPicker(look: Look) {
-    const m = document.createElement('div');
-    m.className = 'modal';
-    m.innerHTML = '<div class="pnl card" role="dialog" aria-modal="true" aria-label="Pick your hero"><div class="band"><h2 class="gt or">CHARACTER SELECT</h2></div><div class="pbody"><div class="host"></div><div class="menu"><button class="mi big" data-act="close">DONE</button></div></div></div>';
-    const taken = () => new Set((this.room?.seats ?? []).filter((s) => s.clientId != null && s.clientId !== this.me).map((s) => s.look.color));
-    const picker = new LookPicker(look, (l) => this.h.look(l), taken);
-    $('.host', m).appendChild(picker.el);
-    this.modal = m;
-    this.el.appendChild(m);
+  emote(slot: number, id: number) {
+    const e = this.content.querySelectorAll<HTMLElement>('.emo')[slot];
+    if (e) { e.textContent = EMOTES[id] ?? ''; pop(e, 'emo-pop'); }
+  }
+
+  flashCopied(ok: boolean) {
+    const label = $('#copylbl', this.content);
+    if (!label) return;
+    label.textContent = ok ? 'Copied!' : 'Copy failed';
+    window.clearTimeout(this.copyTimer);
+    this.copyTimer = window.setTimeout(() => { const l = $('#copylbl', this.content); if (l) l.textContent = 'Copy invite'; }, 1800);
+  }
+
+  private dialogBody(title: string, content: string) {
+    this.dialog.innerHTML = `<header><h2 class="gt or" id="party-dialog-heading">${title}</h2><button class="quiet close-dialog" data-act="close" aria-label="Close">×</button></header>${content}`;
+  }
+
+  private renderSettings() {
+    const r = this.room!;
+    const host = r.hostId === this.me;
+    // Hosts running older versions omit the stage catalog.
+    const stages = r.stages ?? [];
+    const stage = stages.find((s) => s.id === r.stage);
+    const canChooseStage = host && stages.length > 0;
+    const cups = r.winCondition === 'cups';
+    const randomLabel = cups ? 'Random stage' : 'Shuffled';
+    const stageRow = `<div class="option">${canChooseStage ? '<label for="party-stage">Stage</label>' : '<span>Stage</span>'}
+      <div class="stage-value">${stage ? `<img src="${esc(thumb(stage.gameId, stage.variantId))}" alt="">` : ''}
+      ${canChooseStage ? `<select id="party-stage" data-act="stage">
+        <option value="">${randomLabel}</option>
+        ${stages.map((s) => `<option value="${esc(s.id)}" ${s === stage ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+      </select>` : `<b>${esc(stage?.name ?? randomLabel)}</b>`}</div></div>`;
+    const stepper = (label: string, act: string, value: string, index: number, min: number, max: number) =>
+      `<div class="option"><span>${label}</span><div>${host ? `<button class="quiet" data-act="${act}" data-d="-1" aria-label="Decrease ${label}" ${index <= min ? 'disabled' : ''}>−</button>` : ''}<b>${value}</b>${host ? `<button class="quiet" data-act="${act}" data-d="1" aria-label="Increase ${label}" ${index >= max ? 'disabled' : ''}>+</button>` : ''}</div></div>`;
+    const modeName = cups ? 'Cup battle' : 'Points party';
+    const mode = r.winCondition === undefined ? '' : `<div class="option"><span>Mode</span>
+      ${host ? `<button class="quiet" data-act="mode" aria-label="Change match mode, currently ${modeName}">${modeName}</button>` : `<b>${modeName}</b>`}</div>`;
+    const cupTarget = r.cupsToWin ?? DEFAULT_CUPS_TO_WIN;
+    const target = cups ? stepper('Cups to win', 'cups', `${cupTarget} ${icon('cup')}`, cupTarget, MIN_CUPS_TO_WIN, MAX_CUPS_TO_WIN)
+      : stepper('Rounds', 'rounds', String(r.totalRounds), r.totalRounds, 1, 20);
+    const twists = cups ? '' : `<div class="option"><span>Party twists</span>${host ? `<button class="quiet" data-act="twists" aria-pressed="${r.twists}">${r.twists ? 'On' : 'Off'}</button>` : `<b>${r.twists ? 'On' : 'Off'}</b>`}</div>`;
+    this.dialogBody('Match settings', mode + stageRow + target + stepper('CPU difficulty', 'bot', LEVELS[r.botLevel], r.botLevel, 0, 2) + twists);
+  }
+
+  private onClick(e: MouseEvent) {
+    if (e.target === this.dialog) {
+      const box = this.dialog.getBoundingClientRect();
+      if (e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom) this.dialog.close();
+      return;
+    }
+    const t = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-act]');
+    if (!t || !this.room) return;
+    const room = this.room, my = room.seats.find(s => s.clientId === this.me);
+    sfx.play('click');
+    switch (t.dataset.act) {
+      case 'ready': this.h.ready(!my?.ready); break;
+      case 'sit': this.h.seat(true); break;
+      case 'sit-out': this.dialog.close(); this.h.seat(false); break;
+      case 'mode': this.h.config({ winCondition: room.winCondition === 'cups' ? 'rounds' : 'cups' }); break;
+      case 'cups': this.h.config({ cupsToWin: (room.cupsToWin ?? DEFAULT_CUPS_TO_WIN) + Number(t.dataset.d) }); break;
+      case 'rounds': this.h.config({ rounds: Math.max(1, Math.min(20, room.totalRounds + Number(t.dataset.d))) }); break;
+      case 'twists': this.h.config({ twists: !room.twists }); break;
+      case 'bot': this.h.config({ botLevel: Math.max(0, Math.min(2, room.botLevel + Number(t.dataset.d))) }); break;
+      case 'copy': this.h.copy(); break;
+      case 'emote': this.dialog.close(); this.h.emote(Number(t.dataset.i)); break;
+      case 'close': this.dialog.close(); break;
+      case 'settings': case 'look': case 'more':
+        this.openedBy = t.dataset.act;
+        if (this.openedBy === 'settings') this.renderSettings();
+        else if (this.openedBy === 'look' && my) {
+          this.dialogBody('Choose your hero', '<div class="hero-host"></div>');
+          $('.hero-host', this.dialog).append(new LookPicker(my.look, l => this.h.look(l), room.seats.indexOf(my)).el);
+        } else this.dialogBody('Party options', `<div class="react-row">${EMOTES.map((emo, i) => `<button class="quiet" data-act="emote" data-i="${i}" aria-label="${EMOTE_LABELS[i]}">${emo}</button>`).join('')}</div>${my ? '<button class="quiet" data-act="sit-out">Sit out</button>' : ''}`);
+        this.dialog.showModal();
+        if (this.openedBy === 'look') this.dialog.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+        break;
+    }
   }
 }

@@ -68,10 +68,25 @@ explosions 1 / 0.919 / 0.844 / 0.782). `sfxRate(bank, id)` in web/client/shell/s
 Checked on an emulator recording of the podium: matched filtering finds the firework bangs at x1.00 and x0.93 only, and with
 this formula the crackle tones land exactly on their VAGs' own rates (13011 / 12493 Hz).
 Level banks verified on the RAM dumps (loaded tone table == disc bank): Crate Crush 0167, Tank 0159/0162/0160/0161, Pogo 0171,
-Ballistix 0157, Polar (TILT) 0450, Crash Dash 0175, Dragon Drop 0180, Ring Ding 0179, Mallet 0178, Keg 0177, podium 0181; plus 0278
-shared in every level. index.json levelBanks has Ring Ding / Dragon Drop (and the Polar levels) under the wrong names; both games
-now use their verified bank.
+Ballistix 0157, Polar (TILT) 0450, Crash Dash 0175, Ring Ding 0180, Dragon Drop 0179, Mallet 0178, Keg 0177, podium 0181; plus 0278
+shared in every level.
 Crate Crush passes the ids of its rand-4 wood / TNT / nitro lists (0x3e8.., 0x3ec-0x3ef, 0x3f1..).
 A/B check (2026-11-19): 25 s of the real podium (emulator OpenAL gain -> MediaRecorder) and 25 s of ours (app AudioContext ->
 MediaRecorder), same matched-filter search over playback rates 0.82-1.02: both find each bang sample (0181/3-5) at x1.00 and x0.93
 and nowhere else.
+
+## Individual versus result music
+
+* Pogo's winner entry (`FUN_800c2a8c`) calls the shared announcer setup (`FUN_80089fa4`) as soon as the winner enters the pose, after
+  any exit hop. That setup sets the duck flag before the 30-tick name wait. The Pogo loser does not set it (`FUN_800b6960`), so all
+  players hear the same music change when the winner enters. The other arena overlays use the same announcer setup for their winners.
+* The shared draw handler (`FUN_8007d9dc`) sets the flag on a draw. In ordinary individual versus, it enters state `0xc`, reaches
+  `0xe` on the next update, and clears the flag through `FUN_8002c290` on the following update. This is two 30 Hz ticks (about 67 ms).
+  The Draw logo cue comes later, as its scale reaches the threshold in `FUN_80082d90`.
+* `FUN_8002bea8` applies the flag on the next sound update. The volume codes are `floor(setting * 0x55 / 100)` while ducked and
+  `floor(setting * 0x7f / 100)` normally. `FUN_800447dc` squares the scaled voice level for the SPU, so the web gain uses
+  `(0x55 / 0x7f)^2`, about 0.448 (−7.0 dB), with a continuous user slider. `FUN_8002c1c0(100, 5)` sets the sequence tempo back to
+  its level value in five sound ticks (`FUN_8003868c` / `FUN_800436fc`). The duck itself changes in one step.
+* A win stays ducked through the result until the round resets or leaves. The web applies the multiplier to the arena track and
+  carries it through that track's outgoing crossfade. The incoming menu or podium track uses the normal level. The player volume
+  and master mute apply independently.

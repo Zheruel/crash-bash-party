@@ -1,4 +1,4 @@
-import { type Look } from '../../shared/look';
+import { CHARACTERS, type Look } from '../../shared/look';
 import { sfx } from '../shell/sound';
 import { $, esc } from './dom';
 import { LookPicker, PICKABLE } from './picker';
@@ -33,8 +33,13 @@ export class TitleScreen {
   constructor(private h: TitleHandlers) {
     this.el.className = 'screen title hidden';
     this.profile = store.get();
-    if (!this.profile.name) this.profile.name = '';
-    this.picker = new LookPicker(this.profile.look, (l) => { this.profile.look = l; store.set(this.profile); this.h.look(l); });
+    this.picker = new LookPicker(this.profile.look, (l) => { this.profile.look = l; store.set(this.profile); this.h.look(l); this.previewName(); });
+  }
+
+  private previewName() {
+    const label = this.el.querySelector('.hero-caption strong');
+    const name = CHARACTERS[this.profile.look.char].name;
+    if (label) label.textContent = name;
   }
 
   /** (Re)build and show the screen. */
@@ -42,50 +47,78 @@ export class TitleScreen {
     this.room = (opts.room ?? this.room).toUpperCase();
     this.lan = opts.lan ?? this.lan;
     const joining = !!this.room;
+    this.el.querySelector<HTMLDialogElement>('dialog[open]')?.close();
     this.el.classList.remove('hidden');
     this.el.innerHTML = `
-      <div class="brand"><img class="logo" src="${LOGO}" alt="Crash Bash"><div class="party gt pink">PARTY</div></div>
-      <section class="pnl setup" aria-label="${joining ? 'Join party' : 'New party'}">
-        <div class="band"><h1 class="gt or">${joining ? 'JOIN PARTY' : 'CHARACTER SELECT'}</h1></div>
-        <div class="pbody">
-          <div id="pickerhost"></div>
-          <div class="field"><label for="name" class="sm">YOUR NAME</label>
-          <input id="name" type="text" maxlength="16" autocomplete="off" placeholder="PLAYER" value="${esc(this.profile.name)}" /></div>
-          <div class="menu actions">
-            ${joining ? `
-              <div class="joining sm">ROOM <b class="gt wh">${esc(this.room)}</b></div>
-              <button class="mi big" id="join">JOIN PARTY</button>
-              <button class="mi small" id="mine">CREATE MY OWN PARTY</button>`
-            : `
-              <button class="mi big" id="create">${this.lan ? 'CREATE LAN PARTY' : 'CREATE PARTY'}</button>
-              <div class="joinrow"><label for="code" class="sm">JOIN A FRIEND</label><input id="code" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE" /><button class="mi" id="join">JOIN</button></div>`}
-          </div>
-          <div class="err" id="err" role="alert">${esc(opts.error ?? '')}</div>
-          ${opts.solo ? '<button class="mi small" id="solo">PLAY SOLO VS BOTS</button>' : ''}
+      <div class="brand"><img class="logo" src="${LOGO}" alt="Crash Bash"></div>
+      <div class="hero-caption" aria-hidden="true"><strong class="gt wh"></strong></div>
+      <section class="setup" aria-label="Party setup">
+        <div id="pickerhost"></div>
+        <div class="menu actions">
+          ${joining ? `<button class="mi primary" id="join">Join room ${esc(this.room)}</button>
+            <button class="mi" id="mine">Create a party</button>` :
+            `<button class="mi primary" id="create">${this.lan ? 'Create LAN party' : 'Create party'}</button>
+            <button class="mi" id="join">Join party</button>`}
+          <button class="mi" id="rename">Player name</button>
+          ${opts.solo ? '<button class="mi" id="solo">Play solo</button>' : ''}
         </div>
-        ${opts.busy ? `<div class="busy" role="status"><i class="spin"></i><span class="gt or">${esc(opts.busy)}</span></div>` : ''}
+        <div class="err" role="alert">${esc(opts.error ?? '')}</div>
+        ${opts.busy ? `<div class="busy" role="status"><i class="spin"></i><span>${esc(opts.busy)}</span></div>` : ''}
       </section>
-      <div class="foot sm">UP TO 4 PLAYERS &middot; EMPTY SEATS ARE BOTS &middot; SHARE A LINK, NO SIGN-UP</div>`;
+      <dialog class="party-dialog title-dialog" aria-labelledby="entry-label">
+        <form><label id="entry-label" class="gt or"></label>
+          <input type="text" required>
+          <div id="err" class="err" role="alert"></div>
+          <div class="entry-actions"><button type="submit" class="mi primary"></button><button type="button" class="mi" id="back">Back</button></div>
+        </form>
+      </dialog>`;
+    this.previewName();
     $('#pickerhost', this.el).appendChild(this.picker.el);
     this.picker.render();
     const busy = !!opts.busy;
     const grab = (): Profile => {
-      const name = ($('#name', this.el) as HTMLInputElement).value.trim() || 'Player';
-      this.profile.name = name;
       store.set(this.profile);
-      return { name, look: this.profile.look };
+      return { name: this.profile.name.trim() || CHARACTERS[this.profile.look.char].name, look: this.profile.look };
     };
-    const code = $('#code', this.el) as HTMLInputElement | null;
-    code?.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z]/g, ''); });
-    const doJoin = () => {
-      if (busy) return;
-      const c = (joining ? this.room : code?.value ?? '').toUpperCase();
-      if (!/^[A-Z]{4}$/.test(c) && !this.lan) { $('#err', this.el).textContent = 'Enter the 4-letter room code'; code?.focus(); return; }
-      sfx.play('click');
-      this.h.join(grab(), c);
+    const join = (code: string) => { sfx.play('click'); this.h.join(grab(), code); };
+    const dialog = this.el.querySelector('dialog')!;
+    const form = this.el.querySelector('form')!;
+    form.noValidate = true;
+    const input = form.querySelector('input')!;
+    const entry = (kind: 'code' | 'name') => {
+      const isCode = kind === 'code';
+      const label = form.querySelector('label')!;
+      input.id = kind;
+      label.htmlFor = kind;
+      label.textContent = isCode ? 'Room code' : 'Player name';
+      input.maxLength = isCode ? 4 : 16;
+      input.setAttribute('autocomplete', isCode ? 'off' : 'nickname');
+      input.autocapitalize = isCode ? 'characters' : 'words';
+      input.spellcheck = false;
+      input.required = isCode;
+      input.placeholder = isCode ? 'ABCD' : CHARACTERS[this.profile.look.char].name;
+      input.value = isCode ? '' : this.profile.name;
+      const err = $('#err', form);
+      const clearError = () => { err.textContent = ''; input.removeAttribute('aria-invalid'); input.removeAttribute('aria-describedby'); };
+      clearError();
+      form.querySelector('button[type=submit]')!.textContent = isCode ? 'Join party' : 'Done';
+      input.oninput = () => { if (isCode) input.value = input.value.toUpperCase().replace(/[^A-Z]/g, ''); clearError(); };
+      form.onsubmit = e => {
+        e.preventDefault();
+        if (isCode && !/^[A-Z]{4}$/.test(input.value)) {
+          err.textContent = 'Enter the four-letter room code';
+          input.setAttribute('aria-invalid', 'true'); input.setAttribute('aria-describedby', 'err'); input.focus();
+          return;
+        }
+        dialog.close();
+        if (isCode) join(input.value);
+        else { this.profile.name = input.value.trim(); store.set(this.profile); sfx.play('click'); }
+      };
+      sfx.play('click'); dialog.showModal(); input.focus(); input.select();
     };
-    $('#join', this.el).onclick = doJoin;
-    code?.addEventListener('keydown', (e) => { if (e.key === 'Enter') doJoin(); });
+    $('#back', form).onclick = () => dialog.close();
+    $('#rename', this.el).onclick = () => entry('name');
+    $('#join', this.el).onclick = () => { if (!busy) { if (joining) join(this.room); else entry('code'); } };
     const create = $('#create', this.el);
     if (create) create.onclick = () => { if (!busy) { sfx.play('click'); this.h.create(grab()); } };
     const solo = $('#solo', this.el);
@@ -95,5 +128,5 @@ export class TitleScreen {
     this.el.querySelectorAll('button, input').forEach((b) => { if (busy) (b as HTMLButtonElement).disabled = true; });
   }
 
-  hide() { this.el.classList.add('hidden'); }
+  hide() { this.el.querySelector<HTMLDialogElement>('dialog[open]')?.close(); this.el.classList.add('hidden'); }
 }

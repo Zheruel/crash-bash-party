@@ -1,18 +1,291 @@
 {
- "_notes": "Dragon Drop = level 28/29 clock-tower arena (model 0627, k=3.4 same unit as characters). Pieces are in world units at their real positions. Per-character models 928-942 are the Dragon Drop poses (idle, run, jump, hit, win/lose). Power-ups from model 0625 (part0 hover boots, part1 magnet). Effects (re/notes/dragonDrop.md): balloon pack 0794 effect scripts 0-3 = pop by colour (flash part5, smoke 6/7, star emitter 9 blue / 8 green / 10 red / 11 yellow), 4 = black balloon (glow 12, rays 13, sparks 14); '?' crate break = crate pack 0796 script 2 (shards 37-39, smoke 40/41, stars 42).",
+ "_notes": "Dragon Drop = level 28 (cheat id 0x1C). Stage model 0621 (meadow arena). Parts are object-space except the 'native' set; scale 3.4 = same unit as character models. Riders 832-846 = per-character dino riders (5 clips). Dungeon twin 0623 is the challenge variant. Effects (re/notes/ringDing.md): level model 0621 effect script 0 (burst parts 0/1 + emitters 5 and 4) when a jewel appears and when losers vanish; barge smoke = shared pack 0619 parts 3-18 (16 frames, one per tick).",
  "arenas": {
   "dragonDrop": {
-   "model": 627,
+   "model": 621,
    "scale": 3.4,
    "parts": [
-    "extra_1f68",
-    "extra_23a0"
+    "extra_132c",
+    "extra_2694",
+    "extra_3b94",
+    "extra_4114",
+    "extra_4948",
+    "extra_4ac8",
+    "extra_4c04",
+    "extra_5320",
+    "extra_4d90",
+    "extra_4f50",
+    "extra_5148"
    ]
   }
  },
  "props": {
-  "ddHoverBoots": {
-   "model": 625,
+  "rdTarget": {
+   "model": 621,
+   "parts": [
+    "extra_18b8"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdStand": {
+   "model": 621,
+   "parts": [
+    "extra_3cf4"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdFace": {
+   "model": 621,
+   "parts": [
+    "extra_3fe0"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdArrow": {
+   "model": 621,
+   "parts": [
+    "extra_405c"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdLabelX1": {
+   "model": 621,
+   "parts": [
+    "extra_569c"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSpireA": {
+   "model": 621,
+   "parts": [
+    "extra_44ac"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSpireB": {
+   "model": 621,
+   "parts": [
+    "extra_45bc"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdCastle": {
+   "model": 621,
+   "parts": [
+    "extra_46d4"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdRider_crash": {
+   "model": 846,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
+    "lose": 4
+   }
+  },
+  "rdRider_coco": {
+   "model": 838,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "throw": 3,
+    "jump": 3,
+    "hit": 0,
+    "win": 4,
+    "lose": 4
+   }
+  },
+  "rdRider_tiny": {
+   "model": 842,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
+    "lose": 4
+   }
+  },
+  "rdRider_dingodile": {
+   "model": 840,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
+    "lose": 4
+   }
+  },
+  "rdRider_cortex": {
+   "model": 844,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 1,
+    "run": 0,
+    "action": 2,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
+    "lose": 4
+   }
+  },
+  "rdRider_brio": {
+   "model": 836,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
+    "lose": 4
+   }
+  },
+  "rdRider_koala": {
+   "model": 834,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
+    "lose": 4
+   }
+  },
+  "rdRider_rilla": {
+   "model": 832,
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "anims": {
+    "idle": 0,
+    "run": 1,
+    "action": 2,
+    "throw": 4,
+    "jump": 4,
+    "hit": 0,
+    "win": 3,
+    "lose": 4
+   }
+  },
+  "rdBurst": {
+   "model": 621,
    "parts": [
     "part0"
    ],
@@ -24,8 +297,8 @@
    ],
    "yaw": 0
   },
-  "ddMagnet": {
-   "model": 625,
+  "rdBurstRing": {
+   "model": 621,
    "parts": [
     "part1"
    ],
@@ -37,162 +310,10 @@
    ],
    "yaw": 0
   },
-  "ddChar_koala": {
-   "model": 928,
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0,
-   "anims": {
-    "idle": 0,
-    "run": 1,
-    "action": 2,
-    "jump": 2,
-    "hit": 3,
-    "win": 4,
-    "lose": 4
-   }
-  },
-  "ddChar_rilla": {
-   "model": 930,
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0,
-   "anims": {
-    "idle": 0,
-    "run": 1,
-    "action": 2,
-    "jump": 2,
-    "hit": 3,
-    "win": 4,
-    "lose": 4
-   }
-  },
-  "ddChar_brio": {
-   "model": 932,
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0,
-   "anims": {
-    "idle": 0,
-    "run": 1,
-    "action": 2,
-    "jump": 2,
-    "hit": 3,
-    "win": 4,
-    "lose": 4
-   }
-  },
-  "ddChar_dingodile": {
-   "model": 934,
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0,
-   "anims": {
-    "idle": 0,
-    "run": 1,
-    "action": 2,
-    "jump": 2,
-    "hit": 3,
-    "win": 4,
-    "lose": 4
-   }
-  },
-  "ddChar_tiny": {
-   "model": 936,
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0,
-   "anims": {
-    "idle": 0,
-    "run": 1,
-    "action": 2,
-    "jump": 2,
-    "hit": 3,
-    "win": 4,
-    "lose": 4
-   }
-  },
-  "ddChar_cortex": {
-   "model": 938,
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0,
-   "anims": {
-    "idle": 0,
-    "run": 1,
-    "action": 2,
-    "jump": 2,
-    "hit": 3,
-    "win": 4,
-    "lose": 4
-   }
-  },
-  "ddChar_coco": {
-   "model": 940,
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0,
-   "anims": {
-    "idle": 0,
-    "run": 1,
-    "action": 2,
-    "jump": 2,
-    "hit": 3,
-    "win": 4,
-    "lose": 4
-   }
-  },
-  "ddChar_crash": {
-   "model": 942,
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0,
-   "anims": {
-    "idle": 0,
-    "run": 1,
-    "action": 2,
-    "jump": 2,
-    "hit": 3,
-    "win": 4,
-    "lose": 4
-   }
-  },
-  "ddRing": {
-   "model": 627,
+  "rdBurstStar": {
+   "model": 621,
    "parts": [
-    "extra_149c"
+    "part4"
    ],
    "scale": 3.4,
    "offset": [
@@ -202,125 +323,8 @@
    ],
    "yaw": 0
   },
-  "ddWall": {
-   "model": 627,
-   "parts": [
-    "extra_698c"
-   ],
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0
-  },
-  "ddClock": {
-   "model": 627,
-   "parts": [
-    "extra_7748"
-   ],
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0
-  },
-  "ddHands": {
-   "model": 627,
-   "parts": [
-    "extra_7ddc"
-   ],
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0
-  },
-  "ddGearA": {
-   "model": 627,
-   "parts": [
-    "extra_4620"
-   ],
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0
-  },
-  "ddGearB": {
-   "model": 627,
-   "parts": [
-    "extra_5c74"
-   ],
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0
-  },
-  "ddGearC": {
-   "model": 627,
-   "parts": [
-    "extra_3d58"
-   ],
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0
-  },
-  "ddShaft": {
-   "model": 627,
-   "parts": [
-    "extra_6770"
-   ],
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0
-  },
-  "ddArm": {
-   "model": 627,
-   "parts": [
-    "extra_504c"
-   ],
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0
-  },
-  "ddAxle": {
-   "model": 627,
-   "parts": [
-    "extra_291c"
-   ],
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0
-  },
-  "ddPopFlash": {
-   "model": 794,
+  "rdBurstSpark": {
+   "model": 621,
    "parts": [
     "part5"
    ],
@@ -332,8 +336,47 @@
    ],
    "yaw": 0
   },
-  "ddPopSmoke": {
-   "model": 794,
+  "rdSmoke0": {
+   "model": 619,
+   "parts": [
+    "part3"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke1": {
+   "model": 619,
+   "parts": [
+    "part4"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke2": {
+   "model": 619,
+   "parts": [
+    "part5"
+   ],
+   "scale": 3.4,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0
+  },
+  "rdSmoke3": {
+   "model": 619,
    "parts": [
     "part6"
    ],
@@ -345,8 +388,8 @@
    ],
    "yaw": 0
   },
-  "ddPopSmoke2": {
-   "model": 794,
+  "rdSmoke4": {
+   "model": 619,
    "parts": [
     "part7"
    ],
@@ -358,8 +401,8 @@
    ],
    "yaw": 0
   },
-  "ddStarGreen": {
-   "model": 794,
+  "rdSmoke5": {
+   "model": 619,
    "parts": [
     "part8"
    ],
@@ -371,8 +414,8 @@
    ],
    "yaw": 0
   },
-  "ddStarBlue": {
-   "model": 794,
+  "rdSmoke6": {
+   "model": 619,
    "parts": [
     "part9"
    ],
@@ -384,8 +427,8 @@
    ],
    "yaw": 0
   },
-  "ddStarRed": {
-   "model": 794,
+  "rdSmoke7": {
+   "model": 619,
    "parts": [
     "part10"
    ],
@@ -397,8 +440,8 @@
    ],
    "yaw": 0
   },
-  "ddStarYellow": {
-   "model": 794,
+  "rdSmoke8": {
+   "model": 619,
    "parts": [
     "part11"
    ],
@@ -410,8 +453,8 @@
    ],
    "yaw": 0
   },
-  "ddBlackGlow": {
-   "model": 794,
+  "rdSmoke9": {
+   "model": 619,
    "parts": [
     "part12"
    ],
@@ -423,8 +466,8 @@
    ],
    "yaw": 0
   },
-  "ddBlackRays": {
-   "model": 794,
+  "rdSmoke10": {
+   "model": 619,
    "parts": [
     "part13"
    ],
@@ -436,8 +479,8 @@
    ],
    "yaw": 0
   },
-  "ddBlackSpark": {
-   "model": 794,
+  "rdSmoke11": {
+   "model": 619,
    "parts": [
     "part14"
    ],
@@ -449,10 +492,10 @@
    ],
    "yaw": 0
   },
-  "ddCrateShard0": {
-   "model": 796,
+  "rdSmoke12": {
+   "model": 619,
    "parts": [
-    "part37"
+    "part15"
    ],
    "scale": 3.4,
    "offset": [
@@ -462,10 +505,10 @@
    ],
    "yaw": 0
   },
-  "ddCrateShard1": {
-   "model": 796,
+  "rdSmoke13": {
+   "model": 619,
    "parts": [
-    "part38"
+    "part16"
    ],
    "scale": 3.4,
    "offset": [
@@ -475,10 +518,10 @@
    ],
    "yaw": 0
   },
-  "ddCrateShard2": {
-   "model": 796,
+  "rdSmoke14": {
+   "model": 619,
    "parts": [
-    "part39"
+    "part17"
    ],
    "scale": 3.4,
    "offset": [
@@ -488,36 +531,10 @@
    ],
    "yaw": 0
   },
-  "ddCrateSmoke": {
-   "model": 796,
+  "rdSmoke15": {
+   "model": 619,
    "parts": [
-    "part40"
-   ],
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0
-  },
-  "ddCrateSmoke2": {
-   "model": 796,
-   "parts": [
-    "part41"
-   ],
-   "scale": 3.4,
-   "offset": [
-    0,
-    0,
-    0
-   ],
-   "yaw": 0
-  },
-  "ddCrateStar": {
-   "model": 796,
-   "parts": [
-    "part42"
+    "part18"
    ],
    "scale": 3.4,
    "offset": [

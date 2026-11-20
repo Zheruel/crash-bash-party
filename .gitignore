@@ -1,6 +1,7 @@
 # disc images / raw rips stay local
 rom/
 disc/
+!web/client/disc/
 *.bin.zip
 node_modules/
 dist/
@@ -8,6 +9,7 @@ __pycache__/
 .DS_Store
 assets/portraits/*
 !assets/portraits/big-stein.png
+!assets/portraits/top-g.png
 web/test-results/
 local-backup/
 tools/emu/*.png

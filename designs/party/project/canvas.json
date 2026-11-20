@@ -1,0 +1,38 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-11-19T22:33:20.407178+00:00"
+  },
+  "title": "Crash Bash Online",
+  "launch": {
+    "view": "canvas"
+  },
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1200,
+      "h": 720,
+      "title": "Desktop",
+      "is_interactive": true,
+      "expand": "fill"
+    },
+    "Phone.dc.html": {
+      "x": 1250,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "Phone",
+      "is_interactive": true,
+      "expand": "fill"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Phone.dc.html"
+  ],
+  "notes": {},
+  "pages": [],
+  "designSystems": []
+}

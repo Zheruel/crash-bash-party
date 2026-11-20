@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Disc loader demo</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; margin: 16px; background: #14161a; color: #dde; }
+    #err { color: #f77; white-space: pre-wrap; }
+    canvas { display: block; margin-top: 12px; background: #222; width: 480px; height: 360px; }
+    button, input { font: inherit; margin: 2px 4px 2px 0; }
+  </style>
+</head>
+<body>
+  <h3>Bring your own disc (dev demo)</h3>
+  <p>Pick your own Crash Bash (USA) .bin / .iso / .zip. Nothing leaves your browser.</p>
+  <input id="file" type="file" accept=".bin,.iso,.zip,.img" />
+  <p id="status"></p><p id="err"></p>
+  <div id="tools" hidden>
+    <button id="all">Decode all</button>
+    model file <input id="model" type="number" value="776" min="1" max="990" style="width:5em" />
+    <button id="show">Show</button>
+    sound bank <input id="bank" type="number" value="167" style="width:5em" />
+    sample <input id="smp" type="number" value="1" style="width:4em" />
+    <button id="play">Play</button>
+  </div>
+  <canvas id="cv" width="480" height="360"></canvas>
+  <script type="module" src="./demo.ts"></script>
+</body>
+</html>

@@ -1,7 +1,10 @@
+import { atan2g } from '../ps1Angle';
+export { atan2g } from '../ps1Angle';
 import { DISC_CHARACTER } from '../look';
 import { addBody, emit, rand } from '../physics';
-import { type InputState, type MiniGame, type SlotInfo, type World } from '../types';
+import { type GameEvent, type InputState, type MiniGame, type SlotInfo, type World } from '../types';
 import { MM_SCRIPTS } from './malletMashData';
+import { tickPlayerTally, VERSUS_CLOCK_END } from './common';
 
 /**
  * MALLET MASH (Crash Bash level 29, family 0x10e), ported from the PS1 code (overlay 0x800b33a4.., see re/notes/malletMash.md).
@@ -25,6 +28,7 @@ import { MM_SCRIPTS } from './malletMashData';
 export const MM_S = 301.4;
 export const mmX = (x: number) => x / MM_S;
 export const mmZ = (z: number) => -z / MM_S;
+export const mmFace = (yaw: number) => Math.PI - (((yaw - 0x800) & 0xfff) * 2 * Math.PI) / 4096;
 /** players are clamped to this radius minus their collision radius */
 export const MM_ARENA = 0x980;
 export const MM_SPAWN = 0x880;
@@ -41,8 +45,11 @@ export const MM_MAX_TIME = (MM_END + 1) / 30;
 const START: [number, number, number][] = [[-1485, -1485, 3584], [-1618, 1539, 512], [1572, 1606, 1536], [1467, -1509, 2560]];
 /** engine character id (1..8) per look.ts CHARACTERS index: crash coco tiny dingodile cortex brio koala rilla big-stein (Cortex) */
 export const MM_CHAR = DISC_CHARACTER;
-/** collision radius per engine char (measured: coco 199, brio 184, koala 328, tiny 333; the rest inferred from their class) */
-const RADIUS = [0, 199, 199, 184, 184, 328, 328, 333, 333];
+/** Part 0 body cylinder 0x40 in the eight mallet models (0848–0862). */
+const RADIUS = [0, 219, 199, 210, 184, 328, 312, 259, 333];
+/** Tag 1 on the strike pose, event 8 of character script 0x37. */
+const MALLET_HEAD = [[0, 0], [-119, -338], [-16, -439], [65, -419], [72, -465],
+  [0, -832], [0, -819], [-187, -691], [-213, -775]];
 /** swing reach per engine char (table 0x800b9580) */
 const REACH = [4096, 512, 512, 544, 544, 800, 800, 768, 768];
 const STAGE_SECS = [15, 15, 13, 10, 10];
@@ -50,7 +57,8 @@ const CAPS = [6, 5, 5, 4, 3];
 const GOLD_T = [600, 600, 600, 450, 300];
 const WAIT0 = [80, 80, 70, 70, 60];
 const WAITR = [60, 50, 40, 45, 40];
-const BOT_SKILL = [12, 19, 25];
+const BOT_SKILL = [22, 25, 30]; // versus table 0x800b92c4
+const WIN_NAME_WAIT = [0, 24, 23, 26, 23, 23, 23, 26, 26]; // FUN_8008a200
 /** pad bits for the 8 AI directions (table 0x80051244) */
 const DIRBITS = [16, 48, 32, 96, 64, 192, 128, 144];
 /** controller heading per d-pad combination (measured) */
@@ -59,25 +67,7 @@ const HEADING: Record<number, number> = { 0x10: 2048, 0x30: 2557, 0x20: 3072, 0x
 // ---------------------------------------------------------------- exe math replicas
 const COS = new Int16Array(4096);
 for (let i = 0; i < 4096; i++) COS[i] = Math.round(4096 * Math.cos((i * 2 * Math.PI) / 4096));
-const AT = new Int16Array(2049);
-for (let i = 0; i <= 2048; i++) AT[i] = Math.round((Math.atan(i / 2048) * 4096) / (2 * Math.PI));
 const T = (i: number) => COS[i & 0xfff];
-/** FUN_8001463c */
-export function atan2g(a: number, b: number): number {
-  if (a === 0 && b === 0) return 0;
-  const q = (n: number, m: number) => Math.trunc(n / m);
-  if (a < 0) {
-    const n = -a;
-    if (b >= 0) return n < b ? 0x1000 - AT[q(n * 0x800, b)] : AT[q(b * 0x800, n)] + 0xc00;
-    const m = -b;
-    return n < m ? AT[q(n * 0x800, m)] + 0x800 : 0xc00 - AT[q(m * 0x800, n)];
-  }
-  if (b < 0) {
-    const m = -b;
-    return a < m ? 0x800 - AT[q(a * 0x800, m)] : AT[q(m * 0x800, a)] + 0x400;
-  }
-  return b <= a ? 0x400 - AT[q(b * 0x800, a)] : AT[q(a * 0x800, b)];
-}
 /** FUN_800154a0: signed shortest turn from a to b */
 const angDiff = (a: number, b: number) => { const v = (b - a) & 0xfff; return v > 0x800 ? v - 0x1000 : v; };
 /** FUN_80015480: unsigned angle difference */
@@ -108,6 +98,7 @@ export interface MMData {
   cr: (MMCrate | null)[];
   n: number; stage: number; stageT: number; spawnCd: number; goldT: number; golds: number; nc: number; nextId: number;
   skill: number; clock: number; over: boolean; winner: number; seats: number;
+  shown?: number[];
 }
 
 const rn = (w: World, n: number) => (n < 2 ? 0 : Math.floor(rand(w) * n));
@@ -140,6 +131,13 @@ export function animStep(P: MMPlayer, onState?: (st: number) => void): number {
 }
 /** [clip, frame] of the current pose (clip = gltf animation index, 30 fps = one logic frame per key) */
 export const mmPose = (an: AnimSt): [number, number] => [(an.pose - 0x4000) >> 7, an.pose & 0x7f];
+
+/** All eight L29 idle scripts loop a consecutive run of render words from opcode 0x8007. */
+export function mmOpeningPose(character: number, ticksLeft: number): [number, number] {
+  const [, , length, first] = MM_SCRIPTS[character][0];
+  const age = Math.max(0, INTRO_END - ticksLeft);
+  return [(first - 0x4000) >> 7, (first & 127) + age % length];
+}
 
 // ---------------------------------------------------------------- helpers
 const intro = (d: MMData) => d.g < INTRO_END;
@@ -237,10 +235,10 @@ function enter(w: World, d: MMData, i: number, st: number) {
   }
 }
 
-/** shock wave centre: the mallet head, in front of the player (a model joint in the game; its offset was not measured -> 0.6 reach) */
 function headPos(P: MMPlayer): [number, number] {
-  const r = Math.floor(REACH[P.ch] * 0.6);
-  return [P.x - ((r * T(P.yaw - 0x400)) >> 12), P.z - ((r * T(P.yaw)) >> 12)];
+  const [x, z] = MALLET_HEAD[P.ch];
+  const sin = T(P.yaw - 0x400), cos = T(P.yaw);
+  return [P.x + ((x*cos + z*sin) >> 12), P.z + ((z*cos - x*sin) >> 12)];
 }
 
 /** FUN_800b6efc */
@@ -306,7 +304,8 @@ function stateUpdate(w: World, d: MMData, i: number) {
       if (P.spd === 0) { enter(w, d, i, 0x40); return; }
       P.mv = 1;
       collide(d, i);
-      animStep(P, onState);
+      const marker = animStep(P, onState);
+      if (marker === 8 || marker === 9) emit(w, 'footstep', mmX(P.x), mmZ(P.z), i, marker + 2);
       return;
     }
     case 0x42: { // stunned
@@ -357,10 +356,14 @@ function stateUpdate(w: World, d: MMData, i: number) {
       P.lock = 2;
       P.hd = 0;
       animStep(P, onState);
+      P.yaw = (P.yaw + (angDiff(P.yaw, 0) >> 2)) & 0xfff;
       return;
     }
     case 0x48: { // loser: shrinks away
-      if (P.sc !== 0) P.sc -= 0x80;
+      if (P.sc > 0) {
+        P.sc = Math.max(0, P.sc - 0x80);
+        if (P.sc === 0) emit(w, 'resultBurst', mmX(P.x), mmZ(P.z), i);
+      }
       P.lock = 2;
       animStep(P, onState);
       return;
@@ -453,7 +456,10 @@ function playerFrame(w: World, d: MMData, i: number, inp: InputState | null | un
   stateUpdate(w, d, i);
   // physics (FUN_80085d2c): turn, move, knock-back
   if (P.lock === 0 || P.st === 0x43) P.yaw = (P.yaw + (angDiff(P.yaw, P.hd) >> 2)) & 0xfff;
-  if (P.st === 0x47) P.yaw = (P.yaw + (angDiff(P.yaw, 0) >> 2)) & 0xfff;
+  movePlayer(P);
+}
+
+function movePlayer(P: MMPlayer) {
   P.x -= (P.spd * T(P.hd - 0x400)) >> 12;
   P.z -= (P.spd * T(P.hd)) >> 12;
   if (P.kn !== 0) {
@@ -467,7 +473,7 @@ function playerFrame(w: World, d: MMData, i: number, inp: InputState | null | un
   if (P.pw === 0) { P.pwT--; if (P.pwT < 1) P.pw = 3; }
 }
 
-function mushFrame(w: World, d: MMData, idx: number) {
+function mushFrame(w: World, d: MMData, idx: number, freezeWaiting: boolean) {
   const m = d.mu[idx];
   if (!m) return;
   switch (m.st) {
@@ -484,13 +490,16 @@ function mushFrame(w: World, d: MMData, idx: number) {
       break;
     }
     case 2:
-      if (!intro(d)) m.c--;
+      if (!freezeWaiting) m.c--;
       if (m.c < 1) {
         m.st = 10; m.ys = 0;
         emit(w, 'rise', mmX(m.x), mmZ(m.z), -1, m.gold ? 1 : 0);
       }
       break;
-    case 4: m.st = 6; break;
+    case 4:
+      if (d.over) emit(w, 'resultBurst', mmX(m.x), mmZ(m.z));
+      m.st = 6;
+      break;
     case 5: {
       emit(w, 'boom', mmX(m.x), mmZ(m.z), -1, 1);
       shock(w, d, m.x, m.z, 0x380, -1, 0);
@@ -516,7 +525,7 @@ function mushFrame(w: World, d: MMData, idx: number) {
       m.c--;
       if (m.c < 1) {
         if (m.st === 0xd) { m.st = 0xe; m.c = 0x28; return; }
-        m.st = intro(d) ? 4 : 5;
+        m.st = freezeWaiting ? 4 : 5;
         return;
       }
       m.ys = m.st === 0xd ? rn(w, 0x200) + 0xb00 : rn(w, 0x800) + 0x800;
@@ -524,7 +533,7 @@ function mushFrame(w: World, d: MMData, idx: number) {
   }
 }
 
-function crateFrame(w: World, d: MMData, idx: number) {
+function crateFrame(w: World, d: MMData, idx: number, freezeWaiting: boolean) {
   const c = d.cr[idx];
   if (!c) return;
   switch (c.st) {
@@ -535,7 +544,7 @@ function crateFrame(w: World, d: MMData, idx: number) {
       c.s = 0;
       break;
     case 2:
-      if (!intro(d)) { if (c.c > 0) { c.c--; } }
+      if (!freezeWaiting && c.c > 0) c.c--;
       if (c.c > 0) return;
       { const sp = findSpot(w, d);
         if (sp) { c.x = sp[0]; c.z = sp[1]; clampTo(c, MM_SPAWN); c.st = 10; c.s = 0; } }
@@ -556,9 +565,7 @@ const botDelay = (skill: number) => Math.max(0, 96 - 3 * skill);
 const botSpeed = (skill: number) => Math.min(62, 45 + Math.max(0, skill - 15));
 const botBoots = (skill: number) => Math.min(97, 80 + Math.max(0, skill - 15));
 
-function frame(w: World, d: MMData, inputs: (InputState | null | undefined)[]) {
-  // players
-  for (let i = 0; i < d.p.length; i++) playerFrame(w, d, i, inputs[i]);
+function advanceArena(w: World, d: MMData, freezeWaiting = intro(d)) {
   // spawner (FUN_800b34f8)
   if (d.spawnCd > 0) d.spawnCd--;
   if (d.goldT > 0 && d.golds < 4) d.goldT--;
@@ -572,14 +579,65 @@ function frame(w: World, d: MMData, inputs: (InputState | null | undefined)[]) {
     }
     d.spawnCd = 0x14;
   }
-  for (let i = 0; i < MM_SLOTS; i++) mushFrame(w, d, i);
-  for (let i = 0; i < 3; i++) crateFrame(w, d, i);
+  for (let i = 0; i < MM_SLOTS; i++) mushFrame(w, d, i, freezeWaiting);
+  for (let i = 0; i < 3; i++) crateFrame(w, d, i, freezeWaiting);
+}
+
+function frame(w: World, d: MMData, inputs: (InputState | null | undefined)[]) {
+  for (let i = 0; i < d.p.length; i++) playerFrame(w, d, i, inputs[i]);
+  advanceArena(w, d);
   // clock
-  if (d.g >= CLOCK_START && !d.over) {
-    d.clock++;
-    if (d.clock >= CLOCK_STEPS) finish(w, d);
+  if (d.g >= INTRO_END && !d.over) {
+    if (d.g >= CLOCK_START) d.clock++;
+    const tick = d.g - INTRO_END + 1;
+    if (d.shown ? tickPlayerTally(d.p, d.shown, tick, 1) : d.clock >= CLOCK_STEPS) finish(w, d);
+    else if (d.shown && tick > VERSUS_CLOCK_END) d.p.forEach(p => { p.lock = 100; });
   }
   d.g++;
+}
+
+/** Play the L29 result from the ranked snapshot while the authority holds the final scores. */
+export function createMalletMashResult(terminal: World, winner: number | undefined) {
+  const data = structuredClone(terminal.data) as MMData;
+  const world: World = { ...terminal, data, ev: [] };
+  let freezeAt = winner === undefined ? 0 : Infinity;
+  let tick = 0;
+  data.over = true;
+  data.p.forEach((p, slot) => {
+    p.fl = (p.fl & ~0x700) | (winner === undefined ? 0x100 : slot === winner ? 0x200 : 0x400);
+  });
+
+  return {
+    data,
+    cameraActive: false,
+    step(): GameEvent[] {
+      tick++;
+      world.ev = [];
+      data.p.forEach((p, slot) => {
+        const state = p.st;
+        // FUN_80083e8c clears the pad and blink before processing each flagged player.
+        p.pad = 0;
+        p.spd = 0;
+        p.blink = 0;
+        p.hid = false;
+        if (p.lock > 0) p.lock--;
+        stateUpdate(world, data, slot);
+        if (p.st === 0x47 && state !== 0x47) {
+          this.cameraActive = true;
+          freezeAt = tick + 31 + (WIN_NAME_WAIT[p.ch] + 1) + 31;
+          emit(world, 'resultWinner', mmX(p.x), mmZ(p.z), slot);
+        }
+        if (winner === undefined && state === 0x40) this.cameraActive = true;
+        if (p.lock === 0) p.yaw = (p.yaw + (angDiff(p.yaw, p.hd) >> 2)) & 0xfff;
+        movePlayer(p);
+      });
+      // FUN_8007d9dc sets the intro flag on a draw or once the winner's reaction begins.
+      advanceArena(world, data, tick > freezeAt);
+      data.g++;
+      world.tick++;
+      return world.ev;
+    },
+  };
 }
 
 /** FUN_800b5820 (-1): rank by score (ties: lower slot first); equal top two = draw */
@@ -604,7 +662,7 @@ function syncBodies(w: World, d: MMData) {
     const nx = mmX(P.x), nz = mmZ(P.z);
     b.vx = (nx - b.x) * 30; b.vz = (nz - b.z) * 30;
     b.x = nx; b.z = nz;
-    b.face = Math.PI - (((P.yaw - 0x800) & 0xfff) * 2 * Math.PI) / 4096;
+    b.face = mmFace(P.yaw);
   }
 }
 
@@ -612,9 +670,10 @@ function syncBodies(w: World, d: MMData) {
 export const malletMash: MiniGame = {
   id: 'malletMash',
   name: 'Mallet Mash',
-  description: 'Mushrooms pop out of the ground. Whack them with your mallet! The more they shake, the more they are worth.',
-  controls: '{move} run. {a} swing the mallet (hold and release: shock wave).',
+  description: 'Smash mushrooms to score. Shaking and gold mushrooms are worth more. Highest score wins.',
+  controls: '{move} run. Tap {a} to swing. Hold and release {a} for a shock wave.',
   maxTime: MM_MAX_TIME,
+  settlesAfterTimeout: true,
 
   setup(w: World, slots: SlotInfo[]) {
     const ps: MMPlayer[] = [];
@@ -637,7 +696,7 @@ export const malletMash: MiniGame = {
     const d: MMData = {
       g: 0, p: ps, mu: Array(MM_SLOTS).fill(null), cr: [null, null, null], n: 0, stage: 0, stageT: STAGE_SECS[0] * 30,
       spawnCd: 0, goldT: GOLD_T[0], golds: 0, nc: 0, nextId: 1, skill: BOT_SKILL[Math.max(0, Math.min(2, level))], clock: 0,
-      over: false, winner: -2, seats: slots.length,
+      over: false, winner: -2, seats: slots.length, shown: [0, 0, 0, 0],
     };
     for (let i = 0; i < 2; i++) d.cr[i] = { st: 0, c: i * 0x5a + 0x1e, x: 0, z: 0, s: 0, bd: 0, yaw: 0 };
     d.nc = 2;
@@ -670,6 +729,8 @@ export const malletMash: MiniGame = {
     if (d.winner === -1) return true;
     return d.over;
   },
+
+  isDraw(w, [a, b]) { return w.data.p[a]?.score === w.data.p[b]?.score; },
 
   placements(w) {
     const d = w.data as MMData;

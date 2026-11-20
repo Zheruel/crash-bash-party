@@ -4,9 +4,9 @@
  * Logic runs at 30 Hz, one step() = one tick. Distances below are written in the game's raw units (arena = +-2048 raw = +-CT_HALF
  * world units, so U world units per raw unit) and per-tick speeds; the real code adds them to the position every tick.
  *
- * Controls (real pad: Circle / Square / Cross; here A / B only):
+ * Controls (Circle / Square / Cross / Triangle):
  *   A (Circle)  pick up the crate in front of you / throw the crate you hold
- *   B           Square: a spin attack that kicks crates away and hits players for 1 HP; with nothing in reach it is a jump (Cross)
+ *   B           Square: a spin attack that kicks crates away and hits players for 1 HP; C (Cross) jumps independently
  * Crates: wood (5 HP, 3 HP in DRAIN BASH), TNT (8 HP, 90 tick fuse), nitro (8 HP, explodes when touched / kicked / landed on).
  *   Every crate that breaks or blows up hurts all players within 640 raw (2.25 units) except the player who threw / kicked it.
  * Pickups: fruit (+1 HP, up to 20). SPACE / SNOW: Aku Aku mask (blocks one hit, 10 s), speedy boots (8 s), the weight (hot
@@ -32,8 +32,11 @@
  * Events: grab, throw, kick (spin), hit (s victim, o attacker, v = dmg / CT_HP), smash (wood broke), land, explode (v radius, s=kind 0 tnt 1 nitro),
  *   lit, pickup (v 1 fruit 2 boots 3 slow 4 mask 5 weight 6.. weapons), ko, weapon, weaponHit, penguinWake / penguinHit, hole, jump, beep
  */
+import { attackHull, TAUNT_TICKS } from './onFoot';
+import { CRATE_GRIPS, CT_HULL } from './crateGripData';
+import { DISC_CHARACTER } from '../look';
 import { addBody, emit, rand } from '../physics';
-import { IDLE, type Body, type InputState, type MiniGame, type World } from '../types';
+import { IDLE, type Body, type GameEvent, type InputState, type MiniGame, type World } from '../types';
 import { angDiff, pickVariant } from './common';
 
 export const CT_HALF = 7.2;
@@ -45,17 +48,28 @@ const U = CT_U;
 const TAU = Math.PI * 2;
 
 // ---------- constants decoded from the game (raw units, per tick) ----------
-const WALK = 45, HOLD_WALK = 30, BOOT_BONUS = 20;            // table 0x8009d318 (chars 1-4): walk, walk holding a crate, boots bonus
-const ICE_WALK = 180, ICE_HOLD = 120, ICE_BOOT = 80, ICE_ACC = 8, ICE_DEC = 4; // snow bash: velocity ramps to these (table 0x800c3984)
-const JUMP_V0 = 108, JUMP_DEC = 10, JUMP_CUT = 40, JUMP_FALL_ACC = 8, JUMP_FALL_MAX = 114; // table 0x8009d354, FUN_800860d4
+// Movement rows 0x8009d318 / 0x8009d354. Characters 5..8 have a lower jump and carry faster.
+const WALK = 45, BOOT_BONUS = 20, ICE_ACC = 8, ICE_DEC = 4;
+const JUMP_CUT = 40, JUMP_FALL_MAX = 114;
 const PLAYER_R = 153, CRATE_R = 120, ARENA = 2048;
-const CRATE_H = 240, PLAYER_H = 700;
+const SPACE_KO_DEPTH = 0x180, SPACE_OBJECT_CULL = ARENA;
+const CRATE_H = 256, PLAYER_H = 700;
 const PICK_REACH = 256, PICK_CONE = 0x280 / 4096 * TAU;     // FUN_800c1848: crate within 256 raw of the point 256 raw in front, +-56 deg
-const PICK_TICKS = 11, THROW_REL = 9, THROW_TICKS = 16, SPIN_TICKS = 27;  // anim scripts clip 15 / 18 / 9 (char 1)
+// Per-character script lengths (pickup 0xf, throw 0x12, attack 0xa) and frame of throw event 0x13.
+const ACTIONS = [
+  [11, 15, 16, 8], [12, 16, 16, 8], [8, 13, 19, 2], [13, 13, 13, 2],
+  [9, 17, 12, 5], [11, 20, 16, 5], [16, 28, 14, 8], [16, 26, 14, 6],
+];
+export function ctActionTicks(char: number, action: number) {
+  return (ACTIONS[char - 1] ?? ACTIONS[0])[action - 1];
+}
 const SPIN_R = 330, SPIN_DMG = 1, SPIN_KNOCK = 48;
-const THROW_V0 = 113, THROW_DEC = 6, THROW_VY0 = 32, THROW_VYDEC = 9, THROW_VYACC = 9, THROW_VYMAX = 80; // throw table 0x8009e3b4 char 1
-const KICK_V0 = 112, KICK_DEC = 4;                                                       // kick table 0x8009e3dc char 1
-const HELD_Y = 560;                                                                      // crate base above the holder's feet (est.)
+// Throw table 0x8009e3b4: initial and maximum forward speed, drag, rise speed, vertical acceleration.
+const THROWS = [
+  [113, 128, 6, 32, 9], [128, 128, 5, 40, 9], [144, 144, 5, 18, 8], [144, 144, 5, 18, 8],
+  [144, 128, 5, 0, 6], [144, 128, 5, 0, 6], [112, 128, 5, 0, 7], [128, 128, 5, 0, 7],
+];
+const longKick = (char: number) => char <= 2 || char >= 7;
 const BLAST_R = 640, CHAIN_DELAY = 10, FUSE = 90, GROW = 8;
 const DMG_WOOD = 5, DMG_WOOD_DRAIN = 3, DMG_BIG = 8;                                      // damage table 0x8009d3b8, row 5 / 3 / 8
 const HURT_TICKS = 30, FLICKER_TICKS = 40;
@@ -87,13 +101,18 @@ const EFF_AKU = 0x12, EFF_BOOTS = 0x13, EFF_WEIGHT = 0x14, EFF_SLOW = 0x15;
 const W_MISSILE = 0x19, W_ORB = 0x1b, W_RING = 0x1c;
 
 /** crate sub state */
-const C_GROW = 0, C_IDLE = 1, C_HELD = 2, C_THROWN = 3, C_SLIDE = 4, C_DELAY = 5, C_OPEN = 6;
-interface CS { s: number; t: number; hv: number; vv: number; up: boolean; dx: number; dz: number; own: number; fuse: number; kt: number; item: number }
+const C_GROW = 0, C_IDLE = 1, C_HELD = 2, C_THROWN = 3, C_SLIDE = 4, C_DELAY = 5, C_OPEN = 6, C_FALL = 7, C_DROP = 8;
+interface CS { gripScript?: number; gripFrame?: number; pitch?: number; s: number; t: number; hv: number; vv: number; up: boolean; dx: number; dz: number; own: number; fuse: number; kt: number; item: number }
 
 interface Data {
+  char: number[];
+  cpu?: CrushBot[];
+  humanSlots?: number;
+  cpuOnly?: boolean;
+  cpuFocus?: number;
   variant: string;
   hp: number[]; score: number[]; taken: number[]; elim: number[];
-  stun: number[]; act: number[]; st: number[]; stT: number[]; inv: number[]; ic: number[];
+  stun: number[]; tauntAt?: number[]; act: number[]; st: number[]; stT: number[]; inv: number[]; ic: number[];
   boots: number[]; slow: number[]; mask: number[];
   eff: number[]; effT: number[]; pass: number[];
   weight: number; weightT: number;
@@ -102,6 +121,7 @@ interface Data {
   prevC?: boolean[];
   pend: { dmg: number; cls: number; by: number; kx: number; kz: number; kv: number }[];
   weapon: number[]; ammo: number[]; wcd: number[];
+  shots?: Record<number, DrainShot>;
   floor: number[];
   penguin: number;
   cs: Record<number, CS>;
@@ -121,25 +141,18 @@ const aliveCount = (w: World) => players(w).filter((p) => p.alive).length;
 const holdingCrate = (w: World, slot: number) => crates(w).find((c) => c.cd === slot + 1);
 const dist2 = (ax: number, az: number, bx: number, bz: number) => Math.hypot(ax - bx, az - bz);
 
-/**
- * Space Bash floor (FUN_800b8578 area, table 0x800c3bb4): at load every 512-raw cell without a floor object is a permanent hole
- * (flag 0x100, ground 0x7fffffff); nothing removes tiles later. Read from the emulator (level 1): rows = game x cell, columns =
- * game z cell, '#' = hole. Our floor index is r*N + c with c = x cell and r = 7 - z cell (world z = -game z).
- */
-const SPACE_HOLES = ['........', '........', '#..#....', '..#..#..', '.....#.#', '....#..#', '.#....#.', '..#.....'];
-function spaceFloor(): number[] {
-  const f = new Array(CT_FLOOR_N * CT_FLOOR_N).fill(1);
-  SPACE_HOLES.forEach((row, ux) => [...row].forEach((ch, uz) => { if (ch === '#') f[(7 - uz) * CT_FLOOR_N + ux] = 0; }));
-  return f;
+/** FUN_800bac5c indexes 512-unit cells in game coordinates. World Z mirrors game Z. */
+export function spaceFloorIndex(x: number, z: number): number {
+  const column = Math.floor((x / U + 2048) / 512);
+  const row = CT_FLOOR_N - 1 - Math.floor((-z / U + 2048) / 512);
+  if (column < 0 || column >= CT_FLOOR_N || row < 0 || row >= CT_FLOOR_N) return -1;
+  return row * CT_FLOOR_N + column;
 }
 
-/** Is there floor under (x, z)? Space bash has missing tiles. */
-export function floorAt(d: { floor: number[] }, x: number, z: number): boolean {
-  if (!d.floor.length) return true;
-  const T = (CT_HALF * 2) / CT_FLOOR_N;
-  const tx = Math.floor((x + CT_HALF) / T), tz = Math.floor((z + CT_HALF) / T);
-  if (tx < 0 || tz < 0 || tx >= CT_FLOOR_N || tz >= CT_FLOOR_N) return true;
-  return d.floor[tz * CT_FLOOR_N + tx] === 1;
+export function floorAt(d: { floor?: number[] }, x: number, z: number): boolean {
+  if (!d.floor?.length) return true;
+  const i = spaceFloorIndex(x, z);
+  return i < 0 || d.floor[i] === 1;
 }
 
 // ---------- cell grid + spawn deck (FUN_800b7e74 / 800b710c / 800b8040 / 800b7d20) ----------
@@ -161,6 +174,8 @@ function buildCells(w: World, variant: string): number[] {
 const cellRaw = (i: number) => -0x780 + 0x100 * i;
 const cellOf = (x: number) => Math.floor(x / U / 256 + 10 + 1e-9) ; // grid column of a world x (0..19)
 function occupiedAt(w: World, ci: number, cj: number): boolean {
+  // FUN_800bad70 reserves the four 256-unit spawn cells beneath each missing tile.
+  if (!floorAt(D(w), cellRaw(ci - 2) * U, -cellRaw(cj - 2) * U)) return true;
   for (const b of w.bodies) {
     if (!b.alive || !(isCrate(b) || b.kind === 'penguin')) continue;
     if (Math.floor(b.x / U / 256) + 10 === ci && 9 - Math.floor(b.z / U / 256) === cj) return true;
@@ -177,10 +192,7 @@ function freeCell(w: World, d: Data): [number, number] | null {
   let idx = d.cur, best = -1, bestN = 9, tries = 9;
   for (let guard = 0; guard < 256; guard++) {
     idx = (idx + 1) & 255;
-    const ci = d.cells[idx * 2] + 2, cj = d.cells[idx * 2 + 1] + 2; // 16x16 inner grid sits at 2..17 of the 20x20 occupancy grid
     const x = cellRaw(d.cells[idx * 2]), z = cellRaw(d.cells[idx * 2 + 1]);
-    if (!floorAt(d, x * U, z * U)) continue;
-    if (occupiedAt(w, ci, 9 - Math.floor(z / 256) < 0 ? cj : 9 - Math.floor(z / 256))) continue;
     const gi = Math.floor(x / 256) + 10, gj = 9 - Math.floor(z / 256);
     if (occupiedAt(w, gi, gj)) continue;
     const n = neighbours(w, gi, gj);
@@ -254,6 +266,11 @@ function destroy(w: World, d: Data, c: Body, skip: number, chain = true) {
     emit(w, 'smash', c.x, c.z, -1, 1);
     openChest(w, d, c, s);
   } else {
+    // LAB_800bae98 clears the tile at the center of a floor-level TNT or nitro blast.
+    if (d.variant === 'space' && c.y === 0) {
+      const tile = spaceFloorIndex(c.x, c.z);
+      if (tile >= 0) d.floor[tile] = 0;
+    }
     emit(w, 'explode', c.x, c.z, kind === 'tnt' ? 0 : 1, BLAST_R * U, skip);
     areaDamage(w, d, c.x, c.z, c.y, DMG_BIG, skip, kind === 'nitro' ? 0 : 0xa0);
     if (chain) for (const o of crates(w)) { // FUN_8008dec8 tail: crates flagged 0x100 within the radius blow up 10 ticks later
@@ -283,8 +300,14 @@ function wakePenguin(w: World, d: Data) {
 export const crateToss: MiniGame = {
   id: 'crateToss',
   name: 'Crate Crush',
-  description: 'Pick up and throw crates at your opponents. TNT counts down, nitro explodes on touch. Last one standing - or most health - wins.',
-  controls: '{move} walk. {a} pick up / throw a crate. {b} spin attack (kicks crates, rivals lose 1 HP; fires a weapon you picked up). {c} jump.',
+  description: 'Throw crates at rivals. TNT ticks down and nitro bursts on touch. Last standing or most health at the buzzer wins.',
+  variantDescriptions: {
+    space: 'Throw crates at rivals. Explosions open holes in the floor. Last standing or most health at the buzzer wins.',
+    snow: 'Throw crates at rivals on slippery ice. Avoid waking the penguin. Last standing or most health at the buzzer wins.',
+    drain: 'Throw crates at rivals. Break open special crates for weapons. Last standing or most health at the buzzer wins.',
+  },
+  controls: '{move} walk. {a} pick up or throw. {b} spin to kick crates. {c} jump / {d} taunt.',
+  variantControls: { drain: '{move} walk. {a} pick up or throw. {b} spin or fire held weapon. {c} jump / {d} taunt.' },
   variants: CT_VARIANTS,
   maxTime: 90,
 
@@ -293,19 +316,21 @@ export const crateToss: MiniGame = {
     const cfg = CFG[variant];
     const z4 = () => [0, 0, 0, 0];
     const d: Data = {
-      variant, hp: [CT_HP, CT_HP, CT_HP, CT_HP], score: z4(), taken: z4(), elim: [-1, -1, -1, -1],
+      variant, char: [1, 1, 1, 1], hp: [CT_HP, CT_HP, CT_HP, CT_HP], score: z4(), taken: z4(), elim: [-1, -1, -1, -1],
       stun: z4(), act: z4(), st: z4(), stT: z4(), inv: z4(), ic: z4(), boots: z4(), slow: z4(), mask: z4(),
       eff: z4(), effT: z4(), pass: z4(), weight: -1, weightT: 0,
       f8: [0, 0, 0, 0], vx: z4(), vz: z4(), vy: z4(), air: [false, false, false, false], jh: [false, false, false, false], prevA: [false, false, false, false], prevB: [false, false, false, false],
       pend: [0, 1, 2, 3].map(() => ({ dmg: 0, cls: 0, by: -1, kx: 0, kz: 0, kv: 0 })),
       weapon: z4(), ammo: z4(), wcd: z4(),
-      floor: variant === 'space' ? spaceFloor() : [],
+      floor: variant === 'space' ? new Array(CT_FLOOR_N * CT_FLOOR_N).fill(1) : [], // 0711.t29 has all 64 top labels
       penguin: 0, cs: {}, cells: [], cur: 0, deck: [], di: 0,
       tSpawn: 0, tFruit: 0, tBurst: (Math.floor(rand(w) * 10) + 10) * 30, tBurstGap: 0, tBurstN: 0,
       tPower: variant === 'jungle' ? 30 : variant === 'drain' ? Math.floor(rand(w) * 30) + 30 : (Math.floor(rand(w) * 10) + 10) * 30,
       tChest: 30, lastBy: [-1, -1, -1, -1], lastByTick: [-99, -99, -99, -99],
     };
     w.data = d;
+    d.cpu = [0, 1, 2, 3].map((slot) => newCrushBot(variant, slots.find((s) => s.slot === slot)?.level));
+    d.humanSlots = slots.reduce((mask, s) => s.bot ? mask : mask | (1 << s.slot), 0);
     d.cells = buildCells(w, variant);
     const deck: number[] = [];
     for (let i = 0; i < cfg.deck[0] * 4; i++) deck.push(4);
@@ -317,8 +342,9 @@ export const crateToss: MiniGame = {
     d.di = Math.floor(rand(w) * 32) + 20;
     if (variant === 'snow') { const g = addBody(w, 'penguin', -1, 0, 0, 1.1, 8); g.face = 0; }
     for (const s of slots) {
+      d.char[s.slot] = DISC_CHARACTER[s.char ?? s.slot] ?? 1;
       const [x, z] = SPAWN[s.slot];
-      const b = addBody(w, 'player', s.slot, x * U, z * U, PLAYER_R * U * w.params.playerScale, 3);
+      const b = addBody(w, 'player', s.slot, x * U, z * U, CT_HULL[d.char[s.slot] - 1][0] * U * w.params.playerScale, 3);
       b.face = Math.atan2(-x, -z);
       d.f8[s.slot] = snap8(b.face);
     }
@@ -330,6 +356,11 @@ export const crateToss: MiniGame = {
     const cfg = CFG[d.variant];
     const ps = players(w);
     const live = ps.filter((p) => p.alive);
+    const contestants = crushContestants(live);
+    const focus = crushFocus(w, d, contestants);
+    d.cpu = [0, 1, 2, 3].map((slot) => planCrushBot(w, slot, contestants, focus).state);
+    // FUN_800b432c clears an eliminated focus this tick and draws its replacement next tick.
+    d.cpuFocus = contestants.some((p) => p.slot === focus) ? focus : undefined;
     const sr = Math.max(0.1, w.params.spawnRate);
     const np = Math.max(2, Math.min(4, live.length));
     const crateN = crates(w).filter((c) => c.kind !== 'chest').length;
@@ -405,7 +436,7 @@ export const crateToss: MiniGame = {
     // players bump (the moving one is pushed out; weight changes hands)
     for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
       const a = live[i], b = live[j];
-      if (!a.alive || !b.alive || Math.abs(a.y - b.y) > PLAYER_H * U) continue;
+      if (!a.alive || !b.alive || a.fall || b.fall || !bodyOverlapsHeight(d, b, a.y + CT_HULL[d.char[a.slot]-1][1]*U, a.y + CT_HULL[d.char[a.slot]-1][2]*U)) continue;
       const dd = dist2(a.x, a.z, b.x, b.z), m = a.r + b.r;
       if (dd >= m) continue;
       const nx = dd > 1e-6 ? (a.x - b.x) / dd : 1, nz = dd > 1e-6 ? (a.z - b.z) / dd : 0;
@@ -484,8 +515,215 @@ function groundAt(w: World, d: Data, x: number, z: number, ignore?: Body): numbe
   return g;
 }
 
+type ResultPlayerState = 'ready' | 'action' | 'rise' | 'fall' | 'hole' | 'land' | 'winner' | 'loser' | 'out';
+
+interface CrateResultPlayer {
+  state: ResultPlayerState;
+  script: number;
+  elapsed: number;
+  outAge: number;
+}
+
+/** Advance the arena after a verdict using a private copy of the terminal snapshot. */
+export function createCrateCrushResult(terminal: World, winner: number | undefined) {
+  const world: World = {
+    ...terminal, data: structuredClone(terminal.data), bodies: terminal.bodies.map(b => ({ ...b })), ev: [],
+  };
+  const d = D(world);
+  const actors = players(world);
+  const forSlot = new Map<number, CrateResultPlayer>(actors.map(p => {
+    const s = p.slot, char = d.char[s];
+    if (!p.alive) {
+      const outAge = Math.max(0, terminal.tick - d.elim[s] - 1);
+      return [s, { state: 'out', script: 0, elapsed: 0, outAge }];
+    }
+    if (p.fall) return [s, { state: 'hole', script: 7, elapsed: 0, outAge: 0 }];
+    if (d.air[s]) {
+      const initialRise = char >= 5 ? 72 : 108;
+      const dec = char >= 5 ? 6 : 10;
+      const elapsed = d.jh[s] ? (initialRise - d.vy[s]) / dec - 1 : (d.vy[s] - 8) / 10;
+      return [s, { state: d.jh[s] ? 'rise' : 'fall', script: d.jh[s] ? 6 : 7, elapsed: Math.max(0, Math.round(elapsed)), outAge: 0 }];
+    }
+    const action = d.st[s], held = holdingCrate(world, s);
+    const moving = Math.hypot(p.vx, p.vz) > 0.7;
+    if (action !== ST_MOVE) {
+      const script = action === ST_PICK ? 0xf : action === ST_THROW ? 0x12 : action === ST_SPIN ? 0xa : 9;
+      const elapsed = (action === ST_HURT ? HURT_TICKS : ctActionTicks(char, action)) - d.stT[s];
+      return [s, { state: action === ST_SPIN ? 'ready' : 'action', script, elapsed, outAge: 0 }];
+    }
+    const script = held ? (moving ? 0x11 : 0x10) : moving ? 5 : 1;
+    const elapsed = held ? d.cs[held.id]?.gripFrame ?? 0 : 0;
+    return [s, { state: 'ready', script, elapsed, outAge: 0 }];
+  }));
+  let winnerAt = -1;
+  const justThrown = new Set<number>();
+
+  function pose(a: CrateResultPlayer, state: ResultPlayerState, script: number, elapsed = 0) {
+    a.state = state;
+    a.script = script;
+    a.elapsed = elapsed;
+  }
+
+  // FUN_800880e0 / 800c0f14 / 800c1278 detach the crate at its last hand transform.
+  // FUN_800bc038 state 4 clears its angles and arms a vertical drop.
+  function release(p: Body) {
+    const c = holdingCrate(world, p.slot);
+    if (!c) return;
+    const cs = csOf(d, c);
+    c.cd = 0;
+    c.dash = 1;
+    cs.s = C_DROP;
+    cs.t = 0;
+    cs.pitch = 0;
+    cs.vv = 80;
+    cs.own = -1;
+  }
+
+  function enterVerdict(p: Body, a: CrateResultPlayer) {
+    const win = p.slot === winner;
+    release(p);
+    d.eff[p.slot] = d.weapon[p.slot] = d.inv[p.slot] = 0;
+    p.vx = p.vy = p.vz = 0;
+    p.fall = false;
+    p.y = Math.max(0, groundAt(world, d, p.x, p.z));
+    pose(a, win ? 'winner' : 'loser', win ? 0xc : 1);
+    if (win) winnerAt = world.tick - terminal.tick;
+  }
+
+  function stepActor(p: Body, a: CrateResultPlayer) {
+    const s = p.slot, char = d.char[s];
+    a.elapsed++;
+    switch (a.state) {
+      case 'out':
+        a.outAge++;
+        return;
+      case 'hole':
+        d.vy[s] = Math.min(112, d.vy[s] + 10);
+        p.y -= d.vy[s] * U;
+        if (p.y < -SPACE_KO_DEPTH * U) {
+          if (s === winner) pose(a, 'ready', 1);
+          else {
+            p.alive = false;
+            pose(a, 'out', 0);
+            emit(world, 'resultOut', p.x, p.z, s);
+          }
+        }
+        return;
+      case 'rise':
+      case 'fall': {
+        const gravity = world.params.gravity;
+        p.x += d.vx[s] * world.params.speed * U;
+        p.z += d.vz[s] * world.params.speed * U;
+        if (a.state === 'rise') {
+          d.vy[s] -= (d.vy[s] > 0x40 ? JUMP_CUT : char >= 5 ? 6 : 10) * gravity;
+          if (d.vy[s] >= 0) p.y += d.vy[s] * U;
+          else {
+            release(p);
+            d.jh[s] = false;
+            d.vy[s] = 8;
+            pose(a, 'fall', 7);
+          }
+          return;
+        }
+        const g = groundAt(world, d, p.x, p.z);
+        if (p.y <= g) {
+          p.y = g;
+          p.vy = 0;
+          d.air[s] = false;
+          pose(a, 'land', 8, 1);
+          emit(world, 'resultLand', p.x, p.z, s);
+        } else if (p.y < 0 && !floorAt(d, p.x, p.z)) {
+          pose(a, 'hole', 7);
+          release(p);
+          d.vy[s] = 8;
+        } else {
+          d.vy[s] = Math.min(112, d.vy[s] + 10 * gravity);
+          p.y -= d.vy[s] * U;
+        }
+        return;
+      }
+      case 'action': {
+        const action = d.st[s];
+        d.stT[s]--;
+        const releaseFrame = ACTIONS[char - 1][3];
+        if (action === ST_THROW && a.elapsed === (char === 5 ? 1 : releaseFrame)) emit(world, 'resultThrowVoice', p.x, p.z, s);
+        if (action === ST_THROW && a.elapsed === releaseFrame) {
+          const crate = holdingCrate(world, s);
+          if (crate) {
+            throwCrate(world, d, p, crate);
+            justThrown.add(crate.id);
+          }
+        }
+        if (d.stT[s] <= 0) {
+          d.st[s] = ST_MOVE;
+          d.act[s] = 0;
+          if (action === ST_THROW && char <= 2) {
+            pose(a, 'land', 8);
+            emit(world, 'resultLand', p.x, p.z, s);
+          } else pose(a, 'ready', holdingCrate(world, s) ? 0x10 : 1);
+        }
+        return;
+      }
+      case 'winner': {
+        // FUN_8008a200 turns one quarter of the signed 12-bit error per update.
+        const yaw = Math.round(-p.face * 4096 / TAU) & 4095;
+        const diff = (-yaw) & 4095;
+        p.face = -((yaw + ((diff > 2048 ? diff - 4096 : diff) >> 2)) & 4095) * TAU / 4096;
+        d.hp[s] = Math.max(2, d.hp[s]);
+        return;
+      }
+      case 'loser':
+        d.hp[s] = Math.max(2, d.hp[s]);
+        return;
+      case 'ready':
+      case 'land':
+        if (winner === undefined) return;
+        // The carrying handlers divert to script 0x12 when result flags are set.
+        if (a.state === 'ready' && holdingCrate(world, s)) {
+          d.st[s] = ST_THROW;
+          d.act[s] = ST_THROW;
+          d.stT[s] = ctActionTicks(char, ST_THROW);
+          p.vx = p.vz = 0;
+          pose(a, 'action', 0x12);
+        } else enterVerdict(p, a);
+        return;
+    }
+  }
+
+  return {
+    world,
+    actors: forSlot,
+    get winnerAt() { return winnerAt; },
+    step(): GameEvent[] {
+      world.tick++;
+      world.ev = [];
+      justThrown.clear();
+      for (const p of actors) stepActor(p, forSlot.get(p.slot)!);
+      for (const c of crates(world)) if (!justThrown.has(c.id)) stepCrate(world, d, c);
+      for (const o of world.bodies) if (o.alive && isPickup(o)) stepPickup(world, d, o, []);
+      stepPenguin(world, d, []);
+      stepShots(world, d, []);
+      world.bodies = world.bodies.filter(b => b.alive || b.kind === 'player');
+      return world.ev;
+    },
+  };
+}
+
 function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
   const slot = p.slot;
+  if (p.fall) {
+    // FUN_800882dc sets 8/112/10, then FUN_8008a854 advances the out state below the floor.
+    d.vy[slot] = Math.min(112, d.vy[slot] + 10);
+    p.y -= d.vy[slot] * U;
+    syncBody(p, d);
+    if (p.y < -SPACE_KO_DEPTH * U) {
+      d.hp[slot] = 0;
+      knockOut(w, d, p, d.lastBy[slot]);
+    }
+    return;
+  }
+  const char = d.char?.[slot] ?? 1;
+  const heavy = char >= 5;
   const slow = d.eff[slot] === EFF_SLOW;
   // effect timers run every tick
   if (d.effT[slot] > 0) {
@@ -537,8 +775,8 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
       if (d.stT[slot] <= 0) { d.st[slot] = ST_MOVE; d.act[slot] = 0; }
       break;
     case ST_THROW: {
-      const t = THROW_TICKS - d.stT[slot];
-      if (t === THROW_REL) { const c = holdingCrate(w, slot); if (c) throwCrate(w, d, p, c); }
+      const t = ctActionTicks(char, 2) - d.stT[slot];
+      if (t === ACTIONS[char - 1][3]) { const c = holdingCrate(w, slot); if (c) throwCrate(w, d, p, c); }
       if (d.stT[slot] <= 0) { d.st[slot] = ST_MOVE; d.act[slot] = 0; }
       break;
     }
@@ -550,16 +788,26 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
       if (!held && aNew && !d.air[slot]) {
         const c = findPick(w, d, p);
         if (c) pickUp(w, d, p, c);
-        else { d.st[slot] = ST_PICK; d.stT[slot] = PICK_TICKS; d.act[slot] = 1; }
+        else { d.st[slot] = ST_PICK; d.stT[slot] = ctActionTicks(char, 1); d.act[slot] = 1; }
       } else if (held && aNew) {
-        d.st[slot] = ST_THROW; d.stT[slot] = THROW_TICKS; d.act[slot] = 2;
-      } else if (bNew) {
-        if (d.weapon[slot] > 0 && d.ammo[slot] > 0 && d.wcd[slot] <= 0 && !held) fireWeapon(w, d, p);
-        else if (!held && !d.air[slot]) { d.st[slot] = ST_SPIN; d.stT[slot] = SPIN_TICKS; d.act[slot] = 3; emit(w, 'kick', p.x, p.z, slot, 1); }
+        d.st[slot] = ST_THROW; d.stT[slot] = ctActionTicks(char, 2); d.act[slot] = 2;
+      } else if (inp.b && d.ammo[slot] > 0 && !held && d.wcd[slot] <= 0) {
+        fireWeapon(w, d, p);
+      } else if (bNew && !d.ammo[slot]) {
+        if (!held && !d.air[slot] && d.wcd[slot] <= 0) { d.st[slot] = ST_SPIN; d.stT[slot] = ctActionTicks(char, 3); d.act[slot] = 3; emit(w, 'kick', p.x, p.z, slot, 1); }
       } else if (cNew && !d.air[slot]) wantJump = true;
     }
   }
   const free = d.st[slot] === ST_MOVE;
+  const taunt = (d.tauntAt ??= [-1, -1, -1, -1]);
+  if (!free || held || moving || wantJump || d.air[slot]) taunt[slot] = -1;
+  else {
+    if (taunt[slot] >= 0 && w.tick - taunt[slot] >= TAUNT_TICKS[char - 1]) taunt[slot] = -1;
+    if (inp.d && taunt[slot] < 0) {
+      taunt[slot] = w.tick;
+      emit(w, 'taunt', p.x, p.z, slot);
+    }
+  }
   // facing (8-way, re-snaps when the stick is more than 24 degrees away)
   if (free && moving && Math.abs(angDiff(d.f8[slot], sang)) > AIM) d.f8[slot] = snap8(sang);
   if (free && moving) p.face += angDiff(p.face, sang) / 4;
@@ -568,17 +816,18 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
   // ---- horizontal velocity (raw/tick) ----
   const sp = w.params.speed;
   const hasHold = !!held || d.st[slot] === ST_THROW;
+  const carrySpeed = heavy ? 40 : 30;
   if (hurt) {
     // knock-back: speed decays 4 per tick (ice: per axis)
     const k = Math.hypot(d.vx[slot], d.vz[slot]);
     if (k > 0) { const n = Math.max(0, k - 4) / k; d.vx[slot] *= n; d.vz[slot] *= n; }
   } else if (ice) {
-    const walk = (hasHold ? ICE_HOLD : ICE_WALK) + (d.eff[slot] === EFF_BOOTS ? ICE_BOOT : 0);
+    const walk = 4 * ((hasHold ? carrySpeed : WALK) + (d.eff[slot] === EFF_BOOTS ? BOOT_BONUS : 0));
     const tx = free && moving ? Math.sin(sang) * walk : 0, tz = free && moving ? Math.cos(sang) * walk : 0;
     d.vx[slot] = approach(d.vx[slot], tx, tx === 0 ? ICE_DEC : ICE_ACC);
     d.vz[slot] = approach(d.vz[slot], tz, tz === 0 ? ICE_DEC : ICE_ACC);
   } else if (free) {
-    const spd = (hasHold ? HOLD_WALK : WALK) + (d.eff[slot] === EFF_BOOTS ? BOOT_BONUS : 0);
+    const spd = (hasHold ? carrySpeed : WALK) + (d.eff[slot] === EFF_BOOTS ? BOOT_BONUS : 0);
     d.vx[slot] = moving ? Math.sin(sang) * spd : 0;
     d.vz[slot] = moving ? Math.cos(sang) * spd : 0;
   } else { d.vx[slot] = 0; d.vz[slot] = 0; }
@@ -588,20 +837,18 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
   // ---- vertical (jump physics of FUN_800860d4) ----
   const grav = w.params.gravity;
   const g = groundAt(w, d, p.x, p.z);
-  const rawY = p.y / U;
-  if (wantJump && !d.air[slot] && free) { d.air[slot] = true; d.vy[slot] = JUMP_V0; d.jh[slot] = true; emit(w, 'jump', p.x, p.z, slot, 1); }
+  const fallAccel = heavy ? 10 : 8;
+  if (wantJump && !d.air[slot] && free) { d.air[slot] = true; d.vy[slot] = heavy ? 72 : 108; d.jh[slot] = true; emit(w, 'jump', p.x, p.z, slot, 1); }
   if (d.air[slot]) {
-    if (d.vy[slot] > 0 || d.jh[slot]) {
-      if (d.jh[slot]) {
-        const dec = !inp.c && d.vy[slot] > 0x40 ? JUMP_CUT : JUMP_DEC;
-        d.vy[slot] -= dec * grav;
-        if (d.vy[slot] < 0) { d.vy[slot] = 0; d.jh[slot] = false; } else p.y += d.vy[slot] * U;
-      }
+    if (d.jh[slot]) {
+      const dec = !inp.c && d.vy[slot] > 0x40 ? JUMP_CUT : heavy ? 6 : 10;
+      d.vy[slot] -= dec * grav;
+      if (d.vy[slot] < 0) { d.vy[slot] = 0; d.jh[slot] = false; }
+      else p.y += d.vy[slot] * U;
     } else {
-      d.vy[slot] = Math.min(JUMP_FALL_MAX, d.vy[slot] + JUMP_FALL_ACC * grav);
+      d.vy[slot] = Math.min(JUMP_FALL_MAX, d.vy[slot] + fallAccel * grav);
       p.y -= d.vy[slot] * U;
     }
-    if (!d.jh[slot] && d.vy[slot] <= 0) d.vy[slot] = JUMP_FALL_ACC * grav; // start the fall
     if (!d.jh[slot] && p.y <= g) { // landed
       p.y = Math.max(0, g);
       d.air[slot] = false; d.vy[slot] = 0;
@@ -609,9 +856,8 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
       landedOn(w, d, p);
     }
   } else if (p.y > g + 1e-6) { // walked off a crate
-    d.air[slot] = true; d.jh[slot] = false; d.vy[slot] = JUMP_FALL_ACC;
+    d.air[slot] = true; d.jh[slot] = false; d.vy[slot] = 0;
   } else p.y = Math.max(0, g);
-  void rawY;
   syncBody(p, d);
 }
 
@@ -625,17 +871,22 @@ function syncBody(p: Body, d: Data) {
   p.vx = d.vx[p.slot] * 30 * U;
   p.vz = d.vz[p.slot] * 30 * U;
   p.vy = d.air[p.slot] ? (d.jh[p.slot] ? d.vy[p.slot] : -d.vy[p.slot]) * 30 * U : 0;
-  p.fall = false;
+}
+
+function bodyOverlapsHeight(d: Data, p: Body, bottom: number, top: number) {
+  const hull = CT_HULL[d.char[p.slot] - 1];
+  return bottom < p.y + hull[2] * U && p.y + hull[1] * U < top;
 }
 
 function clampPlayer(w: World, d: Data, p: Body) {
+  if (!p.alive || p.fall) return;
   const slot = p.slot;
   // crates are solid for walkers (only the moving player is pushed out)
   for (const c of crates(w)) {
     if (c.cd !== 0) continue;
     const s = d.cs[c.id];
     if (!s) continue;
-    if (p.y >= c.y + CRATE_H * U - 1e-3 || p.y + PLAYER_H * U <= c.y) continue;
+    if (!bodyOverlapsHeight(d, p, c.y, c.y + CRATE_H * U)) continue;
     const dd = dist2(p.x, p.z, c.x, c.z), m = p.r + CRATE_R * U;
     if (dd >= m) continue;
     // standing on top (falling onto it) is handled by groundAt; otherwise slide out sideways
@@ -648,12 +899,23 @@ function clampPlayer(w: World, d: Data, p: Body) {
   const lim = ARENA * U - p.r;
   p.x = Math.max(-lim, Math.min(lim, p.x));
   p.z = Math.max(-lim, Math.min(lim, p.z));
-  // space bash: no tile under you = you fall and are out
-  if (p.alive && !d.air[slot] && p.y <= 1e-6 && !floorAt(d, p.x, p.z)) {
-    emit(w, 'hole', p.x, p.z, -1, 1);
-    d.hp[slot] = 0;
-    knockOut(w, d, p, d.lastBy[slot]);
+  if (p.y > 0 || floorAt(d, p.x, p.z)) return;
+  // FUN_800882dc locks you to the tile center and releases your held crate.
+  const tile = spaceFloorIndex(p.x, p.z);
+  p.x = ((tile % CT_FLOOR_N) * 512 - 1792) * U;
+  p.z = (Math.floor(tile / CT_FLOOR_N) * 512 - 1792) * U;
+  p.fall = true;
+  d.air[slot] = true; d.jh[slot] = false;
+  d.vx[slot] = 0; d.vz[slot] = 0; d.vy[slot] = 8;
+  const held = holdingCrate(w, slot);
+  if (held) {
+    const state = csOf(d, held);
+    held.cd = 0;
+    held.dash = 1;
+    state.s = C_THROWN; state.hv = 0; state.vv = 80; state.up = false; state.t = 0;
   }
+  syncBody(p, d);
+  emit(w, 'hole', p.x, p.z, slot, 1);
 }
 
 function applyHit(w: World, d: Data, p: Body, pd: Data['pend'][number]) {
@@ -680,6 +942,10 @@ function knockOut(w: World, d: Data, p: Body, by: number) {
   d.hp[p.slot] = Math.max(0, d.hp[p.slot]);
   p.alive = false;
   d.elim[p.slot] = w.tick;
+  const humans = d.humanSlots;
+  if (humans !== undefined && !players(w).some((other) => other.alive && !other.fall && (humans & (1 << other.slot)))) {
+    d.cpuOnly = true;
+  }
   d.vx[p.slot] = d.vz[p.slot] = 0;
   d.eff[p.slot] = 0; d.effT[p.slot] = 0;
   const h = holdingCrate(w, p.slot);
@@ -736,7 +1002,7 @@ function pickUp(w: World, d: Data, p: Body, c: Body) {
   const s = csOf(d, c);
   s.s = C_HELD; s.own = p.slot; c.cd = p.slot + 1; c.dash = 0;
   p.face = Math.atan2(c.x - p.x, c.z - p.z); d.f8[p.slot] = snap8(p.face);
-  d.st[p.slot] = ST_PICK; d.stT[p.slot] = PICK_TICKS; d.act[p.slot] = 1;
+  d.st[p.slot] = ST_PICK; d.stT[p.slot] = ctActionTicks(d.char?.[p.slot] ?? 1, 1); d.act[p.slot] = 1;
   if (c.kind === 'tnt') lightTnt(w, d, c, s);
   emit(w, 'grab', c.x, c.z, p.slot, 1);
 }
@@ -745,28 +1011,43 @@ function throwCrate(w: World, d: Data, p: Body, c: Body) {
   const s = csOf(d, c);
   const f = d.f8[p.slot];
   c.cd = 0; c.dash = 1;
-  s.s = C_THROWN; s.own = p.slot; s.hv = THROW_V0; s.vv = THROW_VY0; s.up = true; s.dx = Math.sin(f); s.dz = Math.cos(f); s.t = 0;
-  c.x = p.x + s.dx * 0.3; c.z = p.z + s.dz * 0.3;
+  const [speed, , , rise] = THROWS[(d.char?.[p.slot] ?? 1) - 1];
+  s.s = C_THROWN; s.own = p.slot; s.hv = speed; s.vv = rise; s.up = rise > 0; s.dx = Math.sin(f); s.dz = Math.cos(f); s.t = 0;
+  // Release from the character's last hand pose.
+  c.face = f; s.pitch = 0;
   emit(w, 'throw', p.x, p.z, p.slot, 1);
 }
 
 /** the spin attack, each tick (FUN_80088794): a player in reach takes 1 HP and is knocked back 48/tick, crates in reach are kicked away */
 function spinHit(w: World, d: Data, p: Body) {
   const slot = p.slot;
-  p.face += TAU * 0x155 / 4096 * -1; // visual spin
+  const char = d.char?.[slot] ?? 1;
+  if (char <= 2) p.face += TAU * 0x155 / 4096;
+  const forwardAttack = char === 3 || char === 4;
+  // The pose contributes the attack cylinder, including its forward reach.
+  const frame = ctActionTicks(char, 3) - d.stT[slot] - 1;
+  const hit = attackHull(char, frame, p.face);
+  const cx = p.x + hit.x*U, cz = p.z + hit.z*U;
+  const bottom = p.y + hit.bottom*U, top = p.y + hit.top*U;
   for (const o of players(w)) {
-    if (o === p || !o.alive || Math.abs(o.y - p.y) > PLAYER_H * U) continue;
-    if (dist2(o.x, o.z, p.x, p.z) >= (SPIN_R + PLAYER_R) * U) continue;
-    if (d.inv[o.slot] > 0 || d.st[o.slot] === ST_HURT) continue;
+    if (o === p || !o.alive || !bodyOverlapsHeight(d, o, bottom, top)) continue;
+    if (dist2(o.x, o.z, cx, cz) >= hit.radius*U + o.r) continue;
     const ang = Math.atan2(o.x - p.x, o.z - p.z);
-    queueDamage(d, o.slot, SPIN_DMG, 0, slot, Math.sin(ang), Math.cos(ang), SPIN_KNOCK);
+    if (d.inv[o.slot] === 0 && d.st[o.slot] !== ST_HURT && (!forwardAttack || Math.abs(angDiff(p.face, ang)) < Math.PI / 4)) {
+      const push = forwardAttack ? p.face : ang;
+      queueDamage(d, o.slot, SPIN_DMG, 0, slot, Math.sin(push), Math.cos(push), SPIN_KNOCK);
+    }
+    break; // FUN_800864cc returns the first intersecting player.
   }
   for (const c of crates(w)) {
-    if (c.cd !== 0) continue;
+    if (c.cd !== 0 || c.y >= top || c.y + CRATE_H*U <= bottom) continue;
     const s = d.cs[c.id];
     if (!s || (s.s !== C_IDLE && s.s !== C_SLIDE)) continue;
-    if (dist2(c.x, c.z, p.x, p.z) >= (SPIN_R + CRATE_R) * U) continue;
-    kickCrate(w, d, c, s, slot, Math.atan2(c.x - p.x, c.z - p.z));
+    if (dist2(c.x, c.z, cx, cz) >= (hit.radius + 128) * U) continue;
+    const direction = Math.atan2(c.x - p.x, c.z - p.z);
+    if (char >= 3 && char <= 6 && Math.abs(angDiff(p.face, direction)) >= PICK_CONE) continue;
+    kickCrate(w, d, c, s, slot, direction);
+    break; // FUN_800c159c signals one crate.
   }
 }
 
@@ -774,13 +1055,20 @@ function spinHit(w: World, d: Data, p: Body) {
 function kickCrate(w: World, d: Data, c: Body, s: CS, by: number, ang: number) {
   if (c.kind === 'nitro') { s.own = by; destroy(w, d, c, -1); return; }
   const a = snap8(ang);
-  s.s = C_SLIDE; s.own = by; s.hv = KICK_V0; s.dx = Math.sin(a); s.dz = Math.cos(a); s.kt = 2; s.t = 0;
+  s.s = C_SLIDE; s.own = by; s.hv = longKick(d.char?.[by] ?? 1) ? 112 : 80; s.dx = Math.sin(a); s.dz = Math.cos(a); s.kt = 2; s.t = 0;
   c.dash = 2;
   if (c.kind === 'tnt') lightTnt(w, d, c, s);
   emit(w, 'beep', c.x, c.z, -1, 0.5);
 }
 
 // ---------- crates ----------
+// FUN_800bc038 moves unsupported resting and rolling crates to a vertical descent.
+function startCrateFall(c: Body, s: CS, speed: number) {
+  s.s = C_FALL;
+  s.vv = speed;
+  c.dash = 1;
+}
+
 function stepCrate(w: World, d: Data, c: Body) {
   const s = csOf(d, c);
   // lit TNT keeps burning (also in your hands); beeps every 30 ticks
@@ -791,6 +1079,14 @@ function stepCrate(w: World, d: Data, c: Body) {
     if (s.fuse <= 0) { destroy(w, d, c, -1); return; }
   }
   switch (s.s) {
+    case C_DROP: {
+      if (s.t++ === 0) return;
+      c.y -= s.vv * U;
+      const ground = groundAt(w, d, c.x, c.z, c);
+      if (c.y <= ground) { c.y = ground; impact(w, d, c, s); }
+      else if (c.y < -SPACE_OBJECT_CULL * U) { c.alive = false; delete d.cs[c.id]; }
+      return;
+    }
     case C_GROW:
       if (--s.t <= 0) s.s = C_IDLE;
       return;
@@ -800,41 +1096,66 @@ function stepCrate(w: World, d: Data, c: Body) {
     case C_HELD: {
       const p = players(w).find((q) => q.slot === c.cd - 1);
       if (!p || !p.alive) { c.cd = 0; s.s = C_IDLE; c.y = p ? p.y : 0; return; }
-      c.x = p.x; c.z = p.z; c.y = p.y + HELD_Y * U; c.face = p.face;
+      const slot = p.slot, char = d.char?.[slot] ?? 1;
+      const action = d.act[slot];
+      const script = action === 1 ? 15 : action === 2 ? 18 : Math.hypot(p.vx, p.vz) > 0.7 ? 17 : 16;
+      const track = CRATE_GRIPS[char-1][script-15];
+      let frame = action === 1 || action === 2 ? ctActionTicks(char, action) - d.stT[slot]
+        : s.gripScript === script ? (s.gripFrame ?? 0) + 1 : 0;
+      if (frame >= track.length-1) frame = track[0][0] < 0 ? track.length-2 : track[0][0];
+      s.gripScript = script; s.gripFrame = frame;
+      const [x, y, z, yaw, pitch] = track[frame+1];
+      const sin = Math.sin(p.face), cos = Math.cos(p.face);
+      c.x = p.x + (x*cos + z*sin)*U;
+      c.y = p.y + y*U;
+      c.z = p.z + (z*cos - x*sin)*U;
+      c.face = p.face + yaw * TAU / 4096;
+      s.pitch = pitch * TAU / 4096;
       return;
     }
     case C_THROWN: {
       s.t++;
-      s.hv = Math.max(0, s.hv - THROW_DEC);
+      const [, max, drag, , gravity] = THROWS[(d.char?.[s.own] ?? 1) - 1];
+      s.hv = Math.min(max, Math.max(0, s.hv - drag));
       c.x += s.dx * s.hv * U; c.z += s.dz * s.hv * U;
-      // vertical: rises with vv (decel 9) then falls (accel 9, max 80)
-      if (s.up) { s.vv -= THROW_VYDEC; if (s.vv <= 0) { s.vv = 0; s.up = false; } else c.y += s.vv * U; }
-      else { s.vv = Math.min(THROW_VYMAX, s.vv + THROW_VYACC); c.y -= s.vv * U; }
+      if (s.up) { s.vv -= gravity; if (s.vv <= 0) { s.vv = 0; s.up = false; } else c.y += s.vv * U; }
+      else { s.vv = Math.min(80, s.vv + gravity); c.y -= s.vv * U; }
       c.face += 0.25;
       const hitWall = clampCrate(c);
-      const landed = !s.up && c.y <= Math.max(0, groundAt(w, d, c.x, c.z, c));
-      if (landed) { c.y = Math.max(0, c.y); }
-      if (hitWall || landed || strike(w, d, c, s) || s.hv <= 0 && s.t > 40) impact(w, d, c, s);
+      const hole = !floorAt(d, c.x, c.z);
+      const ground = groundAt(w, d, c.x, c.z, c);
+      const landed = !s.up && !hole && c.y <= Math.max(0, ground);
+      if (landed) c.y = d.variant === 'space' ? ground : Math.max(0, c.y);
+      if (hole && c.y < -SPACE_OBJECT_CULL * U) { c.alive = false; delete d.cs[c.id]; return; }
+      if (hitWall || landed || strike(w, d, c, s) || !hole && s.hv <= 0 && s.t > 40) impact(w, d, c, s);
       return;
     }
     case C_SLIDE: {
       s.t++;
       if (s.kt > 0) s.kt--;
-      s.hv = Math.max(0, s.hv - KICK_DEC);
+      s.hv = Math.max(0, s.hv - (d.variant === 'snow' ? 2 : longKick(d.char?.[s.own] ?? 1) ? 4 : 3));
       c.x += s.dx * s.hv * U; c.z += s.dz * s.hv * U;
       c.face += 0.1;
       const hitWall = clampCrate(c);
       const hitSomething = s.kt <= 0 && strike(w, d, c, s);
       if (hitSomething) { impact(w, d, c, s); return; }
       if (hitWall) { if (c.kind === 'crate') { impact(w, d, c, s); return; } s.hv = 0; }
-      if (!floorAt(d, c.x, c.z)) { c.y -= 0.3; if (c.y < -6) { c.alive = false; delete d.cs[c.id]; } return; }
+      if (!floorAt(d, c.x, c.z)) {
+        c.x = (Math.floor(c.x / U / 256) * 256 + 128) * U;
+        c.z = -(Math.floor(-c.z / U / 256) * 256 + 128) * U;
+        startCrateFall(c, s, 0);
+        return;
+      }
       if (s.hv <= 0) { s.s = C_IDLE; c.dash = 0; }
       return;
     }
-    default: {
-      // idle: falls into holes
-      if (!floorAt(d, c.x, c.z)) { c.y -= 0.25; if (c.y < -6) { c.alive = false; delete d.cs[c.id]; } }
-    }
+    case C_FALL:
+      s.vv = Math.min(80, s.vv + 6);
+      c.y -= s.vv * U;
+      if (c.y < -SPACE_OBJECT_CULL * U) { c.alive = false; delete d.cs[c.id]; }
+      return;
+    default:
+      if (!floorAt(d, c.x, c.z)) startCrateFall(c, s, 80);
   }
 }
 
@@ -850,7 +1171,7 @@ function clampCrate(c: Body): boolean {
 function strike(w: World, d: Data, c: Body, s: CS): boolean {
   for (const p of players(w)) {
     if (!p.alive || p.slot === s.own) continue;
-    if (p.y >= c.y + CRATE_H * U || p.y + PLAYER_H * U <= c.y) continue;
+    if (!bodyOverlapsHeight(d, p, c.y, c.y + CRATE_H * U)) continue;
     if (dist2(p.x, p.z, c.x, c.z) < p.r + CRATE_R * U) return true;
   }
   for (const o of crates(w)) {
@@ -876,17 +1197,22 @@ function impact(w: World, d: Data, c: Body, s: CS) {
 
 // ---------- pickups ----------
 function stepPickup(w: World, d: Data, o: Body, live: Body[]) {
+  if (!floorAt(d, o.x, o.z)) {
+    o.vy = Math.min(80, o.vy + 6);
+    o.y -= o.vy * U;
+    if (o.y < -SPACE_OBJECT_CULL * U) o.alive = false;
+    return;
+  }
   if (o.y > 0) { // falling from the sky: accel 6 per tick up to 80 (state 4 table)
     o.vy = Math.min(80, o.vy + 6);
     o.y = Math.max(0, o.y - o.vy * U);
     if (o.y <= 0) { o.vy = 0; }
     return;
   }
-  if (!floorAt(d, o.x, o.z)) { o.alive = false; return; }
   if (--o.dash <= 0) { o.alive = false; return; }
   for (const p of live) {
     if (!p.alive || p.y > 700 * U) continue;
-    if (dist2(p.x, p.z, o.x, o.z) >= (PLAYER_R + CRATE_R) * U) continue;
+    if (dist2(p.x, p.z, o.x, o.z) >= p.r + CRATE_R * U) continue;
     collect(w, d, o, p);
     return;
   }
@@ -913,57 +1239,161 @@ function collect(w: World, d: Data, o: Body, p: Body) {
   }
 }
 
-// ---------- drain bash weapons ----------
+// ---------- Drain Bash weapons ----------
+interface DrainShot { born: number; angle: number; speed: number; fall: number; target: number }
+
+/** The five 4.12 scale triples from 0x800c3b08 (FUN_800ba780). */
+export const CT_WEAPON_BLAST = [[20480, 20480, 20480], [16384, 8192, 16384], [6144, 4096, 6144],
+  [2048, 2560, 2048], [512, 512, 512]];
+export const CT_RING_COUNT = 7;
+export const CT_RING_GAP = 5;
+export const CT_RING_TICKS = 13;
+export const ctRingScale = (age: number) => 4096 + (age + 1) * 1280;
+const nativeHeading = (a: number) => Math.round(-a * 4096 / TAU) & 4095;
+const fromHeading = (a: number) => -a * TAU / 4096;
+const shotAngleDiff = (a: number, b: number) => ((a - b + 2048) & 4095) - 2048;
+
+function newShot(w: World, d: Data, p: Body, kind: string, radius: number, angle = 0, target = -1) {
+  const b = addBody(w, kind, p.slot, p.x, p.z, radius * U, 1);
+  b.y = p.y;
+  b.face = fromHeading(angle);
+  b.cd = -1; // view age, starts with the first object update
+  (d.shots ??= {})[b.id] = { born: w.tick, angle, speed: 32, fall: 0, target };
+  return b;
+}
+
 function fireWeapon(w: World, d: Data, p: Body) {
-  const slot = p.slot, k = d.weapon[slot];
+  const slot = p.slot, weapon = d.weapon[slot];
   d.ammo[slot]--;
-  d.wcd[slot] = k === 3 ? 40 : 20;
+  d.wcd[slot] = weapon === 3 ? 40 : 20;
   if (d.ammo[slot] <= 0) d.weapon[slot] = 0;
-  const f = d.f8[slot];
-  if (k === 1) {
-    const b = addBody(w, 'orb', slot, p.x + Math.sin(f) * 1.2, p.z + Math.cos(f) * 1.2, 0.5, 1);
-    b.y = 1.2; b.vx = Math.sin(f) * 9; b.vz = Math.cos(f) * 9; b.cd = 4;
-  } else if (k === 2) {
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * TAU + f;
-      const b = addBody(w, 'rocket', slot, p.x + Math.sin(a) * 1.0, p.z + Math.cos(a) * 1.0, 0.4, 1);
-      b.y = 1.0; b.vx = Math.sin(a) * 12; b.vz = Math.cos(a) * 12; b.cd = 1.1; b.face = a;
+  const face = nativeHeading(d.f8[slot]);
+  if (weapon === 1) {
+    // FUN_800b9dd8 chooses the smallest deviation from the launch heading once.
+    let target = -1, best = 2048;
+    for (const rival of players(w)) {
+      if (rival.slot === slot) continue;
+      const aim = nativeHeading(Math.atan2(rival.x - p.x, rival.z - p.z));
+      const off = Math.abs(shotAngleDiff(face, aim));
+      if (off < best) { best = off; target = rival.slot; }
     }
-  } else {
-    for (const o of players(w)) {
-      if (o === p || !o.alive) continue;
-      const dd = dist2(o.x, o.z, p.x, p.z);
-      if (dd > 5.5) continue;
-      queueDamage(d, o.slot, 5, 2, slot, (o.x - p.x) / (dd || 1), (o.z - p.z) / (dd || 1), 40);
-    }
+    newShot(w, d, p, 'orb', 128, face, target).y += 384 * U;
+  } else if (weapon === 2) {
+    for (let i = 0; i < 8; i++) newShot(w, d, p, 'rocket', 32, (face + i * 512) & 4095).y += 224 * U;
+  } else newShot(w, d, p, 'ring', 0);
+  emit(w, 'weapon', p.x, p.z, slot, weapon);
+}
+
+/** FUN_800b97a8 probes the hulls. A touched crate is kicked and takes precedence over the player contact. */
+function weaponContact(w: World, d: Data, live: Body[], shot: Body, radius: number): Body | undefined {
+  let hit: Body | undefined;
+  for (const p of live) {
+    if (!p.alive || p.slot === shot.slot || !bodyOverlapsHeight(d, p, shot.y - radius, shot.y + radius)) continue;
+    if (dist2(p.x, p.z, shot.x, shot.z) < p.r + radius) hit = p;
   }
-  emit(w, 'weapon', p.x, p.z, slot, k);
+  for (const c of crates(w)) {
+    const crate = d.cs[c.id];
+    if (!crate || c.cd || crate.s !== C_IDLE || shot.y - radius >= c.y + CRATE_H * U || shot.y + radius <= c.y) continue;
+    if (dist2(c.x, c.z, shot.x, shot.z) >= c.r + radius) continue;
+    const owner = live.find((p) => p.slot === shot.slot);
+    const a = owner ? Math.atan2(c.x - owner.x, c.z - owner.z) : shot.face;
+    kickCrate(w, d, c, crate, shot.slot, a);
+    hit = undefined;
+  }
+  return hit;
+}
+
+function weaponBlast(w: World, d: Data, b: Body, floor: boolean) {
+  const flash = newShot(w, d, b, 'weaponBlast', BLAST_R);
+  flash.y = (floor ? 0 : b.y) + 128 * U;
+  const audible = b.kind === 'orb' || rand(w) < 0.25;
+  emit(w, 'weaponBlast', b.x, b.z, b.slot, 1, audible ? Math.floor(rand(w) * 4) : -1);
+  b.alive = false;
+}
+
+function damageWeaponBlast(d: Data, live: Body[], blast: Body) {
+  for (const p of live) {
+    if (!p.alive || p.slot === blast.slot) continue;
+    const distance = Math.floor(dist2(p.x, p.z, blast.x, blast.z) / U);
+    if (distance >= BLAST_R) continue;
+    const angle = distance < 128 ? d.f8[p.slot] : Math.atan2(p.x - blast.x, p.z - blast.z);
+    queueDamage(d, p.slot, DMG_BIG, 2, blast.slot, Math.sin(angle), Math.cos(angle), (BLAST_R - distance) >> 3);
+  }
+}
+
+function moveWeaponShot(b: Body, s: DrainShot) {
+  s.speed = Math.min(160, s.speed + 8);
+  const heading = fromHeading(s.angle);
+  const dx = -((s.speed * Math.round(-Math.sin(heading) * 4096)) >> 12);
+  const dz = (s.speed * Math.round(Math.cos(heading) * 4096)) >> 12;
+  b.x += dx * U;
+  b.z += dz * U;
+  b.vx = dx * U * 30;
+  b.vz = dz * U * 30;
+  b.face = heading;
+}
+
+/** FUN_800ba488 updates the pulse visuals, then checks the combined radius once at the previous origin. */
+function stepWeaponRing(w: World, d: Data, live: Body[], b: Body) {
+  const age = b.cd;
+  let scale = 0;
+  for (let i = 0; i < CT_RING_COUNT; i++) {
+    const pulse = age - i * CT_RING_GAP;
+    if (pulse >= 0 && pulse < CT_RING_TICKS) scale = Math.max(scale, ctRingScale(pulse));
+  }
+  const probe = { ...b, y: b.y + 256 * U };
+  const victim = weaponContact(w, d, live, probe, (64 + (scale >> 5)) * U);
+  if (victim && d.inv[victim.slot] === 0 && d.st[victim.slot] !== ST_HURT) {
+    const a = Math.atan2(victim.x - b.x, victim.z - b.z);
+    queueDamage(d, victim.slot, 8, 0, b.slot, Math.sin(a), Math.cos(a), 48);
+    emit(w, 'weaponHit', victim.x, victim.z, victim.slot, 3, b.slot);
+  }
+  const owner = live.find((p) => p.slot === b.slot);
+  if (owner) { b.x = owner.x; b.y = owner.y; b.z = owner.z; }
+  if (scale === 0) b.alive = false;
 }
 
 function stepShots(w: World, d: Data, live: Body[]) {
-  const dt = 1 / 30;
-  for (const b of w.bodies) {
-    if (!b.alive || (b.kind !== 'orb' && b.kind !== 'rocket')) continue;
-    b.cd -= dt;
-    if (b.kind === 'orb') {
-      let tgt: Body | null = null, td = Infinity;
-      for (const o of live) { if (!o.alive || o.slot === b.slot) continue; const dd = dist2(o.x, o.z, b.x, b.z); if (dd < td) { td = dd; tgt = o; } }
-      if (tgt) {
-        const want = Math.atan2(tgt.x - b.x, tgt.z - b.z), cur = Math.atan2(b.vx, b.vz);
-        const na = cur + Math.max(-4 * dt, Math.min(4 * dt, angDiff(cur, want)));
-        b.vx = Math.sin(na) * 9; b.vz = Math.cos(na) * 9;
+  if (!d.shots) return;
+  for (const b of w.bodies.slice()) {
+    const shot = d.shots[b.id];
+    if (!shot || !b.alive || shot.born === w.tick) continue;
+    b.cd++;
+    switch (b.kind) {
+      case 'weaponBlast':
+        if (b.cd >= CT_WEAPON_BLAST.length) b.alive = false;
+        else if (b.cd === 1) damageWeaponBlast(d, live, b);
+        break;
+      case 'ring':
+        stepWeaponRing(w, d, live, b);
+        break;
+      case 'rocket': {
+        moveWeaponShot(b, shot);
+        shot.fall = Math.min(128, shot.fall + 1);
+        b.y -= shot.fall * U;
+        b.vy = -shot.fall * U * 30;
+        if (b.y <= 0) weaponBlast(w, d, b, true);
+        const hit = weaponContact(w, d, live, b, b.r);
+        if (hit) weaponBlast(w, d, b, true);
+        break;
+      }
+      case 'orb': {
+        const target = w.bodies.find((p) => p.kind === 'player' && p.slot === shot.target);
+        if (target) {
+          const aim = nativeHeading(Math.atan2(target.x - b.x, target.z - b.z));
+          const diff = shotAngleDiff(shot.angle, aim);
+          shot.angle = (shot.angle + (Math.abs(diff) < 64 ? diff < 0 ? 64 : -64 : -(diff >> 3))) & 4095;
+          if (dist2(target.x, target.z, b.x, b.z) < 512 * U) b.y += ((Math.round((target.y - b.y) / U) + 160) >> 2) * U;
+        }
+        moveWeaponShot(b, shot);
+        if (b.y <= 0 || b.cd === 100) weaponBlast(w, d, b, true);
+        const hit = weaponContact(w, d, live, b, b.r);
+        if (hit) weaponBlast(w, d, b, false);
+        if (Math.max(Math.abs(b.x), Math.abs(b.z)) > 4096 * U) b.alive = false;
+        break;
       }
     }
-    b.x += b.vx * dt; b.z += b.vz * dt;
-    if (b.cd <= 0 || Math.abs(b.x) > CT_HALF || Math.abs(b.z) > CT_HALF) { b.alive = false; continue; }
-    for (const p of live) {
-      if (!p.alive || p.slot === b.slot || dist2(p.x, p.z, b.x, b.z) > p.r + b.r) continue;
-      const sp = Math.hypot(b.vx, b.vz) || 1;
-      queueDamage(d, p.slot, b.kind === 'orb' ? 3 : 2, 2, b.slot, b.vx / sp, b.vz / sp, 30);
-      b.alive = false;
-      emit(w, 'weaponHit', b.x, b.z, p.slot, 1);
-      break;
-    }
+    if (!b.alive) delete d.shots[b.id];
   }
 }
 
@@ -994,84 +1424,328 @@ function stepPenguin(w: World, d: Data, live: Body[]) {
   if (d.penguin <= 0) { g.x = 0; g.z = 0; }
 }
 
-// ---------- AI ----------
-function botInput(w: World, slot: number): InputState {
-  const d = D(w);
-  const me = w.bodies.find((b) => b.kind === 'player' && b.slot === slot && b.alive);
-  if (!me) return IDLE;
-  if (d.st[slot] === ST_HURT || d.st[slot] === ST_THROW || d.st[slot] === ST_PICK) return IDLE;
-  const held = holdingCrate(w, slot);
-  const foes = players(w).filter((o) => o.alive && o.slot !== slot);
-  let foe: Body | null = null, fd = Infinity;
-  for (const o of foes) { const dd = dist2(o.x, o.z, me.x, me.z); if (dd < fd) { fd = dd; foe = o; } }
-  const dir = (tx: number, tz: number): [number, number] => { const l = Math.hypot(tx - me.x, tz - me.z) || 1; return [(tx - me.x) / l, (tz - me.z) / l]; };
-  const away = (tx: number, tz: number): [number, number] => { const [a, b] = dir(tx, tz); return [-a, -b]; };
-  // run from anything about to blow
-  let fx = 0, fz = 0, danger = false;
-  for (const c of crates(w)) {
-    if (c === held) continue;
-    const s = d.cs[c.id];
-    const hot = (c.kind === 'tnt' && c.fall && s && s.fuse < 60) || (s && (s.s === C_DELAY || s.s === C_THROWN || s.s === C_SLIDE));
-    if (!hot && c.kind !== 'nitro') continue;
-    const dd = dist2(c.x, c.z, me.x, me.z);
-    if (dd < (hot ? 3.4 : 1.4)) { const [a, b] = away(c.x, c.z); fx += a; fz += b; danger = true; }
+// ---------- AI (FUN_800b4ab0) ----------
+type CrushRoute = 'object' | 'opponent' | 'station' | 'retreat';
+
+interface CrushBot {
+  skill: number;
+  target: number;
+  resumeFrom?: CrushRoute;
+  throwAt: number;
+  retreatUntil: number;
+  retreatAngle: number;
+  jumpUntil: number;
+  tauntAt: number;
+  taunting?: boolean;
+}
+
+interface CrushPlan { state: CrushBot; input: InputState }
+
+/** Party difficulty rows at 0x800c302c / 30a0 / 3114 / 3188. */
+const CRUSH_SKILLS: Record<string, number[]> = {
+  jungle: [1, 16, 32], space: [1, 16, 32], snow: [1, 16, 32], drain: [1, 16, 28],
+};
+const STANDOFF = [0x500, 0x400, 0x400, 0x600]; // 0x800c39f0, by slot
+const FRUIT_INTEREST = [100, 20, 15, 10, 8, 5, 4, 3, 3, 2, 2, 1, 1, 1, 0, 0, -1, -2, -4, -8, -10]; // 0x800c3ac4
+const ROAM_CHANCE: Record<string, number> = { jungle: 6, space: 3, snow: 4, drain: 8 };
+const ROAM_VALUE: Record<string, number> = { jungle: 0x4000, space: 0x2000, snow: 0x3000, drain: 0x4000 };
+/** Edge stations from 0x800c3a58, with the PS1 Z axis converted to the web arena. */
+const EDGE_STATIONS = [[0, 0], [-1920, 1920], [0, 1920], [1920, 1920], [-1920, 0], [1920, 0],
+  [-1920, -1920], [0, -1920], [1920, -1920]];
+const STATION_CLEARANCE_SQ = 0x7fffff;
+
+function newCrushBot(variant: string, level = 2): CrushBot {
+  const skills = CRUSH_SKILLS[variant] ?? CRUSH_SKILLS.jungle;
+  return { skill: skills[level] ?? skills[2], target: 0, throwAt: -1, retreatUntil: 0, retreatAngle: 0, jumpUntil: 0, tauntAt: 0 };
+}
+
+/** A deterministic stand-in for the original AI's random draws. Asking for input never advances world RNG. */
+function crushDraw(w: World, slot: number, salt: number, limit: number): number {
+  const h = Math.imul(w.tick + 1, 0x9e3779b1) ^ Math.imul(slot + 1, 0x85ebca6b) ^ Math.imul(salt + 1, 0xc2b2ae35) ^ w.rng;
+  return ((Math.imul(h ^ h >>> 16, 0x7feb352d) ^ h >>> 15) >>> 0) % limit;
+}
+
+function crushContestants(ps: Body[]): Body[] {
+  return ps.filter((p) => p.alive && !p.fall).sort((a, b) => a.slot - b.slot);
+}
+
+/** FUN_80084788 arms the override after an elimination leaves only CPUs in play. */
+function crushFocus(w: World, d: Data, live: Body[]): number | undefined {
+  if (!d.cpuOnly || !live.length) return undefined;
+  return d.cpuFocus ?? live[crushDraw(w, 4, 6, live.length)].slot;
+}
+
+const rawDistanceSq = (a: Pick<Body, 'x' | 'z'>, b: Body) => ((a.x - b.x) / U) ** 2 + ((a.z - b.z) / U) ** 2;
+const rawDistance = (a: Body, b: Body) => Math.round(Math.hypot(a.x - b.x, a.z - b.z) / U);
+const headingTo = (a: Body, b: Pick<Body, 'x' | 'z'>) => Math.atan2(b.x - a.x, b.z - a.z);
+const nearAngle = (a: number, b: number, t: number) => Math.abs(angDiff(a, b)) < t;
+
+function crateBotTarget(d: Data, obj: Body): boolean {
+  if (!obj.alive || !floorAt(d, obj.x, obj.z)) return false;
+  if (isCrate(obj)) return obj.y <= 0.01 && obj.kind !== 'nitro' && obj.cd === 0 && d.cs[obj.id]?.s === C_IDLE && !obj.fall;
+  return isPickup(obj) && obj.kind !== 'weight' && obj.kind !== 'potion';
+}
+
+/** FUN_800b62ec scans native station IDs 7–15, including the center at ID 7. */
+function crushStation(w: World, slot: number): number {
+  const others = players(w).filter((p) => p.slot !== slot);
+  // A station inside any other slot's clearance radius falls back to the current best score.
+  // The score can only rise from zero to 0x7fffff, so the first qualifying station wins.
+  const station = EDGE_STATIONS.findIndex(([x, z]) =>
+    others.every((p) => rawDistanceSq({ x: x * U, z: z * U }, p) >= STATION_CLEARANCE_SQ));
+  return station < 0 ? 0 : -station - 1;
+}
+
+/** Undefined means the search failed. Zero is a successful roaming branch with no qualifying station. */
+function chooseCrushTarget(w: World, d: Data, me: Body, foes: Body[], nearest: number, skill: number,
+  resumeFrom?: CrushRoute): number | undefined {
+  const slot = me.slot;
+  const bias = crushDraw(w, slot, 0, 0x1000);
+  const armed = d.ammo[slot] > 0;
+  const ring = armed && d.weapon[slot] === 3;
+  const weight = d.eff[slot] === EFF_WEIGHT;
+  const close = weight ? 512 : armed ? (ring ? 10 : 0) : nearest < 0x300 ? 0 : 8;
+  const far = weight ? 0 : armed ? (ring ? 0 : 10) : nearest < 0x300 ? 8 : 0;
+  const hp = Math.max(0, Math.min(CT_HP, Math.floor(d.hp[slot])));
+  const fruit = weight ? 0 : FRUIT_INTEREST[hp] + (16 - skill) * 4;
+  let objectScore = 0, objectTarget = 0;
+  for (const obj of w.bodies) {
+    if (!crateBotTarget(d, obj)) continue;
+    const dist = rawDistance(me, obj);
+    let value = 0;
+    if (obj.kind === 'crate' || obj.kind === 'tnt') value = (0x1000 - Math.abs(dist - bias)) * (weight ? 8 : 40);
+    else if (obj.kind === 'chest') value = Math.abs(dist - bias) * 400 / (armed || d.eff[slot] ? 256 : 1);
+    else if (obj.kind === 'fruit') value = Math.max(0, 0xe00 - dist) * (close + fruit);
+    else if (!weight) value = Math.abs(dist - bias) * 250;
+    if (value > objectScore) { objectScore = value; objectTarget = obj.id; }
   }
-  const png = w.bodies.find((b) => b.kind === 'penguin');
-  if (png && dist2(png.x, png.z, me.x, me.z) < (d.penguin > 0 ? 4.5 : 2.2)) { const [a, b] = away(png.x, png.z); fx += a * 1.5; fz += b * 1.5; danger = true; }
-  const safe = (ax: number, az: number): [number, number] => {
-    if (!d.floor.length) return [ax, az];
-    const l = Math.hypot(ax, az) || 1;
-    for (const rot of [0, 0.9, -0.9, 1.8, -1.8]) {
-      const c = Math.cos(rot), s = Math.sin(rot);
-      const rx = (ax * c - az * s) / l, rz = (ax * s + az * c) / l;
-      if (floorAt(d, me.x + rx * 1.6, me.z + rz * 1.6) && floorAt(d, me.x + rx * 0.8, me.z + rz * 0.8)) return [rx, rz];
+  let opponentScore = 0, opponentTarget = 0;
+  let interest = weight ? 512 : (skill - 16) * 2 | 1;
+  for (const foe of foes) {
+    const cargo = holdingCrate(w, foe.slot);
+    if (!weight) {
+      if (!cargo) interest = 0;
+      else if (d.variant === 'space') interest += cargo.fall ? 1 : 5;
+      else interest += cargo.fall ? 8 : 16;
     }
-    return [0, 0];
+    if (d.air[foe.slot]) interest += 32;
+    const dist = rawDistance(me, foe);
+    const effect = armed || weight ? 160 : 0;
+    const value = Math.max(Math.max(0, 0x800 - dist) * (close + interest + effect), dist * (far - interest - effect));
+    if (value > opponentScore) { opponentScore = value; opponentTarget = foe.id; }
+  }
+  const roam = resumeFrom !== 'station' && crushDraw(w, slot, 1, ROAM_CHANCE[d.variant]) === 0
+    ? (0x180 - (16 - skill) * 0x10) * fruit + ROAM_VALUE[d.variant] : 0;
+  // FUN_800b6138 saves the interrupted route category at +0x22. The scorer zeros that category.
+  if (resumeFrom === 'object') objectScore = 0;
+  if (resumeFrom === 'opponent') opponentScore = 0;
+  if (roam > objectScore && roam > opponentScore) return crushStation(w, slot);
+  if (objectScore > opponentScore) return objectTarget;
+  return opponentScore >= 0x15 ? opponentTarget : undefined;
+}
+
+/** FUN_800b6da4 weights the focus slot 48 and the other slots 16. */
+function carryCrushTarget(w: World, d: Data, slot: number, foes: Body[], focus?: number, penguin?: Body): number {
+  if (penguin && d.penguin <= 0 && crushDraw(w, slot, 2, 10) === 0) return penguin.id;
+  if (!foes.length) return 0;
+  const weight = (foe: Body) => foe.slot === focus ? 48 : 16;
+  let draw = crushDraw(w, slot, 3, foes.reduce((total, foe) => total + weight(foe), 0));
+  for (const foe of foes) {
+    draw -= weight(foe);
+    if (draw < 0) return foe.id;
+  }
+  return 0;
+}
+
+function botFloor(d: Data, x: number, z: number): boolean {
+  return Math.abs(x) < CT_HALF && Math.abs(z) < CT_HALF && floorAt(d, x, z);
+}
+
+function evadeCrushHeading(d: Data, me: Body, angle: number): number {
+  for (const turn of [0, 1, -1, 2, -2, 3, -3, 4]) {
+    const heading = snap8(angle) + turn * TAU / 8;
+    if (botFloor(d, me.x + Math.sin(heading) * 180 * U, me.z + Math.cos(heading) * 180 * U)) return heading;
+  }
+  return angle;
+}
+
+/** FUN_800b5e28 / 800b6138: parallel cell probes 120 units either side of the current heading. */
+function crushDanger(d: Data, me: Body, heading: number, hazards: Body[]) {
+  const x = Math.sin(heading), z = Math.cos(heading);
+  return [352, 608, 864].map((run) => [-120, 120].some((side) => {
+    const px = me.x + (run * x + side * z) * U, pz = me.z + (run * z - side * x) * U;
+    if (!botFloor(d, px, pz)) return true;
+    const col = Math.floor(px / U / 256), row = Math.floor(pz / U / 256);
+    return hazards.some((obj) => Math.floor(obj.x / U / 256) === col && Math.floor(obj.z / U / 256) === row);
+  }));
+}
+
+const crushRouteBlocked = ([near, mid, far]: boolean[]) => near && (mid || far);
+
+function planCrushBot(w: World, slot: number, contestants: Body[], focus: number | undefined): CrushPlan {
+  const d = D(w), now = w.tick;
+  const state = { ...(d.cpu?.[slot] ?? newCrushBot(d.variant)) };
+  const me = contestants.find((b) => b.slot === slot);
+  const result = (input: InputState = IDLE): CrushPlan => ({ input, state });
+  if (!me) return result();
+  if (d.st[slot] !== ST_MOVE) {
+    if (d.st[slot] === ST_HURT) {
+      state.target = 0;
+      delete state.taunting;
+      state.throwAt = -1;
+      state.retreatUntil = now + 20;
+      state.retreatAngle = d.f8[slot] + Math.PI;
+    }
+    return result();
+  }
+  const foes = contestants.filter((p) => p.slot !== slot);
+  if (!foes.length) return result();
+  const skill = focus === undefined ? state.skill : focus === slot ? 8 : 26;
+  const face = d.f8[slot], held = holdingCrate(w, slot), weight = d.eff[slot] === EFF_WEIGHT;
+  const nearest = Math.min(...foes.map((foe) => rawDistance(me, foe)));
+  const penguin = w.bodies.find((b) => b.kind === 'penguin' && b.alive);
+  const dangerFoe = foes.find((foe) => d.eff[foe.slot] === EFF_WEIGHT && rawDistance(me, foe) < 1024)
+    ?? (penguin && d.penguin > 0 && rawDistance(me, penguin) < 1536 ? penguin : undefined);
+  const hazards = w.bodies.filter((obj) => obj.alive && obj !== held && obj.y < CRATE_H * U
+    && (obj.kind === 'nitro' || (obj.kind === 'tnt' && obj.fall) || d.cs[obj.id]?.s === C_DELAY
+      || obj.kind === 'weight' || obj.kind === 'potion'));
+  const steer = (angle: number, buttons: Partial<InputState> = {}) => {
+    const heading = snap8(angle);
+    return result({ x: Math.sin(heading), y: Math.cos(heading), a: false, b: false, ...buttons });
   };
-  if (danger) { const [a, b] = safe(fx, fz); return { x: a, y: b, a: false, b: false }; }
-  const tick2 = w.tick % 4 === 0;
-  if (d.eff[slot] === EFF_WEIGHT && foe) { const [a, b] = dir(foe.x, foe.z); return { x: a, y: b, a: false, b: false }; }
-  if (!held && d.weapon[slot] > 0 && d.ammo[slot] > 0 && foe && fd < 8) {
-    const [a, b] = safe(...dir(foe.x, foe.z));
-    return { x: a, y: b, a: false, b: tick2 && Math.abs(angDiff(d.f8[slot], Math.atan2(foe.x - me.x, foe.z - me.z))) < 0.5 };
+  const byId = (id: number) => w.bodies.find((b) => b.id === id && b.alive && !b.fall);
+  const canFire = () => !d.air[slot] && !d.prevB[slot] && d.wcd[slot] <= 1 && d.ammo[slot] > 0 && foes.some(
+    (foe) => d.weapon[slot] === 3 ? rawDistanceSq(me, foe) < 0x51000 : nearAngle(face, headingTo(me, foe), 0x155 * TAU / 4096));
+  const startRetreat = (route: CrushRoute) => {
+    state.resumeFrom = route;
+    state.retreatUntil = now + 30;
+    state.target = 0;
+    state.retreatAngle = me.face + Math.PI - 0x31c * TAU / 4096;
+  };
+
+  if (now < state.jumpUntil) {
+    if (d.air[slot]) return steer(state.retreatAngle, { c: !!d.jh[slot] });
+    state.jumpUntil = 0;
   }
-  if (!held) {
-    // pickups worth walking to
-    let pick: Body | null = null, pdist = Infinity;
-    for (const o of w.bodies) {
-      if (!o.alive || !(isPickup(o) || o.kind === 'chest') || o.y > 0) continue;
-      if (o.kind === 'weight' || o.kind === 'potion' || o.kind === 'chest') continue;
-      const want = o.kind === 'fruit' ? d.hp[slot] <= CT_HP - 1 : o.kind === 'boots' ? d.eff[slot] === 0 : o.kind === 'mask' ? d.eff[slot] === 0 : d.weapon[slot] === 0;
-      const dd = dist2(o.x, o.z, me.x, me.z);
-      if (want && dd < pdist && dd < 9) { pdist = dd; pick = o; }
-    }
-    if (pick) { const [a, b] = safe(...dir(pick.x, pick.z)); return { x: a, y: b, a: false, b: false }; }
-    // spin-kick a rival that is right next to us
-    if (foe && fd < (SPIN_R + PLAYER_R) * U * 0.9 && d.inv[foe.slot] === 0 && tick2) return { x: 0, y: 0, a: false, b: true };
-    let best: Body | null = null, bd = Infinity;
-    for (const c of crates(w)) {
-      if (c.cd !== 0 || c.kind === 'nitro' || c.kind === 'chest' && d.variant !== 'drain') continue;
-      const s = d.cs[c.id];
-      if (!s || s.s !== C_IDLE || c.y > 0.01 || !floorAt(d, c.x, c.z)) continue;
-      if (c.kind === 'tnt' && c.fall) continue;
-      const dd = dist2(c.x, c.z, me.x, me.z);
-      if (dd < bd) { bd = dd; best = c; }
-    }
-    if (!best) { if (!foe) return IDLE; const [a, b] = safe(-me.x * 0.1, -me.z * 0.1); return { x: a, y: b, a: false, b: false }; }
-    // walk so that the crate ends up 256 raw in front of us
-    const f = d.f8[slot], cx = me.x + Math.sin(f) * PICK_REACH * U, cz = me.z + Math.cos(f) * PICK_REACH * U;
-    const near = dist2(best.x, best.z, cx, cz) < PICK_REACH * U * 0.7 && Math.abs(angDiff(f, Math.atan2(best.x - me.x, best.z - me.z))) < PICK_CONE * 0.7;
-    if (near && tick2) return { x: 0, y: 0, a: true, b: false };
-    const [a, b] = safe(...dir(best.x, best.z));
-    return { x: a, y: b, a: false, b: false };
+
+  // Like the native controller, steer away from a rolling penguin or an opponent with the weight.
+  if (dangerFoe) return steer(evadeCrushHeading(d, me, headingTo(me, dangerFoe) + Math.PI));
+  if (now < state.retreatUntil) {
+    if (state.resumeFrom && crushRouteBlocked(crushDanger(d, me, me.face, hazards))) startRetreat('retreat');
+    return steer(evadeCrushHeading(d, me, state.retreatAngle));
   }
-  if (!foe) return IDLE;
-  const dx = foe.x - me.x, dz = foe.z - me.z;
-  const ang = Math.atan2(dx, dz);
-  const aligned = Math.abs(angDiff(d.f8[slot], ang)) < 0.4;
-  const burning = held.kind === 'tnt' && held.fall && (d.cs[held.id]?.fuse ?? 90) < 40;
-  const fire = (aligned && fd < 4.2 && fd > 1.4 || burning) && tick2;
-  const k = fd > 3.2 ? 1 : 0.3;
-  const [a, b] = safe(dx / fd * k, dz / fd * k);
-  return { x: a, y: b, a: fire, b: false };
+  if (now === state.retreatUntil && state.resumeFrom) return result();
+
+  const taunt = () => {
+    const target = carryCrushTarget(w, d, slot, foes, focus, penguin);
+    if (!target) return result();
+    state.tauntAt = now + 300;
+    state.taunting = true;
+    state.target = target;
+    return result({ ...IDLE, d: true });
+  };
+  // The Triangle branch is available at long range, then waits four ticks before reassessing.
+  if (state.taunting) {
+    if (now < state.tauntAt - 296) return result();
+    const target = byId(state.target);
+    if ((d.tauntAt?.[slot] ?? -1) >= 0 && target) {
+      if (foes.some((foe) => !((d.humanSlots ?? 0) & (1 << foe.slot))
+        && d.cpu?.[foe.slot]?.target === me.id && rawDistanceSq(me, foe) < 0x240000)) {
+        state.target = 0;
+        delete state.taunting;
+      }
+      return steer(headingTo(me, target));
+    }
+    state.target = 0;
+    delete state.taunting;
+    return result();
+  }
+  if (!held && !weight && !d.air[slot] && now >= state.tauntAt && state.target === 0
+    && nearest > skill * 32 + 0x400) {
+    return taunt();
+  }
+
+  let target = byId(state.target);
+  if (held) {
+    if (target?.kind !== 'player' && !(target && target === penguin && d.penguin <= 0)) {
+      state.target = carryCrushTarget(w, d, slot, foes, focus, penguin);
+      state.throwAt = -1;
+      target = byId(state.target);
+    }
+  } else {
+    state.throwAt = -1;
+    if ((!target && state.target > 0) || (target && target.kind !== 'player' && !crateBotTarget(d, target))) state.target = 0;
+    if (state.target === 0) {
+      const next = chooseCrushTarget(w, d, me, foes, nearest, skill, state.resumeFrom);
+      if (next !== undefined) { state.target = next; delete state.resumeFrom; }
+      return result(canFire() ? { ...IDLE, b: true } : IDLE);
+    }
+  }
+
+  const station = state.target < 0 ? EDGE_STATIONS[-state.target - 1] : undefined;
+  const at = target ?? (station ? { x: station[0] * U, z: station[1] * U } : undefined);
+  if (!at) return result();
+  const angle = headingTo(me, at);
+  const danger = crushDanger(d, me, me.face, hazards);
+  const closeFoe = foes.find((foe) => rawDistance(me, foe) < SPIN_R + PLAYER_R
+    && Math.abs(me.y - foe.y) < PLAYER_H * U);
+
+  if (held && target) {
+    const dist = rawDistance(me, target);
+    const range = STANDOFF[slot] + (16 - skill) * 32;
+    const panic = held.kind === 'tnt' && held.fall && (d.cs[held.id]?.fuse ?? FUSE) < crushDraw(w, slot, 4, 4);
+    const obstruction = crates(w).some((obj) => obj !== held && obj.cd === 0 && d.cs[obj.id]?.s === C_IDLE
+      && Math.hypot(obj.x - me.x - Math.sin(face) * 256 * U, obj.z - me.z - Math.cos(face) * 256 * U) < 256 * U);
+    const atEdge = Math.max(Math.abs(me.x), Math.abs(me.z)) >= Math.min(0x780 * U, CT_HALF - me.r - 4 * U);
+    if (state.throwAt < 0 && (closeFoe || danger[0] || obstruction || panic || atEdge && dist <= range
+      || (dist > range && dist < range + 256))) state.throwAt = now + 5;
+    if (state.throwAt >= 0) {
+      if (now >= state.throwAt && nearAngle(face, angle, 0x155 * TAU / 4096) && !d.prevA[slot]) {
+        state.target = 0;
+        state.throwAt = -1;
+        return result({ ...IDLE, a: true });
+      }
+      return steer(angle);
+    }
+    if (dist <= range) {
+      state.retreatUntil = now + 10;
+      state.retreatAngle = angle + Math.PI;
+      return steer(evadeCrushHeading(d, me, state.retreatAngle));
+    }
+    return steer(angle);
+  }
+
+  if (crushRouteBlocked(danger)) {
+    startRetreat(station ? 'station' : target?.kind === 'player' ? 'opponent' : 'object');
+    return steer(angle);
+  }
+  if (station && rawDistanceSq(at, me) < 0x4000) return taunt();
+
+  if (canFire()) return result({ ...IDLE, b: true });
+
+  if (!d.air[slot] && !d.prevB[slot] && closeFoe && !weight && d.inv[closeFoe.slot] === 0 && d.st[closeFoe.slot] !== ST_HURT) {
+    const char = d.char[slot] ?? 1;
+    const inRange = (char !== 3 && char !== 4) || nearAngle(face, headingTo(me, closeFoe), Math.PI / 4);
+    if (inRange && (station || target === closeFoe || crushDraw(w, slot, 5, 3) === 0)) {
+      state.target = 0;
+      return result({ ...IDLE, b: true });
+    }
+  }
+
+  if (!d.air[slot] && !d.prevA[slot] && target && isCrate(target) && findPick(w, d, me) === target) {
+    state.target = 0;
+    return result({ ...IDLE, a: true });
+  }
+
+  if (danger[0] && !d.air[slot] && !d.prevC?.[slot]) {
+    state.jumpUntil = now + 18;
+    state.retreatAngle = angle;
+    return steer(angle, { c: true });
+  }
+  return steer(angle);
+}
+
+function botInput(w: World, slot: number): InputState {
+  const contestants = crushContestants(players(w));
+  return planCrushBot(w, slot, contestants, crushFocus(w, D(w), contestants)).input;
 }

@@ -1,5 +1,5 @@
 // Copies game assets into the static build: catalog, arenas.json, all models, textures (HD remaster
-// from assets/hd/ preferred at the same path; UVs are normalised so size doesn't matter) and audio.
+// from assets/hd/ when HD_TEXTURES=1) and audio.
 // Portraits are only copied when a catalog character references them.
 //   node scripts/copy-assets.mjs <assetsDir> <outDir>
 import fs from 'node:fs';
@@ -16,7 +16,7 @@ const cp = (rel) => {
 for (const f of ['catalog.json', 'arenas.json', 'stages', 'models', 'textures', 'audio', 'ui', 'hud']) cp(f);
 let hd = 0;
 const hdDir = path.join(src, 'hd');
-if (fs.existsSync(hdDir)) {
+if (process.env.HD_TEXTURES === '1' && fs.existsSync(hdDir)) {
   for (const set of fs.readdirSync(hdDir)) {
     for (const f of fs.readdirSync(path.join(hdDir, set))) {
       if (!f.endsWith('.png')) continue;

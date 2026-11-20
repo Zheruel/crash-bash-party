@@ -3,6 +3,7 @@ import type { Body, GameEvent, World } from '../../shared/types';
 import type { Look } from '../../shared/look';
 import type { AssetRequest, AssetSource } from '../assets';
 import type { HudSprite } from '../ui/ps1hud';
+import type { CrashballFlash } from '../../shared/games/ballDefence';
 
 export interface RenderContext {
   scene: THREE.Scene;
@@ -16,6 +17,10 @@ export interface RenderContext {
   seats: { name: string; look: Look; bot: boolean }[];
   /** Wall-clock seconds, monotonic (for cosmetic animation). */
   time: number;
+  /** Host result-phase start in local clock seconds, for rebuilding a late join from the terminal snapshot. */
+  resultReplayAt?: number;
+  /** Remaining 30 Hz countdown frames before the first playable snapshot. */
+  countdownTicksLeft?: number;
   /** Ask the shell for a screen shake (0..~1; 0.3 = bump, 1 = KO). */
   shake?(amount: number): void;
 }
@@ -23,6 +28,10 @@ export interface RenderContext {
 /** World as seen by the renderer: interpolated bodies, latest game data. */
 export interface RenderWorld extends World {
   bodies: Body[];
+  /** Ballistix marker meshes at the same interpolated tick as the ball positions. */
+  ballistixMarkers?: { lights: number; cool: number[]; tick: number; flashes?: CrashballFlash[] };
+  /** Locally replayed inputs, for the local actor and carried objects. */
+  predicted?: World;
 }
 
 /**

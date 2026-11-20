@@ -1,18 +1,20 @@
 import * as THREE from 'three';
-import { DR_BARRELS, DR_K, DR_LAPS, DR_TRACKS, trackCentre, trackRadii } from '../../shared/games/dashRace';
-import { CHARACTERS } from '../../shared/look';
+import { dashRideHeight, dashSpokeTurn, type DashExhaust, type DashMotor, DR_ANGLE, DR_BARRELS, DR_K, DR_LAPS, DR_TRACKS, stepDashResult, trackRadii } from '../../shared/games/dashRace';
+import { dashKartPose, poseTicks } from './playerPose';
+import { dashCheerPose, fitDashResult } from './dashRaceResult';
+import { CHARACTERS, DISC_CHARACTER } from '../../shared/look';
 import { getCatalog, type ModelInstance, type ModelRef } from '../crash';
+import { discStereo } from '../shell/discStereo';
 import { sfx, sfxRate } from '../shell/sound';
+import { hitVoice, vehicleVoice } from '../shell/voice';
 import { DASH_SFX } from './dashRaceSfx';
-const DASH_BANK: Record<string, string> = { dot: '0175', toxic: '0174', splash: '0173', dante: '0172' };
-import { catalogInstance, disposeTree, HpBar, Kit, preloadCatalogFor, TextSprite } from './kit';
+import { catalogInstance, disposeTree, Kit, preloadCatalogFor } from './kit';
 import type { ActorParts } from './kit';
-import { preloadFx } from './realFx';
+import { PartBatch, preloadFx } from './realFx';
 import { createCharacter } from '../characters';
-import { barRow, bigClock, bigNumber, faceSprite, hudTex, SLOT_X, type HudSprite } from '../ui/ps1hud';
-import { getGame } from '../../shared/registry';
-import type { ClientMiniGame } from './types';
-import { applyPose, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type LevelStageOpts, type Placements } from './ps1cam';
+import { arenaClockSprites, barRow, bigNumber, faceSprite, hudTex, SLOT_X, type HudSprite } from '../ui/ps1hud';
+import type { ClientMiniGame, RenderWorld } from './types';
+import { applyPose, FitCam, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type LevelStageOpts, type Placements, type PS1Cam } from './ps1cam';
 
 /**
  * Crash Dash view. The four tracks are the real stages (assets/stages/dashRace.json, model units x DR_K, origin =
@@ -20,6 +22,14 @@ import { applyPose, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type LevelS
  * a high three-quarter view of the whole ring from the south. Karts are the per-level vehicle models (hover pods
  * on Dot / Toxic / Dante, sea creatures on Splash).
  */
+
+const DASH_BANK: Record<string, string> = { dot: '0175', toxic: '0174', splash: '0173', dante: '0172' };
+const AMBIENCE: Partial<Record<string, { id: number; loopStart: number }>> = {
+  toxic: { id: 0x42e, loopStart: 0.0035 },
+  splash: { id: 0x672, loopStart: 0.2849 },
+};
+// Loop-start seconds from the four road engine VAGs in the audio manifest.
+const MOTOR_LOOPS = [0.5714, 0.5714, 0.5714, 0.5714, 0.1981, 0.1981, 0.1905, 0.1905];
 
 /** model-unit camera (x DR_K) */
 const KART_S = 1; // karts are in level units (3.4 per 1024 u), like the stage
@@ -43,7 +53,7 @@ const OPTS: Record<string, LevelStageOpts> = {
   dot: { skip: ['extra_7d80'] },
   toxic: { skip: ['extra_a610'] },
   splash: { skip: ['extra_5890'], decals: ['extra_57e4'] },
-  dante: { skip: ['extra_96cc'], native: ['part54'] },
+  dante: { skip: ['extra_96cc'] },
 };
 /**
  * Real effects (re/notes/crashDash.md "Effects"): the level model carries the effect scripts (9 = respawn burst, 5 = Splash
@@ -63,15 +73,14 @@ function inst(name: string): THREE.Object3D | null {
   return i ? i.root : null;
 }
 
-/** the spinning wumpa fruit sprite of the shared pack 0736 (14 frames, parts 23-36), played as a billboard flip-book */
-const FRUIT_FRAMES = Array.from({ length: 14 }, (_, i) => `dashRace.fruit${i}`);
+/** The Dash pickup's render words 0x2049–0x2056 select parts 72–85 in pack 0760. */
+const FRUIT_PARTS = seq(72, 14);
 function makeFruit(): THREE.Group {
-  const frames = FRUIT_FRAMES.map((n) => inst(n));
+  const frames = FRUIT_PARTS.map((p) => catalogInstance({ model: PACK, scale: DR_K, parts: [`part${p}`] })?.root);
   if (frames.every((f) => f)) {
     const g = new THREE.Group();
     const bb = new THREE.Group();
     bb.name = 'bb';
-    bb.position.y = 0.55;
     frames.forEach((f, i) => { f!.visible = i === 0; bb.add(f!); });
     g.add(bb);
     g.userData.frames = frames;
@@ -79,9 +88,9 @@ function makeFruit(): THREE.Group {
   }
   const g = new THREE.Group();
   const f = new THREE.Mesh(new THREE.SphereGeometry(0.34, 14, 12), new THREE.MeshBasicMaterial({ color: 0xf2801c }));
-  f.scale.y = 1.12; f.position.y = 0.55;
+  f.scale.y = 1.12; f.position.y = 0.22;
   const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.3, 6), new THREE.MeshBasicMaterial({ color: 0x3a9a2a }));
-  leaf.position.y = 0.98;
+  leaf.position.y = 0.62;
   g.add(f, leaf);
   return g;
 }
@@ -136,23 +145,68 @@ export function createDashRaceView(): ClientMiniGame {
   let loaded = false;
   let variant = 'dot';
   const objs = new Map<number, THREE.Object3D>();
-  const bars = new Map<number, HpBar>();
-  const itemTxt = new Map<number, TextSprite>();
-  const spin = new Map<number, number>();
-  /** exhaust counters (S+0x48 boost, S+0x4c run), 30 Hz ticks; missile trail counters and rock fire loops by body id */
-  const exB = [0, 0, 0, 0], exR = [0, 0, 0, 0];
-  const trailT = new Map<number, number>();
+  const heldItems = new Map<number, THREE.Group>();
+  const exhaust = new Map<number, PartBatch>();
+  const billboard = new THREE.Euler(0, 0, 0, 'YXZ');
+  const rockIds = new Set<number>();
   let rockTick = -1;
-  let monster: THREE.Object3D | null = null;
+  let monster: ModelInstance | null = null;
+  let lava: ModelInstance | null = null;
+  let splashHub: THREE.Object3D | undefined;
   let barrels: THREE.Object3D[] = [];
-  let monH = 3;
+  let result: { world: RenderWorld; frame: number; camera: FitCam } | undefined;
+  const blobModels = new Map<number, ModelInstance>();
+
+  const engines = new Map<number, { start: number; sample: NonNullable<ReturnType<typeof sfx.startSample>> }>();
+
+  function drawExhaust(puffs: DashExhaust[], tick: number, camera: THREE.Camera) {
+    billboard.setFromQuaternion(camera.quaternion, 'YXZ');
+    for (const batch of exhaust.values()) batch.begin();
+    for (const p of puffs) {
+      const frames = p.kind === 'run' ? EX_RUN : p.kind === 'boost' ? EX_BOOST : EX_SEA;
+      const part = frames[tick - p.born - 1];
+      if (part === undefined) continue;
+      const model = p.kind === 'run' ? POLAR : PACK;
+      const key = model * 128 + part;
+      let batch = exhaust.get(key);
+      if (!batch) {
+        batch = new PartBatch(kit.root, model, part, DR_K, 16, p.kind === 'run');
+        exhaust.set(key, batch);
+      }
+      batch.add(p.x * U, p.y * U, -p.z * U, billboard.y, billboard.x);
+    }
+    for (const batch of exhaust.values()) batch.end();
+  }
+
+  function syncEngine(slot: number, kind: 'run' | 'boost', motor: DashMotor | undefined, world: RenderWorld) {
+    const index = slot + (kind === 'boost' ? 4 : 0);
+    const id = 0x644 + index, start = kit.over.done ? -1 : motor?.[kind] ?? -1;
+    const old = engines.get(index);
+    if (old && start !== old.start) { old.sample.stop(); engines.delete(index); }
+    if (start < 0) return;
+    const file = DASH_SFX[variant]?.[id];
+    if (!file) return;
+    const d = world.data, cam = LEVEL_CAMS[LEVEL[variant]];
+    const levels = kind === 'run' ? discStereo(cam, d.gx[slot], -dashRideHeight(variant) - d.gy[slot], d.gz[slot]) : discStereo(cam, 0, 0, 0);
+    const rate = sfxRate(DASH_BANK[variant], id), offset = Math.max(0, world.tick - start) * rate / 30;
+    if (old?.start === start) {
+      old.sample.setStereo(levels);
+      old.sample.update(rate, offset);
+    } else {
+      const sample = sfx.startSample(file, MOTOR_LOOPS[index], 1, rate, offset, levels);
+      if (sample) engines.set(index, { start, sample });
+    }
+  }
+
+  let ambience: ReturnType<typeof sfx.startSample> = null;
+
   const decor: { o: THREE.Object3D; kind: string; inst?: ModelInstance }[] = [];
 
   // everything for every track: preload() can run before init() has picked the variant
   const propNames = () => [
     ...CHARACTERS.flatMap((c) => [`dashRace.kart.${c.id}`, `dashRace.sea.${c.id}`]),
-    'dashRace.missile', 'dashRace.star', 'dashRace.dante.rock', ...FRUIT_FRAMES,
-        'dashRace.toxic.monster', 'dashRace.toxic.barrel', 'dashRace.toxic.slime', 'dashRace.toxic.arrow',
+    'dashRace.missile', 'dashRace.star', 'dashRace.dante.rock',
+    'dashRace.toxic.monster', 'dashRace.toxic.barrel', 'dashRace.toxic.arrow',
     'dashRace.splash.rod', 'dashRace.splash.weed', 'dashRace.splash.arrow',
     'dashRace.dante.grass', 'dashRace.dante.grass2', 'dashRace.dante.arrow', 'dashRace.dante.back',
     'dashRace.dot.tower1', 'dashRace.dot.tower2', 'dashRace.dot.tower3', 'dashRace.dot.lamp', 'dashRace.dot.arrow',
@@ -166,7 +220,8 @@ export function createDashRaceView(): ClientMiniGame {
 
   function build() {
     const R = kit.root;
-    decor.length = 0; monster = null; barrels = [];
+    heldItems.clear();
+    decor.length = 0; monster = lava = null; splashHub = undefined; barrels = [];
     const ref = arenaRef(variant);
     // the real level: every static object from the game's own object list (towers, lamps, arrows, backdrops, grass)
     const lvl = ref ? levelStage(ref, placements.get(variant) ?? null, (r) => catalogInstance(r)?.root ?? null, OPTS[variant]) : null;
@@ -176,6 +231,16 @@ export function createDashRaceView(): ClientMiniGame {
       const line = lvl.getObjectByName('0x5002:extra_57e4');
       if (line && variant === 'splash') { line.matrix.elements[13] += (79 * (ref?.scale ?? 1)) / 1024; line.matrixWorldNeedsUpdate = true; }
       R.add(lvl);
+      if (variant === 'splash') {
+        splashHub = lvl.getObjectByName('0x5005:extra_5eac');
+        if (splashHub) {
+          splashHub.matrix.decompose(splashHub.position, splashHub.quaternion, splashHub.scale);
+          splashHub.matrixAutoUpdate = true;
+        }
+      } else if (variant === 'dante' && ref) {
+        lava = catalogInstance({ ...ref, parts: ['part54'] });
+        if (lava) R.add(lava.root);
+      }
     } else kit.addArena(ARENA[variant], 0);
     const place = (name: string, x: number, z: number, o: { y?: number; yaw?: number; s?: number } = {}) => {
       const m = inst(name);
@@ -196,7 +261,7 @@ export function createDashRaceView(): ClientMiniGame {
       place('dashRace.dot.lamp', 1.7, -4.2);
     } else if (variant === 'toxic') {
       if (!lvl) place('dashRace.toxic.arrow', 0, 0, { y: 0.3 });
-      // the game's 11 barrels (array at 0x800c6f88, game units); a hit barrel disappears for ~3 s
+      // the game's 11 barrels (array at 0x800c6f88, game units); struck barrels disappear for the rest of the race
       if (lvl) {
         // the game's own barrel objects: match each sim barrel to the placed one at its spot
         const held: THREE.Object3D[] = [];
@@ -208,9 +273,8 @@ export function createDashRaceView(): ClientMiniGame {
           if (best) barrels[i] = best;
         });
       } else DR_BARRELS.forEach(([gx, gz], i) => { const m = place('dashRace.toxic.barrel', gx / 1024, -gz / 1024, { y: 0.6, yaw: i * 1.3, s: 0.8 }); if (m) barrels[i] = m; });
-      place('dashRace.toxic.slime', 0, 0, { y: 0.2 });
-      const m = place('dashRace.toxic.monster', 0, 0);
-      if (m) { monster = m; m.visible = false; }
+      monster = catalogInstance(getCatalog().props['dashRace.toxic.monster']);
+      if (monster) { monster.root.position.y = -196 * U; monster.root.visible = false; R.add(monster.root); }
     } else if (variant === 'splash') {
       if (!lvl) place('dashRace.splash.arrow', 0, 0, { y: 0.3 });
       // spokes: level model 0641's animated part24 (anim id 0x4000 + ext = clip 0 posed at frame ext), yaw i*0x2aa + rot
@@ -238,9 +302,9 @@ export function createDashRaceView(): ClientMiniGame {
     return { inst: m, steady: true, shadow: 0.9, headY: 0.8, scale: KART_S };
   }
 
-  function aim(ctx: { camera: THREE.PerspectiveCamera }) {
+  function aim(ctx: { camera: THREE.PerspectiveCamera }, resultCamera?: PS1Cam) {
     const cam = ctx.camera;
-    const lc = LEVEL_CAMS[LEVEL[variant]];
+    const lc = resultCamera ?? LEVEL_CAMS[LEVEL[variant]];
     if (lc && placements.get(variant)) { applyPose(cam, ps1Pose(lc, arenaRef(variant))); return; }
     const pr = (CAM.pitch * Math.PI) / 180;
     const [x, y, z] = CAM.p;
@@ -249,7 +313,7 @@ export function createDashRaceView(): ClientMiniGame {
     if (Math.abs(cam.fov - CAM.fov) > 1e-3) { cam.fov = CAM.fov; cam.updateProjectionMatrix(); }
   }
 
-  /** real game sfx id -> the level bank's sample (ids >= 0x661 are unmapped = silent in the original) */
+  /** Resolve IDs against the currently loaded level bank, as the game does. */
   const play = (id: number, vol = 0.45) => { const f = DASH_SFX[variant]?.[id]; if (f) sfx.playFile(f, vol, false, sfxRate(DASH_BANK[variant], id)); };
 
   return {
@@ -261,8 +325,10 @@ export function createDashRaceView(): ClientMiniGame {
 
     init(ctx, world) {
       variant = world.data.variant ?? 'dot';
+      for (const file of new Set(Object.values(DASH_SFX[variant] ?? {}))) sfx.preloadFile(file);
       const L = LOOKS[variant] ?? LOOKS.dot;
-      objs.clear(); bars.clear(); itemTxt.clear(); spin.clear(); exB.fill(0); exR.fill(0); trailT.clear(); rockTick = -1;
+      objs.clear(); blobModels.clear(); rockIds.clear(); rockTick = -1;
+      result = undefined;
       kit = new Kit(ctx, 'dashRace', { bg: L.bg, hemi: L.hemi });
       kit.realFx(DR_K);
       build();
@@ -270,108 +336,163 @@ export function createDashRaceView(): ClientMiniGame {
       if (!loaded) this.preload!().then(() => { if (kit) { kit.reset(); kit.root.clear(); kit.realFx(DR_K); build(); } });
     },
 
-    render(ctx, w, dt) {
-      aim(ctx);
-      kit.checkOver(w);
+    render(ctx, snapshot, dt) {
+      kit.checkOver(snapshot);
+      const winner = kit.over.winners.values().next().value;
+      let w = snapshot;
+      if (kit.over.done) {
+        result ??= { world: structuredClone(snapshot), frame: 0, camera: new FitCam(LEVEL_CAMS[LEVEL[variant]]) };
+        const replayAge = ctx.resultReplayAt === undefined ? 0 : Math.floor((ctx.time - ctx.resultReplayAt) * 30 + 1e-7);
+        const frame = Math.max(kit.over.frame, replayAge);
+        while (result.frame < frame) {
+          stepDashResult(result.world, winner);
+          fitDashResult(result.camera, result.world, winner);
+          result.frame++;
+          if (frame - result.frame < 3) for (const e of result.world.ev) this.onEvent?.(ctx, e);
+        }
+        w = result.world;
+      } else result = undefined;
+      aim(ctx, result?.camera.c);
       const d = w.data;
-      const [hx, hz] = trackCentre(variant);
+      const left = w.tick === 0 ? ctx.countdownTicksLeft : undefined;
+      const opening = left !== undefined && d.openingTicks !== undefined
+        ? Math.max(0, Math.min(d.openingTicks, d.openingTicks + 1 - left)) : undefined;
+      const stageTick = opening ?? d.f;
+      const rotation = opening === undefined ? d.rot : opening * dashSpokeTurn(d.pat) & 4095;
+      if (lava) lava.pose(0, (Math.max(0, stageTick - 1) % 192) >> 1);
+      if (splashHub) splashHub.rotation.y = -rotation * DR_ANGLE;
+      const loop = AMBIENCE[variant];
+      if (stageTick > 0 && loop) {
+        const rate = sfxRate(DASH_BANK[variant], loop.id), offset = (stageTick - 1) * rate / 30;
+        // FUN_800b8890 passes both channels at full volume and no spatial origin.
+        ambience ??= sfx.startSample(DASH_SFX[variant][loop.id], loop.loopStart, 1, rate, offset);
+        ambience?.update(rate, offset);
+      }
       for (let i = 0; i < barrels.length; i++) if (barrels[i]) barrels[i].visible = (d.bar?.[i]?.t ?? 0) <= 0;
       // toxic monster: rises out of the hub
       if (monster) {
-        const up = d.mon ?? 0;
-        monster.visible = up > 0.02;
-        monster.position.set(hx, -monH * (1 - up), hz);
+        monster.root.visible = d.monS < 3;
+        if (monster.root.visible) monster.pose(d.monS, d.monT);
       }
       for (const dc of decor) {
         if (dc.kind.startsWith('rod')) {
           const rods = w.bodies.filter((b) => b.kind === 'rod');
-          const r = rods[Number(dc.kind.slice(3))];
-          if (r && dc.inst) { dc.o.rotation.y = -(r.cd * Math.PI * 2) / 4096; dc.inst.pose(0, Math.max(0, Math.min(29, r.vy / 16))); dc.o.visible = true; }
-          else if (r) { dc.o.rotation.y = Math.PI - r.face; dc.o.position.y = -0.7 + 1.4 * r.y; dc.o.visible = r.y > 0.02; }
+          const i = Number(dc.kind.slice(3)), r = rods[i];
+          const yaw = (rotation + i * 0x2aa) & 4095;
+          if (r && dc.inst) { dc.o.position.set(r.x, 151 * U, r.z); dc.o.rotation.y = -yaw * DR_ANGLE; dc.inst.pose(0, Math.max(0, Math.min(29, r.vy / 16))); dc.o.visible = true; }
+          else if (r) { dc.o.rotation.y = Math.PI * 1.5 - yaw * DR_ANGLE; dc.o.position.y = -0.7 + 1.4 * r.y; dc.o.visible = r.y > 0.02; }
         }
       }
       const seen = new Set<number>();
       const seenO = new Set<number>();
       for (const b of w.bodies) {
         if (b.kind === 'player') {
+          const playerWorld = kit.over.done ? w : kit.playerWorld(b.slot);
+          const d = playerWorld.data;
           seen.add(b.id);
           const a = kit.actor(b, () => makeParts(b.slot));
+          syncEngine(b.slot, 'run', d.motors?.[b.slot], playerWorld);
+          syncEngine(b.slot, 'boost', d.motors?.[b.slot], playerWorld);
           const turbo = !!d.turbo?.[b.slot];
           const stun = (d.stun?.[b.slot] ?? 0) > 0;
-          const fin = (d.finish?.[b.slot] ?? -1) >= 0;
-          a.update(b, dt, { role: stun ? 'hit' : 'run', freeze: true, keepYaw: stun });
-          a.holder.rotation.y = 0;
-          a.holder.position.y = b.y + 0.12 + Math.sin(ctx.time * 5 + b.slot) * 0.03;
-          // exhaust (FUN_800ba278): a puff 200 u behind the kart every 5 ticks boosting (0x170a), every 7 running (0x1709)
-          const sp = Math.hypot(b.vx, b.vz), run = !turbo && !stun && !fin && sp > 40 * U * 30;
-          if (turbo || run) {
-            const T = turbo ? exB : exR;
-            T[b.slot] -= dt * 30;
-            if (T[b.slot] <= 0) {
-              T[b.slot] += turbo ? 5 : 7;
-              const sea = variant === 'splash', fr = sea ? EX_SEA : turbo ? EX_BOOST : EX_RUN;
-              kit.real.sprite(sea || turbo ? PACK : POLAR, fr, b.x - Math.sin(b.face) * 200 * U, 256 * U, b.z - Math.cos(b.face) * 200 * U, { life: fr.length / 30, add: !sea && !turbo }); // 0x1709 sets node flag 0x21 (blended); the fire and spray frames do not
+          const sea = variant === 'splash', state = d.state?.[b.slot];
+          const char = DISC_CHARACTER[kit.look(b.slot).char] ?? 1;
+          const age = d.st?.[b.slot] ?? 0;
+          const kartPose = d.kartPose?.[b.slot];
+          let script = sea ? 0x52 : 0x48;
+          let scriptFrame: number | undefined;
+          let renderWord: number | undefined;
+          if (state === 0x62) {
+            script = 0x48;
+            scriptFrame = age + 1;
+            renderWord = dashCheerPose(variant, char, age);
+          } else if (kartPose) {
+            renderWord = dashKartPose(kartPose.script, char, opening ?? kartPose.frame);
+          } else {
+            // Older snapshots carry the boost time and state age.
+            const boostAge = playerWorld.tick - (d.boostAt?.[b.slot] ?? -1000);
+            if (state === 0x61 && !d.fph?.[b.slot]) script = sea ? 0x54 : 0x4b;
+            else if (state === 0x5d && !sea) { script = 0x4a; scriptFrame = age; }
+            else if (boostAge < poseTicks(sea ? 0x53 : 0x49, char) || (sea && turbo)) {
+              script = sea ? 0x53 : 0x49;
+              scriptFrame = boostAge;
+            } else if (state === 0x5b && age === d.openingTicks + playerWorld.tick && (d.boostAt?.[b.slot] ?? -1) < 0) {
+              scriptFrame = opening ?? age;
             }
-          } else { exB[b.slot] = exR[b.slot] = 0; }
-          // fuel bar + held item
-          let bar = bars.get(b.slot);
-          if (!bar) { bar = new HpBar(1.3); kit.root.add(bar.group); bars.set(b.slot, bar); }
-          bar.group.visible = false; // the real game shows fuel only in the HUD (ps1Hud bar row)
-          bar.group.position.set(b.x, a.headY + 0.9, b.z);
-          const f = (d.fuel?.[b.slot] ?? 0) / 0x10000;
-          bar.set(f);
-          (bar.group.children[1] as THREE.Sprite).material.color.set(turbo ? 0xffffff : f > 0.3 ? 0x4ade80 : 0xf43f5e);
-          let it = itemTxt.get(b.slot);
-          if (!it) { it = new TextSprite('#ffffff', 0.7); kit.root.add(it.sprite); itemTxt.set(b.slot, it); }
-          const item = d.item?.[b.slot] ?? 0;
-          it.sprite.visible = false; // no word label over the kart in the real game
-          if (item > 0) { it.set(item === 1 ? 'MISSILE' : 'SHIELD'); it.sprite.position.set(b.x, a.headY + 1.5, b.z); }
+          }
+          const hidden = kit.over.done && winner !== undefined && b.slot !== winner;
+          const marker = d.itemMarkers?.[b.slot];
+          let icon = heldItems.get(b.slot);
+          if (marker?.item && !icon) {
+            icon = makeItem(variant === 'toxic');
+            icon.name = 'dash-held-item-' + b.slot;
+            icon.scale.setScalar(0.5);
+            kit.root.add(icon);
+            heldItems.set(b.slot, icon);
+          }
+          if (icon) {
+            icon.visible = !!marker?.item && !hidden;
+            if (icon.visible) {
+              icon.position.set(marker.x * U, marker.y * U, -marker.z * U);
+              icon.rotation.y = -marker.yaw * DR_ANGLE;
+            }
+          }
+          a.face = b.face;
+          a.update(b, dt, { role: stun ? 'hit' : 'run', freeze: true, keepYaw: true, hidden, script, scriptFrame, renderWord });
+          a.pivot.rotation.set((d.pitch?.[b.slot] ?? 0) * DR_ANGLE, 0, -(d.bank?.[b.slot] ?? 0) * DR_ANGLE);
+          // The collision body stores height relative to the ride height (180 in Dante, 256 elsewhere).
+          if (!hidden) a.holder.position.y += dashRideHeight(variant) * U;
         } else if (b.kind === 'fruit' || b.kind === 'item' || b.kind === 'missile' || b.kind === 'rock') {
           seenO.add(b.id);
           let o = objs.get(b.id);
           if (!o) {
-            o = b.kind === 'fruit' ? makeFruit() : b.kind === 'item' ? makeItem(b.dash === 5) : b.kind === 'missile' ? makeMissile() : rockModel();
+            if (b.kind === 'rock' && variant === 'toxic') {
+              const blob = catalogInstance({ model: FX_LEVEL.toxic, scale: DR_K, parts: ['part58'] });
+              if (blob) { blobModels.set(b.id, blob); o = blob.root; }
+            }
+            o ??= b.kind === 'fruit' ? makeFruit() : b.kind === 'item' ? makeItem(b.dash === 5) : b.kind === 'missile' ? makeMissile() : rockModel();
             kit.root.add(o);
             objs.set(b.id, o);
           }
-          o.visible = !((b.kind === 'fruit' || b.kind === 'item') && b.cd > 0);
-          if (b.kind === 'fruit' && o.userData.frames) { // flip-book at 15 fps, facing the camera
-            o.position.set(b.x, Math.sin(ctx.time * 3 + b.id) * 0.1, b.z);
-            const fr = o.userData.frames as THREE.Object3D[], k = Math.floor(ctx.time * 15 + b.id) % fr.length;
+          o.position.set(b.x, b.y, b.z);
+          if (b.kind === 'fruit' && o.userData.frames) {
+            const fr = o.userData.frames as THREE.Object3D[], k = Math.max(0, b.cd - 1) % fr.length;
             fr.forEach((f, i) => (f.visible = i === k));
             o.getObjectByName('bb')!.quaternion.copy(ctx.camera.quaternion);
-          } else if (b.kind === 'fruit' || b.kind === 'item') { o.position.set(b.x, 0, b.z); o.rotation.y -= dt * 30 * 0x80 * Math.PI * 2 / 4096; }
-          else if (b.kind === 'missile') { o.position.set(b.x, 0.7, b.z); o.rotation.y = Math.atan2(b.vx, b.vz); 
-            // trail: pack script 0 every 3 ticks (FUN_800bf460)
-            const t = (trailT.get(b.id) ?? 0) - dt * 30;
-            trailT.set(b.id, t <= 0 ? t + 3 : t);
-            if (t <= 0) kit.real.play(PACK, 0, b.x, 0.7, b.z);
-          } else {
-            o.position.set(b.x, b.y, b.z); o.rotation.y += dt * 6;
-            if (!trailT.has(b.id)) {
-              trailT.set(b.id, 0);
+          } else if (b.kind === 'fruit' || b.kind === 'item') o.rotation.y = b.face;
+          else if (b.kind === 'missile') o.rotation.y = b.face;
+          else {
+            o.rotation.y = b.face;
+            if (variant === 'dante') {
+              o.visible = !d.rocksHidden;
+              o.rotation.x = b.cd * DR_ANGLE;
+            }
+            else blobModels.get(b.id)?.nativePose(0x4100 + b.cd % 28);
+            if (!rockIds.has(b.id)) {
+              rockIds.add(b.id);
               const first = Math.abs(w.tick - rockTick) > 30;
               if (first) rockTick = w.tick;
               if (variant === 'dante') {
                 // FUN_800c2388: blast (script 4) at the crater on launch, fire (script 10, looping) riding each rock
-                if (first) kit.real.play(FX_LEVEL.dante, 4, 0, 0, 0);
-                kit.real.play(FX_LEVEL.dante, 10, b.x, b.y, b.z, { loop: true, at: () => objs.get(b.id)?.position ?? null });
+                if (!d.dantePool && first) kit.real.play(FX_LEVEL.dante, 4, 0, 0, 0);
+                if (d.rocks?.find((rock: { id: number }) => rock.id === b.id)?.fireActor === 0) continue;
+                kit.real.play(FX_LEVEL.dante, 10, b.x, 0, b.z, { loop: true, at: () => {
+                  const pos = objs.get(b.id)?.position;
+                  return pos ? { x: pos.x, y: 0, z: pos.z } : null;
+                } });
               } else if (first) kit.real.play(FX_LEVEL.toxic, 10, -512 * U, 668 * U, 512 * U); // FUN_800c2e10: the monster's spit
-            }
-            if (variant === 'dante') { // a smoke puff (script 3) every 8-10 ticks in flight
-              const t = trailT.get(b.id)! - dt * 30;
-              trailT.set(b.id, t <= 0 ? t + 9 : t);
-              if (t <= 0) kit.real.play(FX_LEVEL.dante, 3, b.x, b.y, b.z);
             }
           }
         }
       }
       for (const [id, o] of objs) if (!seenO.has(id)) {
         // a Dante rock ends in the level's explosion (script 1)
-        if (variant === 'dante' && trailT.has(id) && !kit.over.done) kit.real.play(FX_LEVEL.dante, 1, o.position.x, o.position.y, o.position.z);
-        trailT.delete(id);
+        if (variant === 'dante' && !d.dantePool && rockIds.has(id) && !kit.over.done) kit.real.play(FX_LEVEL.dante, 1, o.position.x, o.position.y, o.position.z);
+        rockIds.delete(id);
+        blobModels.delete(id);
         kit.root.remove(o); disposeTree(o); objs.delete(id);
       }
+      if (loaded) drawExhaust(d.exhaust ?? [], d.f, ctx.camera);
       kit.prune(seen);
       kit.real.update(dt, ctx.camera);
       kit.fx.update(dt);
@@ -382,37 +503,80 @@ export function createDashRaceView(): ClientMiniGame {
       if (kit.baseEvent(e)) return;
       const lvl = FX_LEVEL[variant] ?? FX_LEVEL.dot;
       switch (e.k) {
-        case 'turbo':
-          play(0x648 + e.s, 0.35);
+        case 'turbo': {
+          if (variant === 'splash') {
+            const char = kit.look(e.s).char;
+            const driver = DISC_CHARACTER[char];
+            play(0x679 + e.s);
+            vehicleVoice(char, 0x18, () => {
+              if (driver === 1 || driver === 3 || driver === 5 || driver === 7) play(driver === 7 ? 0x684 : 0x67c + driver);
+            });
+          }
           if (e.s === ctx.mySlot) kit.shake(0.08);
           break;
+        }
         case 'pickup':
-          play(e.v === 1 ? 0x51f : 0x1c2, 0.4);
+          play(e.v === 1 ? (variant === 'toxic' ? 0x439 : 0x51f) : 0x1c2, 0.4);
           break;
         case 'missile':
           play(0x522, 0.5);
           break;
+        case 'missileTrail':
+          kit.real.play(PACK, 0, e.x, e.v, e.z);
+          break;
+        case 'craterBlast':
+          kit.real.play(FX_LEVEL.dante, 4, 0, 0, 0);
+          break;
+        case 'rockBurst':
+          kit.real.play(FX_LEVEL.dante, 1, e.x, e.v, e.z);
+          break;
+        case 'rockTrail':
+          kit.real.play(FX_LEVEL.dante, 3, e.x, e.y ?? 0, e.z);
+          break;
         case 'shield': {
+          play(0x43a);
           // 0x1708: the level's script 8, a ring closing on the kart over 15 frames
-          const a = kit.actorForSlot(e.s);
-          kit.real.play(lvl, 8, e.x, 256 * U, e.z, { at: () => (a ? { x: a.holder.position.x, y: 256 * U, z: a.holder.position.z } : null) });
+          const spawn = { x: e.x, y: e.y ?? 160 * U, z: e.z };
+          kit.real.play(lvl, 8, spawn.x, spawn.y, spawn.z, { at: () => {
+            const actor = kit.actorForSlot(e.s);
+            return actor && kit.poseTick(e.s) > e.t + 1 ? actor.holder.position : spawn;
+          } });
           break;
         }
         case 'barrel':
-          // FUN_800b6474: a hit barrel blows up (pack script 1, 210 u up); it comes back in the level's burst (script 9)
+          // FUN_800b6474: a hit barrel blows up (pack script 1, 210 u up). Legacy reappearance events use level script 9.
           if (e.v === 1) kit.real.play(PACK, 1, e.x, 210 * U, e.z);
           else kit.real.play(lvl, 9, e.x, 0, e.z);
           break;
         case 'explode':
-          kit.real.play(PACK, 1, e.x, 0.7, e.z); // FUN_800bf460: pack script 1 at the missile
+        case 'missilePop':
+          if (e.k === 'explode') kit.real.play(PACK, 1, e.x, e.v, e.z); // FUN_800bf460: pack script 1 at the missile
           kit.shake(0.3);
           play(0x43d, 0.6);
           break;
-        case 'hit':
+        case 'missileBounce':
+          play(e.v, 0.3);
+          break;
+        case 'raceSound':
+          play(e.v);
+          break;
+        case 'hop':
+          play(0x68d + e.s);
+          break;
+        case 'spoke':
+          if (e.v > 0) play(e.v === 1 ? 0x673 : 0x674);
+          break;
+        case 'monster':
+          if (e.v === 1) play(variant === 'dante' ? 0x69b : 0x665);
+          break;
+        case 'hit': {
+          const char = kit.look(e.s).char;
+          const seaHit = [0x687, 0x686, 0x688, 0x685, 0x68c, 0x68a, 0x68b, 0x689][DISC_CHARACTER[char] - 1];
+          hitVoice('a2', char, 0.8, e.v, undefined, variant === 'splash' ? () => play(seaHit, 0.8) : undefined);
           kit.actorForSlot(e.s)?.hit(1);
           if (e.s === ctx.mySlot) kit.shake(0.25);
-          play(0x654, 0.5);
           break;
+        }
         case 'fall':
           play(e.v === 1 ? 0x650 + e.s : 0x655, 0.5);
           // FUN_800bafc8: the kart comes back 1400 u up in the level's burst (script 9; Splash script 5)
@@ -428,9 +592,6 @@ export function createDashRaceView(): ClientMiniGame {
           play(0x656 + e.s, 0.4);
           break;
         }
-        case 'finish':
-          kit.shake(0.2);
-          break;
       }
     },
 
@@ -444,7 +605,7 @@ export function createDashRaceView(): ClientMiniGame {
         out.push(f, ...barRow(slot, (d.fuel?.[slot] ?? 0) / 0x10000, hudTex(33), 30, 24, -19, 32, 5));
         out.push(...bigNumber(Math.max(0, DR_LAPS - (d.lap?.[slot] ?? 0)), SLOT_X[slot] + 14, 44, 2, 19, 21));
       }
-      out.push(...bigClock((getGame('dashRace')?.maxTime ?? 90) - w.time, Math.floor(w.time * 2) % 2 === 1));
+      out.push(...arenaClockSprites('dashRace', w));
       return out;
     },
 
@@ -457,10 +618,16 @@ export function createDashRaceView(): ClientMiniGame {
     },
 
     dispose() {
+      for (const batch of exhaust.values()) batch.dispose();
+      exhaust.clear();
+      ambience?.stop(); ambience = null;
+      for (const engine of engines.values()) engine.sample.stop();
+      engines.clear();
       for (const o of objs.values()) kit.root.remove(o);
-      for (const b of bars.values()) kit.root.remove(b.group);
-      for (const t of itemTxt.values()) kit.root.remove(t.sprite);
-      objs.clear(); bars.clear(); itemTxt.clear();
+      objs.clear();
+      blobModels.clear();
+      result = undefined;
+      heldItems.clear();
       kit.dispose();
     },
   };

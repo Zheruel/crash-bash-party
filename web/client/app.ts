@@ -1,16 +1,20 @@
-import { EMOTES } from '../shared/look';
-import { FAST_TIMING, NORMAL_TIMING, type Timing } from '../shared/party';
-import type { Phase, ResultsMsg, RoomState, RoundMsg, WheelMsg } from '../shared/protocol';
+import { EMOTE_LABELS, winnerCheerFrame } from '../shared/look';
+import { FAST_TIMING, NORMAL_TIMING, STANDINGS_MIN_MS, type Timing } from '../shared/party';
+import { COUNT_FRAMES, COUNT_LABELS, NUMBERED_COUNTDOWN_TICKS, type Phase, type ResultsMsg, type RoomState, type RoundMsg, type WheelMsg } from '../shared/protocol';
 import { getGame } from '../shared/registry';
-import { DT, type World } from '../shared/types';
+import { DT, IDLE, type World } from '../shared/types';
 import { preloadBoardTextures } from './scene/tex';
 import { PodiumScene, preloadPodium } from './scene/podium';
 import { ShowcaseScene } from './scene/showcase';
-import { characterRefs, preloadCharacters } from './characters';
+import { preloadCharacters } from './characters';
 import { getCatalog, ready } from './crash';
 import { VIEWS } from './games';
+import { POLAR_DRAW_TICKS, POLAR_WIN_TALLY_TICKS, S_WIN } from '../shared/games/pushOff';
+import { ballistixCupDelay } from './games/ballDefenceResult';
+import { CRATE_RESULT_HOLD_MS } from './games/crateTossResult';
+import { malletMashResultHoldMs } from './games/malletMash';
 import type { RenderWorld } from './games/types';
-import { InputManager } from './input';
+import { InputManager, watchKeyboardLayout } from './input';
 import { createHostCore } from './net/hostCore';
 import { LoopbackTransport } from './net/loopback';
 import { PeerHost, PeerTransport, newRoomCode } from './net/peer';
@@ -20,13 +24,15 @@ import { GameClient, type Status } from './session';
 import { initPortraits, resetPortraits } from './shell/avatar';
 import { Confetti } from './shell/confetti';
 import { sfx } from './shell/sound';
+import { announceHero, preloadRoundVoices } from './shell/voice';
 import { TouchControls } from './shell/touch';
 import { FinalOverlay } from './ui/final';
 import { $, div, esc } from './ui/dom';
 import { Hud, type SeatView } from './ui/hud';
 import { Ps1Hud } from './ui/ps1hud';
 import { LobbyScreen } from './ui/lobby';
-import { thumb, CountOverlay, IntroOverlay, ResultsOverlay, WheelOverlay } from './ui/overlays';
+import { MenuPad } from './ui/menuPad';
+import { controlsHtml, thumb, CountOverlay, IntroOverlay, ResultsOverlay, WheelOverlay } from './ui/overlays';
 import { LoadingScreen } from './ui/loading';
 import { VortexBackdrop } from './ui/vortex';
 
@@ -38,9 +44,21 @@ import { Stage } from './view';
 
 const FASTISH: Timing = { ...NORMAL_TIMING, intro: 1800, countdown: 1500, results: 4200, wheel: 3000, final: 32000, playCap: 5 };
 
+function arenaResultHoldMs(gameId: string | undefined, draw: boolean, char?: number) {
+  if (gameId === 'pushOff') return (draw ? POLAR_DRAW_TICKS + 1 : winnerCheerFrame(char ?? 0) + POLAR_WIN_TALLY_TICKS) * 1000 / 30;
+  if (gameId === 'tankArena') return (draw ? 121 : 123) * 1000 / 30;
+  if (gameId === 'crateToss') return CRATE_RESULT_HOLD_MS;
+  if (gameId === 'malletMash') return malletMashResultHoldMs(draw);
+}
+
 interface HostHandle { core: HostCore; peer: PeerHost | null }
 
 export class App {
+  private menuPad = new MenuPad(() => {
+    if (this.phase !== 'final' || this.final.el.classList.contains('hidden') || !this.podium.stripShown || this.podium.stripDone) return false;
+    this.podium.skipStrip();
+    return true;
+  });
   private params = new URLSearchParams(location.search);
   private lan = this.params.get('lan') === '1';
   private fast = this.params.get('fast');
@@ -67,7 +85,9 @@ export class App {
   private ui!: HTMLElement;
   private statusEl!: HTMLElement;
   private toastEl!: HTMLElement;
-  private emoteBar!: HTMLElement;
+  private optionsOpen = false;
+  private notice: HTMLDialogElement | null = null;
+  private showOptions!: (open: boolean) => void;
 
   private client: GameClient | null = null;
   private host: HostHandle | null = null;
@@ -75,6 +95,7 @@ export class App {
   private phase: Phase | 'title' = 'title';
   private seats: SeatView[] = [];
   private pendingGame: RoundMsg | null = null;
+  private arenaReady = false;
   private gameName = '';
   private streaks = [0, 0, 0, 0];
   private trophies = [0, 0, 0, 0];
@@ -82,7 +103,7 @@ export class App {
   private resultsTimer = 0;
   private resultsAt = 0;
   private lastResults: ResultsMsg | null = null;
-  private lastCount = '';
+  private countMs = NORMAL_TIMING.countdown;
   private playAt = 0;
   private lastT = performance.now();
   private acc = 0;
@@ -100,19 +121,21 @@ export class App {
     this.confetti = new Confetti(document.getElementById('confetti') as HTMLCanvasElement);
     initPortraits(this.stage.renderer);
     this.buildUi(root);
+    watchKeyboardLayout(() => this.refreshControls());
     this.stage.onResize = () => this.layoutTitle();
     this.showSplash(true);
 
-    const start = performance.now();
-    try { await Promise.race([document.fonts.load('700 40px "Almendra SC"'), new Promise((r) => setTimeout(r, 3000))]); } catch { /* fallback serif */ }
-    try {
-      await Promise.race([this.preload(), new Promise((r) => setTimeout(r, 9000))]);
-    } catch (e) { console.warn('preload failed', e); }
+    try { await Promise.race([document.fonts.load('400 40px "Crash Bash Menu"'), new Promise((r) => setTimeout(r, 3000))]); } catch { /* fallback serif */ }
+    let waitingForArt = true;
+    const art = this.preload().then(() => {
+      if (!waitingForArt) this.refreshMenuArt();
+    }).catch(e => console.warn('preload failed', e));
+    await Promise.race([art, new Promise(r => setTimeout(r, 9000))]);
+    waitingForArt = false;
     resetPortraits();
 
     this.stage.register(this.showcase);
     this.stage.register(this.podium);
-    void start;
     this.showSplash(false);
     this.goTitle(this.params.get('room')?.toUpperCase() ?? '');
     addEventListener('pointerdown', () => sfx.unlock(), { once: false });
@@ -124,13 +147,17 @@ export class App {
     requestAnimationFrame((t) => this.frame(t));
   }
 
+  private refreshMenuArt() {
+    if (this.phase === 'title') this.showcase.setLooks([this.title.profile.look], true);
+    else if (this.phase === 'lobby' && this.client?.room) this.showcase.setLooks(this.client.room.seats.map(s => s.look), true);
+  }
+
   private async preload() {
-    await preloadCharacters();
+    await Promise.all([this.count.preload(), preloadCharacters()]);
     const cat = getCatalog();
-    const refs = [cat.props?.crystal, cat.props?.wumpa, cat.props?.podium, cat.arenas?.board, ...(cat.arenas?.board?.extra ?? [])];
+    const refs = [{ model: 131 }, cat.props?.podiumStripTrophy, cat.props?.crystal, cat.props?.wumpa, cat.props?.podium, cat.arenas?.board, ...(cat.arenas?.board?.extra ?? [])];
     await Promise.all([ready(refs), preloadBoardTextures()]);
     void preloadPodium(); // the final's stage streams in behind the title
-    void characterRefs;
   }
 
   private showSplash(on: boolean) {
@@ -152,7 +179,6 @@ export class App {
       config: (c) => this.client?.config(c),
       look: (l) => this.client?.setLook(l),
       emote: (i) => this.client?.emote(i),
-      leave: () => this.leave(true),
       copy: () => void this.copyLink(),
     });
     this.hud = new Hud(root);
@@ -160,31 +186,73 @@ export class App {
     this.touch = new TouchControls(root);
     this.touch.enabled = TouchControls.likely();
     this.input.touch = this.touch.sample;
-    this.emoteBar = div('emotebar hidden', EMOTES.map((e, i) => `<button data-i="${i}">${e}</button>`).join(''));
-    this.emoteBar.addEventListener('click', (e) => {
-      const b = (e.target as HTMLElement).closest<HTMLElement>('button');
-      if (b) this.client?.emote(Number(b.dataset.i));
-    });
+    const useTouch = (enabled: boolean) => {
+      if (this.touch.enabled === enabled) return;
+      this.touch.enabled = enabled;
+      this.touch.show(enabled && this.phase === 'play' && this.mySlot() != null);
+      this.refreshControls();
+    };
+    window.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'touch' || e.pointerType === 'mouse') useTouch(e.pointerType === 'touch');
+    }, true);
+    window.addEventListener('keydown', e => { if (!e.isComposing) useTouch(false); }, true);
     this.statusEl = div('statusbar hidden');
     this.toastEl = div('toast hidden');
-    const top = div('topbar', `<button class="icon-btn" id="mute" title="Sound" aria-label="Sound settings"></button><button class="icon-btn hidden" id="leave" title="Leave" aria-label="Leave party">&times;</button>
-      <div class="soundpanel pnl hidden"><div class="band"><h2 class="gt or">SOUND</h2></div><div class="pbody"><label class="chk sm"><input type="checkbox" id="mutechk"> MUTE ALL</label>
-      <label class="sm" for="vmusic">MUSIC</label><input type="range" id="vmusic" min="0" max="100"><label class="sm" for="vsfx">EFFECTS</label><input type="range" id="vsfx" min="0" max="100"></div></div>`);
-    root.append(this.title.el, this.lobby.el, this.hud.el, this.wheel.el, this.intro.el, this.count.el, this.results.el, this.final.el, this.emoteBar, top, this.statusEl, this.toastEl);
+    const top = div('topbar', `<button class="icon-btn" id="mute" title="Sound" aria-label="Sound settings" aria-expanded="false" aria-controls="sound-settings"><span class="sound-symbol"></span><span class="game-menu-label gt">Menu</span></button><button class="icon-btn hidden" id="leave" title="Leave" aria-label="Leave party">&times;</button>
+      <div id="sound-settings" class="soundpanel pnl hidden"><div class="band"><h2 class="gt or">SOUND</h2></div><div class="pbody"><details class="round-controls hidden"><summary>Controls</summary><ul class="ctl" aria-label="Stage controls"></ul></details>
+      <label class="chk sm"><input type="checkbox" id="mutechk"> MUTE ALL</label>
+      <label class="sm" for="vmusic">MUSIC</label><input type="range" id="vmusic" min="0" max="100"><label class="sm" for="vsfx">EFFECTS</label><input type="range" id="vsfx" min="0" max="100">
+        <details class="round-reactions"><summary>React</summary><div class="reaction-choices">${EMOTE_LABELS.map((label, i) => `<button data-emote="${i}">${label}</button>`).join('')}</div></details>
+      </div></div>`);
+    root.append(this.title.el, this.lobby.el, this.hud.el, this.wheel.el, this.intro.el, this.count.el, this.results.el, this.final.el, top, this.statusEl, this.toastEl);
     const mute = $('#mute', top);
     const panel = $('.soundpanel', top);
     const chk = $('#mutechk', top) as HTMLInputElement, vm = $('#vmusic', top) as HTMLInputElement, vs = $('#vsfx', top) as HTMLInputElement;
-    const paintMute = () => { chk.checked = sfx.muted; mute.innerHTML = sfx.muted ? '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9H3z"/><path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="2.5" fill="none"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9H3z"/><path d="M15.5 8.5a5 5 0 010 7M18 6a8.5 8.5 0 010 12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>'; };
-    vm.value = String(Math.round(sfx.vol.music * 100));
-    vs.value = String(Math.round(sfx.vol.sfx * 100));
+    const paintMute = () => { chk.checked = sfx.muted; $('.sound-symbol', mute).innerHTML = sfx.muted ? '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9H3z"/><path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="2.5" fill="none"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9H3z"/><path d="M15.5 8.5a5 5 0 010 7M18 6a8.5 8.5 0 010 12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>'; };
+    for (const [slider, kind] of [[vm, 'music'], [vs, 'sfx']] as const) {
+      slider.value = String(Math.round(sfx.vol[kind] * 100));
+      const paint = () => slider.style.setProperty('--volume', slider.value + '%');
+      paint();
+      slider.oninput = () => { paint(); sfx.setVolume(kind, slider.valueAsNumber / 100); };
+    }
     paintMute();
-    mute.onclick = () => { sfx.unlock(); panel.classList.toggle('hidden'); sfx.play('click'); };
+    const reactions = $('.round-reactions', panel) as HTMLDetailsElement;
+    const controls = $('.round-controls', panel) as HTMLDetailsElement;
+    this.showOptions = open => {
+      const closing = this.optionsOpen && !open;
+      if (closing) this.input.releaseMenuInput();
+      this.optionsOpen = open;
+      panel.classList.toggle('hidden', !open);
+      mute.setAttribute('aria-expanded', String(open));
+      this.input.capture = this.canCaptureArenaKeys();
+      this.input.clearPresses();
+      if (open) {
+        this.refreshControls();
+        reactions.classList.toggle('hidden', this.mySlot() == null);
+        (controls.classList.contains('hidden') ? chk : $('summary', controls)).focus();
+      } else {
+        controls.open = false;
+        reactions.open = false;
+        if (closing) (document.body.dataset.screen === 'game' ? this.stage.renderer.domElement : mute).focus({ preventScroll: true });
+      }
+    };
+    mute.onclick = () => { sfx.unlock(); this.showOptions(!this.optionsOpen); sfx.play('click'); };
+    reactions.addEventListener('click', e => {
+      const button = (e.target as Element).closest<HTMLButtonElement>('button[data-emote]');
+      if (button) { this.client?.emote(Number(button.dataset.emote)); this.showOptions(false); }
+    });
+    document.addEventListener('pointerdown', e => {
+      if (this.optionsOpen && !top.contains(e.target as Node)) this.showOptions(false);
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape' || e.repeat || document.querySelector('dialog[open],.modal:not(.hidden)')) return;
+      if (!this.optionsOpen && document.body.dataset.screen !== 'game') return;
+      e.preventDefault();
+      mute.click();
+    });
     chk.onchange = () => { sfx.setMuted(chk.checked); paintMute(); };
-    vm.oninput = () => sfx.setVolume('music', Number(vm.value) / 100);
-    vs.oninput = () => sfx.setVolume('sfx', Number(vs.value) / 100);
     vs.onchange = () => sfx.play('coin');
-    addEventListener('pointerdown', (e) => { if (!top.contains(e.target as Node)) panel.classList.add('hidden'); });
-    $('#leave', top).onclick = () => this.leave(true);
+    $('#leave', top).onclick = () => { this.showOptions(false); this.leave(true); };
     this.skipBtn = document.createElement('button');
     this.skipBtn.id = 'skip';
     this.skipBtn.className = 'mi small hidden';
@@ -210,8 +278,8 @@ export class App {
 
   private layoutTitle() {
     if (this.phase !== 'title') return;
-    const wide = innerWidth > 860;
-    this.showcase.setLayout('title', wide ? 0.25 : 0.5, wide ? 0.6 : 0.255);
+    const wide = innerWidth > 760 || innerWidth > innerHeight * 1.2;
+    this.showcase.setLayout('title', wide ? 0.26 : 0.5, wide ? 0.55 : 0.23);
   }
 
   /** Switch which top-level DOM layers are visible. */
@@ -225,12 +293,22 @@ export class App {
     this.title.el.classList.toggle('hidden', s !== 'title');
     this.lobby.show(s === 'lobby');
     this.hud.show(s === 'game');
+    if (document.body.dataset.screen !== s) this.showOptions(false);
     document.body.dataset.screen = s;
+    const toggle = $('#mute'), inGame = s === 'game';
+    toggle.setAttribute('aria-label', inGame ? 'Game menu' : 'Sound settings');
+    toggle.title = inGame ? 'Game menu (Esc)' : 'Sound';
+    if (inGame) toggle.setAttribute('aria-keyshortcuts', 'Escape');
+    else toggle.removeAttribute('aria-keyshortcuts');
+    const panel = $('#sound-settings'), leave = $('#leave');
+    const parent = inGame ? $('.pbody', panel) : toggle.parentElement!;
+    if (leave.parentElement !== parent) parent.appendChild(leave);
+    leave.textContent = inGame ? 'Leave party' : '×';
     document.body.classList.remove('champ');
     if (this.backdrop) this.backdrop.active = s !== 'game';
     $('#leave').classList.toggle('hidden', s === 'title');
     document.body.classList.remove('lb');
-    if (s !== 'game') { this.wheel.hide(); this.intro.hide(); this.count.set(''); this.results.hide(); this.final.hide(); this.emoteBar.classList.add('hidden'); this.touch.show(false); this.input.capture = false; }
+    if (s !== 'game') { this.wheel.hide(); this.intro.hide(); this.count.set(''); this.results.hide(); this.final.hide(); this.touch.show(false); this.input.capture = false; }
   }
 
   private toast(msg: string, ms = 3500) {
@@ -249,6 +327,7 @@ export class App {
   private async createParty(p: Profile, solo: boolean) {
     this.title.show({ busy: this.lan ? 'Connecting to the LAN server...' : solo || this.nopeer ? 'Starting party...' : 'Opening your room...', lan: this.lan });
     sfx.unlock();
+    announceHero(p.look.char);
     try {
       let make: () => ClientTransport;
       let room = '';
@@ -289,6 +368,7 @@ export class App {
   private async joinParty(p: Profile, code: string) {
     this.title.show({ room: code, busy: this.lan ? 'Joining...' : `Looking for room ${code}...`, lan: this.lan });
     sfx.unlock();
+    announceHero(p.look.char);
     try {
       await this.connect(p, this.lan ? () => new WsTransport() : () => new PeerTransport(code), code);
     } catch (e) {
@@ -371,10 +451,27 @@ export class App {
 
   /** Styled dialog (replaces confirm/alert). Buttons close it, then run. */
   private modal(title: string, text: string, buttons: [string, () => void][]) {
-    const m = div('modal', `<div class="pnl card" role="alertdialog" aria-modal="true" aria-label="${esc(title)}"><div class="band"><h2 class="gt or">${esc(title)}</h2></div><div class="pbody"><p class="sm">${esc(text.toUpperCase())}</p><div class="menu">${buttons.map((b, i) => `<button class="mi ${i === 0 ? 'big' : ''}">${esc(b[0])}</button>`).join('')}</div></div></div>`);
-    m.querySelectorAll('button').forEach((b, i) => { b.onclick = () => { m.remove(); buttons[i][1](); }; });
+    const m = document.createElement('dialog');
+    m.className = 'party-dialog notice';
+    m.setAttribute('aria-label', title);
+    m.setAttribute('role', 'alertdialog');
+    m.innerHTML = `<h2>${esc(title)}</h2><p>${esc(text)}</p><div class="notice-actions">${buttons.map(b => `<button class="quiet">${esc(b[0])}</button>`).join('')}</div>`;
+    m.querySelectorAll('button').forEach((button, i) => {
+      button.onclick = () => { m.close(); buttons[i][1](); };
+    });
+    this.notice = m;
+    this.input.capture = false;
+    m.addEventListener('close', () => {
+      m.remove();
+      if (this.notice !== m) return;
+      this.notice = null;
+      this.input.releaseMenuInput();
+      this.input.capture = this.canCaptureArenaKeys();
+      if (this.input.capture) this.stage.renderer.domElement.focus({ preventScroll: true });
+    }, { once: true });
+    if (buttons.length === 1) m.addEventListener('cancel', e => { e.preventDefault(); });
     this.ui.appendChild(m);
-    m.querySelector('button')?.focus();
+    m.showModal();
   }
 
   private inviteLink(code: string) {
@@ -407,7 +504,7 @@ export class App {
     if (r.phase === 'lobby') {
       if (this.phase !== 'lobby') this.enterLobby();
       this.showcase.setLooks(r.seats.map((s) => s.look));
-      this.lobby.update(r, this.client!.me, this.inviteLink(r.code));
+      this.lobby.update(r, this.client!.me);
       this.phase = 'lobby';
     } else if (this.between) {
       this.showcase.setLooks(r.seats.map((s) => s.look));
@@ -415,9 +512,7 @@ export class App {
     this.hud.setSeats(this.seats, this.mySlot());
     if (this.phase === 'final') {
       const humans = r.seats.filter((s) => s.clientId != null && s.connected).length;
-      const me = this.mySlot();
-      this.final.setVotes(r.rematch, humans, false);
-      void me;
+      this.final.setVotes(r.rematch, humans);
     }
   }
 
@@ -454,14 +549,21 @@ export class App {
       this.showcase.setLooks(this.seats.map((x) => x.look));
       this.stage.show(this.showcase);
       this.hud.show(true);
-      this.emoteBar.classList.remove('hidden');
     }
     this.showcase.react(winner);
+  }
+
+  private canCaptureArenaKeys() {
+    if (this.optionsOpen || this.notice) return false;
+    // Drivers can already be holding the accelerator while reading the rules or loading the track.
+    const race = this.client?.round?.gameId === 'dashRace';
+    return this.phase === 'play' || (this.phase === 'intro' && race) || (this.phase === 'countdown' && (race || this.arenaReady));
   }
 
   private onPhase(p: Phase, ms: number) {
     const prev = this.phase;
     this.phase = p;
+    if (this.optionsOpen) this.refreshControls();
     this.skipBtn?.classList.toggle('hidden', !(this.isHost && (p === 'wheel' || p === 'intro' || p === 'results')));
     switch (p) {
       case 'lobby': this.enterLobby(); if (this.client?.room) this.onRoom(this.client.room); break;
@@ -470,24 +572,31 @@ export class App {
         break;
       case 'intro':
         this.between = false;
-        document.body.classList.remove('lb');
+        this.loading.cancel();
+        this.setScreens('game');
         void this.levelMusic();
         this.results.hide();
         this.touch.show(false);
         this.showIntro(ms);
+        this.input.capture = this.canCaptureArenaKeys();
         break;
       case 'countdown':
         this.intro.hide();
+        this.input.capture = this.canCaptureArenaKeys();
+        if (this.input.capture) this.stage.renderer.domElement.focus({ preventScroll: true });
+        if (!this.arenaReady && !this.loading.visible) this.loading.show();
+        this.countMs = Math.max(1, this.client!.phaseEnds - this.client!.phaseStartedAt);
         break;
       case 'play':
+        if (!this.arenaReady && !this.loading.visible) this.loading.show();
         if (prev !== 'countdown') void this.levelMusic();
         this.intro.hide();
-        this.count.set('GO!');
-        // GO on the game's menu confirm sound
-        if (!sfx.playFile('sfx/0272/9.mp3', 1)) sfx.play('go');
-        this.playAt = performance.now();
-        this.input.capture = true;
-        this.touch.setTaunt(['tankArena', 'crateToss'].includes(this.client?.round?.gameId ?? ''));
+        this.count.set(prev === 'countdown' ? 'GO!' : '');
+        this.playAt = this.client!.playStartedAt;
+        this.input.capture = this.canCaptureArenaKeys();
+        if (this.input.capture) this.stage.renderer.domElement.focus({ preventScroll: true });
+        if (prev === 'countdown' && this.client?.round?.gameId === 'dashRace') this.input.enterDashPlay();
+        else this.input.clearPresses();
         this.touch.show(this.mySlot() != null);
         {
           const m = this.client?.round;
@@ -499,21 +608,32 @@ export class App {
         break;
       case 'final':
         this.touch.show(false);
-        sfx.music('podium');
-        this.scheduleFinal(ms);
+        if (this.client?.results?.final) this.scheduleFinal(ms);
         break;
     }
   }
 
   private onEmote(slot: number, id: number) {
     sfx.play('emote');
+    if (this.stage.gameVisible && this.seats[slot] && EMOTE_LABELS[id]) {
+      this.toast(`${this.seats[slot].name} · ${EMOTE_LABELS[id]}`, 1500);
+    }
     this.hud.emote(slot, id);
     this.lobby.emote(slot, id);
     this.showcase.bounce(slot);
   }
 
   // ------------------------------------------------------------ wheel / round / results
+  private resetTournamentDisplay() {
+    this.final.hide();
+    this.confetti.clear();
+    this.lastResults = null;
+    this.streaks.fill(0);
+    this.trophies.fill(0);
+  }
+
   private onWheel(m: WheelMsg) {
+    if (m.round === 1) this.resetTournamentDisplay();
     this.phase = 'wheel';
     clearTimeout(this.resultsTimer);
     this.results.hide();
@@ -521,14 +641,27 @@ export class App {
     this.enterBetween();
     this.setChamp(false);
     this.showcase.setLayout('between');
-    this.wheel.run(m, `ROUND ${m.round} OF ${m.total}`);
-    this.hud.setRound(m.round, m.total);
+    this.wheel.run(m, m.cupsToWin ? 'CUP BATTLE' : `ROUND ${m.round} OF ${m.total}`);
+    this.hud.setRound(m.round, m.total, m.cupsToWin);
   }
 
   private onRound(m: RoundMsg) {
-    this.loading.show();
+    this.stage.ctx.resultReplayAt = undefined;
+    if (m.round === 1 && (this.phase === 'final' || this.phase === 'lobby')) this.resetTournamentDisplay();
+    clearTimeout(this.resultsTimer);
+    this.setChamp(false);
+    this.hud.setRound(m.round, m.total, m.cupsToWin);
+    sfx.clearRoundResult();
+    this.arenaReady = false;
     this.wheel.hide();
     this.pendingGame = m;
+    const chars = m.seats.map(s => s.look.char);
+    this.ps1hud.preloadRound(chars);
+    this.count.preloadVoices();
+    preloadRoundVoices(m.gameId, chars);
+    this.input.game = m.gameId;
+    this.input.variant = m.variant?.id ?? this.variantInfo()?.id;
+    this.touch.configure(this.input.game, this.input.variant);
     this.gameName = m.gameName;
     this.seats = m.seats.map((s) => ({ name: s.name, look: s.look, bot: s.bot }));
     this.hud.setSeats(this.seats, this.mySlot());
@@ -544,9 +677,16 @@ export class App {
     const w = c.snaps[c.snaps.length - 1].w as RenderWorld;
     const seats = m.seats.map((s) => ({ name: s.name, look: s.look, bot: s.bot }));
     void this.stage.loadGame(factory(), w, c.roundSlot, seats).then((ok) => {
-      if (ok) { this.setScreens('game'); this.hud.show(true); this.input.capture = true; this.emoteBar.classList.add('hidden'); }
-      // superseded loads leave the screen to the newer one
-      if (ok || !this.pendingGame) void this.loading.hide(LOADING_MIN_MS);
+      if (this.client !== c || c.round !== m || this.phase === 'lobby' || this.phase === 'title') return;
+      if (ok) {
+        this.arenaReady = true;
+        this.setScreens('game');
+        this.input.capture = this.canCaptureArenaKeys();
+        if (this.lastResults && this.arenaCupHold(this.lastResults) !== undefined && this.results.el.querySelector('.intro-bg')) {
+          this.showCupStandings(this.lastResults);
+        }
+      }
+      if (this.phase === 'countdown' || this.phase === 'play') void this.loading.hide();
     });
   }
 
@@ -554,6 +694,7 @@ export class App {
     const c = this.client;
     const m = c?.round;
     const w = c?.snaps[c.snaps.length - 1]?.w as World | undefined;
+    if (m?.variant) return m.variant.name;
     if (!m || !w) return null;
     const v = (w.data as Record<string, unknown>)?.variant;
     if (v == null) return null;
@@ -575,16 +716,29 @@ export class App {
     for (const t of tries) {
       const k = await sfx.musicKey(t);
       if (this.client?.round?.round !== round) return; // moved on
-      if (k) { sfx.music(k); return; }
+      if (k) { sfx.music(k, 'round'); return; }
     }
   }
 
   /** the level the host picked: {id, name} (id = the variant key the stage stills use) */
   private variantInfo(): { id: string; name: string } | null {
+    if (this.client?.round?.variant) return this.client.round.variant;
     const name = this.variantName();
     const w = this.client?.snaps[this.client.snaps.length - 1]?.w as World | undefined;
     const v = (w?.data as Record<string, unknown> | undefined)?.variant;
     return name ? { id: typeof v === 'string' ? v : '', name } : null;
+  }
+
+  private refreshControls() {
+    const round = this.client?.round;
+    const controls = $('.round-controls');
+    const show = !!round && document.body.dataset.screen === 'game' && this.phase !== 'wheel';
+    controls.classList.toggle('hidden', !show);
+    if (!show || !round) return;
+    const html = controlsHtml(round.controls, this.touch.enabled, round.gameId, this.variantInfo()?.id, this.client?.roundSlot);
+    $('.ctl', controls).innerHTML = html;
+    const intro = this.intro.el.querySelector('.ctl');
+    if (intro) intro.innerHTML = html;
   }
 
   private showIntro(ms = 4000) {
@@ -597,20 +751,33 @@ export class App {
   }
 
   private onResults(m: ResultsMsg) {
+    const replay = this.lastResults?.round === m.round;
     this.lastResults = m;
-    this.resultsAt = performance.now();
-    this.count.set('');
-    const w = m.placements[0];
+    const inResultPhase = this.client?.phase === 'results' || this.client?.phase === 'final';
+    this.resultsAt = inResultPhase ? this.client!.phaseStartedAt : performance.now();
+    this.stage.ctx.resultReplayAt = inResultPhase ? this.resultsAt / 1000 : undefined;
+    const terminal = this.client?.snaps.at(-1);
+    const playAt = inResultPhase && terminal ? this.resultsAt - terminal.tick * 1000 * DT : this.playAt;
+    if (m.draw && (this.stage.gameVisible || inResultPhase)) this.count.showDraw(this.resultsAt, playAt, this.client?.round?.gameId ?? '');
+    else this.count.set('');
+    const w = m.draw ? null : m.placements[0];
     this.trophies = [...m.stars];
-    this.streaks = this.streaks.map((v, i) => (i === w ? v + 1 : 0));
-    this.emoteBar.classList.remove('hidden');
-    if (m.final) return; // the final ceremony takes over
-    const delay = this.stage.gameVisible ? 800 : 0;
-    if (delay) { this.hud.banner('FINISH!', '', 'info', 700); sfx.play('whoosh'); }
+    if (!replay) this.streaks = this.streaks.map((v, i) => (i === w ? v + 1 : 0));
+    if (m.final) {
+      // On reconnect the phase precedes the results payload.
+      if (this.phase === 'final') this.scheduleFinal(Math.max(0, this.client!.phaseEnds - performance.now()));
+      return;
+    }
+    const remaining = this.phase === 'results' ? Math.max(0, this.client!.phaseEnds - performance.now()) : Infinity;
     const lastGame = this.client?.round?.gameId ?? '', lastLevel = this.variantInfo()?.id ?? null;
+    const cupHold = this.arenaCupHold(m);
+    const holdMs = cupHold ?? arenaResultHoldMs(lastGame, !!m.draw, w === null ? undefined : this.seats[w]?.look.char) ?? 3500;
+    const delay = this.stage.gameVisible || cupHold !== undefined
+      ? Math.max(0, Math.min(this.resultsAt + holdMs - performance.now(), remaining - STANDINGS_MIN_MS)) : 0;
     clearTimeout(this.resultsTimer);
     this.resultsTimer = window.setTimeout(() => {
       if (this.phase !== 'results') return;
+      if (m.cupsToWin) { this.showCupStandings(m); return; }
       this.enterBetween(w);
       // wide screens: the winner's own model cheers beside the board (the showcase shows through)
       const champ = innerWidth / Math.max(1, innerHeight) > 1.25 && w != null && !!this.seats[w];
@@ -620,65 +787,104 @@ export class App {
     }, delay);
   }
 
+  private showCupStandings(m: ResultsMsg) {
+    this.count.set('');
+    const game = this.client?.round?.gameId, variant = this.variantInfo()?.id;
+    const background = !this.stage.gameVisible && game ? thumb(game, variant) : undefined;
+    this.results.show(m, this.seats, this.mySlot(), this.streaks, background);
+  }
+
+  private arenaCupHold(m: ResultsMsg) {
+    if (!m.cupsToWin || m.draw || !this.client) return;
+    const terminal = this.client.snaps.at(-1)?.w;
+    if (this.client.round?.gameId === 'tankArena' && terminal?.data.result?.poseAt !== undefined) return 3 * 1000 / 30;
+    const slot = m.placements[0];
+    const char = this.seats[slot]?.look.char;
+    if (!terminal?.finished || char === undefined) return;
+    const cheer = winnerCheerFrame(char);
+    if (this.client.round?.gameId === 'pushOff') {
+      const rider = terminal.data.P?.[slot];
+      return Math.max(0, cheer + 3 + (rider?.st === S_WIN ? -rider.k : 1)) * 1000 / 30;
+    }
+    if (this.client.round?.gameId === 'ballDefence') return ballistixCupDelay(terminal, slot, cheer);
+  }
+
   private scheduleFinal(ms: number) {
     clearTimeout(this.finalTimer);
     const m = this.lastResults ?? this.client?.results;
     if (!m || !m.final) return;
-    const introMs = Math.min(3600, ms * 0.14);
+    const now = performance.now();
+    const elapsed = Math.max(0, now - (this.client?.phaseStartedAt ?? now));
+    const duration = ms + elapsed;
+    const defaultIntroMs = m.cupsToWin ? Math.min(7000, duration * 0.24) : Math.min(3600, duration * 0.14);
+    const holdMs = arenaResultHoldMs(this.client?.round?.gameId, !!m.draw, this.seats[m.placements[0]]?.look.char);
+    const introMs = holdMs !== undefined
+      ? Math.max(defaultIntroMs, Math.min(holdMs + LOADING_MIN_MS, duration * 0.24))
+      : defaultIntroMs;
+    const podiumAt = now + introMs - elapsed;
+    if (m.cupsToWin) {
+      clearTimeout(this.resultsTimer);
+      const tallyAt = this.arenaCupHold(m);
+      if (podiumAt - now > LOADING_MIN_MS) this.resultsTimer = window.setTimeout(() => {
+        if (this.phase === 'final') this.showCupStandings(m);
+      }, Math.max(0, tallyAt === undefined ? podiumAt - now - LOADING_MIN_MS - 2500 : tallyAt - elapsed));
+    }
+    if (podiumAt <= now) { this.startFinal(m, duration, introMs, podiumAt); return; }
     // the podium is a level of its own: the LOADING vortex covers the switch, as in the game
     this.finalTimer = window.setTimeout(() => {
       this.loading.show();
-      this.finalTimer = window.setTimeout(() => this.startFinal(m, ms, introMs), LOADING_MIN_MS);
-    }, Math.max(0, introMs - LOADING_MIN_MS));
+      this.finalTimer = window.setTimeout(() => this.startFinal(m, duration, introMs, podiumAt), Math.max(0, podiumAt - performance.now()));
+    }, Math.max(0, podiumAt - now - LOADING_MIN_MS));
   }
 
-  private startFinal(m: ResultsMsg, ms: number, introMs: number) {
+  private startFinal(m: ResultsMsg, ms: number, introMs: number, podiumAt: number) {
     if (this.phase !== 'final') { this.loading.cancel(); return; }
     void this.loading.hide();
+    sfx.music('podium');
     this.setChamp(false);
     this.results.hide();
+    this.pendingGame = null;
     this.stage.unloadGame();
+    this.setScreens('game');
     this.hud.setPillText('FINAL', 'RESULTS');
     void this.final.run(m, this.seats, ms, {
       podium: this.podium, hud: this.hud, confetti: this.confetti,
       showPodium: () => this.stage.show(this.podium),
+      canVote: this.mySlot() !== null,
       onRematch: () => this.client?.rematch(),
-      onLobby: () => this.leaveToLobby(),
-    }, introMs);
-  }
-
-  private leaveToLobby() {
-    // Not a server concept: the party returns to the lobby on its own when the final ends. Just wait.
-    this.toast('Heading back to the lobby...');
+      onLeave: () => this.leave(true),
+    }, introMs, podiumAt);
   }
 
   // ------------------------------------------------------------ frame
   private frame(t: number) {
     const dt = Math.min(0.1, (t - this.lastT) / 1000);
     this.lastT = t;
+    const inMenus = this.phase === 'title' || this.phase === 'lobby' || this.phase === 'final';
+    this.menuPad.update(t, !!this.notice || this.optionsOpen || inMenus, !inMenus || this.stage.gameVisible);
     const c = this.client;
     this.tryLoadGame();
 
-    if (c && this.phase === 'play' && c.roundSlot != null) {
+    const startingRace = this.phase === 'countdown' && c?.round?.gameId === 'dashRace';
+    if (c && (this.phase === 'play' || startingRace) && c.roundSlot != null) {
+      if (startingRace) this.input.clearPresses();
       this.acc += dt;
-      for (let n = 0; this.acc >= DT && n < 5; n++, this.acc -= DT) c.sendInput(this.input.sample());
+      for (let n = 0; this.acc >= DT && n < 5; n++, this.acc -= DT) c.sendInput(this.optionsOpen || this.notice ? IDLE : this.input.sample());
       if (this.acc > DT * 5) this.acc = 0;
     } else this.acc = 0;
 
-    // lobby name tags
-    if (this.phase === 'lobby' && this.stage.current === this.showcase) {
-      const pts = [0, 1, 2, 3].map((i) => this.stage.project(this.showcase.footPos(i)));
-      this.lobby.placeTags(pts);
-    }
+    const inArena = this.stage.gameVisible && (this.phase === 'intro' || this.phase === 'countdown'
+      || this.phase === 'play' || this.phase === 'results' || this.phase === 'final');
+    const arenaWorld = c && inArena ? c.renderWorld(t) as RenderWorld | null : null;
 
     // HUD cards: points + trophies (from the room's seats, updated on results)
     if (this.phase !== 'lobby' && this.phase !== 'title') {
       const r = this.lastResults;
       let coins = c?.room?.seats.map((x) => x.score) ?? [0, 0, 0, 0];
       let stars = this.trophies;
-      if (r && this.phase === 'results' && performance.now() - this.resultsAt < 3400) { coins = r.prev; stars = r.stars.map((x, i) => x - (r.placements[0] === i ? 1 : 0)); }
+      if (r && this.phase === 'results' && performance.now() - this.resultsAt < 3400) { coins = r.prev; stars = r.stars.map((x, i) => x - (!r.draw && r.placements[0] === i ? 1 : 0)); }
       let extra: string[] | undefined;
-      const world = this.phase === 'play' || this.phase === 'countdown' ? (c!.renderWorld(t) as RenderWorld | null) : null;
+      const world = this.phase === 'intro' ? null : arenaWorld;
       const g = this.stage.activeGame;
       if (world && g?.hud) extra = [0, 1, 2, 3].map((i) => { try { return g.hud!(world, i); } catch { return ''; } });
       this.hud.update(dt, { coins, stars: this.phase === 'final' && this.final.currentStars.length ? this.final.currentStars : stars, extra });
@@ -704,21 +910,26 @@ export class App {
       document.body.classList.remove('realhud', 'podstrip');
     }
 
-    // countdown text
+    // Keep the native sequence in sync with the room's phase deadline.
+    const lead = c?.round?.countdownLeadTicks ?? 0;
+    const frames = NUMBERED_COUNTDOWN_TICKS + lead;
+    this.stage.ctx.countdownTicksLeft = undefined;
+    if (c && this.phase === 'intro') {
+      const rulesTicksLeft = Math.ceil(Math.max(0, c.phaseEnds - t) / (1000 * DT));
+      this.stage.ctx.countdownTicksLeft = frames + rulesTicksLeft;
+    }
     if (c && this.phase === 'countdown') {
-      const n = Math.max(1, Math.ceil((c.phaseEnds - t) / 1000));
-      const txt = String(n);
-      // the game's menu cursor blip, a step higher each second (3 / 2 / 1)
-      if (txt !== this.lastCount) { this.lastCount = txt; if (!sfx.playFile('sfx/0272/7.mp3', 0.9, false, [1.26, 1.12, 1][Math.min(2, n - 1)] ?? 1)) sfx.play('beep', 1); }
-      this.count.set(txt);
+      const frame = Math.max(0, Math.min(frames - 1, Math.floor(frames * (1 - (c.phaseEnds - t) / this.countMs))));
+      this.stage.ctx.countdownTicksLeft = frames - frame;
+      const numberedFrame = frame - lead;
+      if (numberedFrame < 0) this.count.set('');
+      else this.count.set(COUNT_LABELS[Math.floor(numberedFrame / COUNT_FRAMES)], numberedFrame % COUNT_FRAMES);
     } else if (this.phase === 'play') {
-      this.lastCount = '';
-      if (t - this.playAt > 900) this.count.set('');
+      this.count.advanceGo(Math.floor((t - this.playAt) / (1000 * DT)));
     }
 
-    let world: RenderWorld | null = null;
-    if (c && this.stage.gameVisible && (this.phase === 'play' || this.phase === 'countdown' || this.phase === 'intro' || this.phase === 'results' || this.phase === 'final')) world = c.renderWorld(t) as RenderWorld | null;
-    this.stage.render(world, dt, t / 1000);
+    this.stage.render(arenaWorld, dt, t / 1000);
+    this.count.draw(this.stage.gameVisible ? this.stage.renderer : null, t, this.phase === 'play' || this.phase === 'results' || this.phase === 'final');
     requestAnimationFrame((tt) => this.frame(tt));
   }
 }

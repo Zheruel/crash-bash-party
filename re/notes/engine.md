@@ -119,13 +119,13 @@
 - KK: jump table 0x8009d354 (speed, max fall, fall accel, rise decel); chars 1-4 = 108,114,8,10; chars 5-8 = 72,114,10,6. Player collision radius 120 for every char.
 - KK: sfx ids via VAB of bank 0177: sample = vag-1; samples can sit in other bank dirs (index.json).
 
-## Ring Ding engine facts (level 28, see ringDing.md)
-- Player update order is shuffled: `FUN_80085650` builds 16 random permutations of 0..3 (table `0x8009d764`), the player loop (`all.c` ~0x80084xxx) picks one with `rand(16)` every tick. Anything that depends on who moves first (collisions, both-barge) must use it.
+## Ring Ding engine facts (level 27, see ringDing.md)
+- `FUN_80085650` starts each of the 16 rows at `0,1,2,3` and swaps each entry with `rand(4)`. `FUN_80083e8c` draws one row with `rand(16)` before updating the seats. Rival queries within each update still scan by seat number.
 - Per-player hooks: `0x8009d708` = `b9930` (pad -> heading + target velocity), state handler `0x8009dca4[state*2]` (enter `0x8009dca0`), `0x8009d70c` = `b9778` (yaw smoothing adiff>>2, accel, move, wall), `d714` = `b96a0`, `d720` = `bd08c`. Order: lock-1, AI, b9930, handler, b9778.
 - `FUN_80015590(n)` = rand(n). `FUN_80032490(n)>>6` is NOT floor(sqrt): table-free CORDIC (`FUN_8003233c`, 6 hyperbolic iterations with iteration 4 doubled, constant 0x5d50ad, normalised by LZCR). Port in `ringDing.ts` (`sq`); matters for exact wall clamps.
 - Matrices: `80032cac` = Ry(-a) inverse, `8003278c` = Ry*Rz forward, `800330cc` = M*v >> 12.
 - VAB tone lookup for sfx: tone index = (program*16 + tone), 32 bytes each from the tone table; sample = vag field - 1 (checked on 0179 and 0180).
-- Char ids per slot look: [1,2,5,7,3,4,8,6]. Level ids: Ring Ding 28 (0x1c), Dragon Drop 27 (name table swapped).
+- Char ids per slot look: [1,2,5,7,3,4,8,6]. Level ids: Ring Ding 27 (0x1b), Dragon Drop 28 (0x1c).
 - Round clock in rows of recordings is the game tick counter; level phases that run during the intro (target swing: +97 ticks) are offset from it.
 
 ## Tank Wars engine facts (levels 5-8, see tankWars.md)
@@ -158,7 +158,7 @@
 - A VAB tone carries its own sound id in min/max (`FUN_8002aca0` fills table 0x80064508 from every loaded VAB), so each voice bank declares
   its ids. Character voice ids = block*0x32 + n; block per engine character: 1 crash 0, 2 coco 1, 3 cortex 2, 4 brio 3, 5 tiny 6, 6 rilla 7, 7 dingodile 5, 8 koala 4 (= hit ids / 0x32).
 - Voice-bank families (disc t0c, matched in the level RAM dumps): 0182-0189 Tank Wars; 0190-0197 Pogo / Ballistix / Crash Dash;
-  0198-0205 Polar Push / Ring Ding; 0206-0213 Crate Crush / Mallet Mash / Dragon Drop / Keg Kaboom. An id missing from the family's bank is silent.
+  0198-0205 Polar Push; 0206-0213 Crate Crush / Ring Ding / Mallet Mash / Dragon Drop / Keg Kaboom. An id missing from the family's bank is silent.
   Built into assets/audio/voices.json {families: block -> bank, ids: bank -> id -> file}; client API web/client/shell/voice.ts.
 - Hit voice: table 0x8009e080 + engineChar*8 = 4 ids (block*0x32 + 3..6), rand(4). Used by Crate Crush hurt-enter (ovl 0x800bfd..),
   Ring Ding recoil enter (anim 0x4d), Polar Push collision at speed^2 > 0x1000.

@@ -1,7 +1,11 @@
+import { atan2g } from '../ps1Angle';
+export { atan2g } from '../ps1Angle';
 import { DISC_CHARACTER } from '../look';
-import { addBody, emit, rand } from '../physics';
-import { type InputState, type MiniGame, type SlotInfo, type World } from '../types';
-import { KK_SCRIPTS } from './kegKaboomData';
+import { addBody, discRandomInt, discRandomState, drawDiscRandom, emit } from '../physics';
+import { ps1SqrtQ6 } from '../ps1Sqrt';
+import { IDLE, type InputState, type MiniGame, type SlotInfo, type World } from '../types';
+import { KK_AIR_HIT_SCRIPTS, KK_SCRIPTS } from './kegKaboomData';
+import { nextPlayerOrder, shufflePlayerOrders, tickPlayerTally, VERSUS_CLOCK_END } from './common';
 
 /**
  * KEG KABOOM (Crash Bash level 30, family 0x10d), ported from the PS1 code (overlay 0x800b32b4.., see re/notes/kegKaboom.md).
@@ -16,12 +20,12 @@ import { KK_SCRIPTS } from './kegKaboomData';
  * trail from node to node, and blow up every keg within a +-300 box (chains +-288 from each keg). A keg is worth min(10, combo + chain
  * + 2) (silver 10, gold 20, every 8th keg silver, every 32nd gold); the combo of a player grows by what his sparks blow up and
  * drops to 0 ten frames after his last spark. The shock-wave pickup (a bouncing flame, every 600 frames) lets the next press of
- * A (on the ground; the game's Circle / R1 / R2) blow every keg within +-896 and stun everyone else in that box. Cross = jump.
+ * Circle (on the ground) blow every keg within +-896 and stun everyone else in that box. Cross = jump.
  * Highest score after 1:30 wins; the real scores are all even (HUD counters roll up one digit at a time, which is where odd
  * numbers seen on screen come from).
  *
  * The sim starts at the end of the real game's 99-frame intro (keg spawner / flames / pickup timers already ran, pre-simulated in
- * setup); the clock starts 27 frames later and the round ends after 2715 steps.
+ * setup); the clock starts 27 frames later and waits for any outstanding points at the horn.
  *
  * world.data (KKData): p[4] players (null for an empty seat), o[] objects (kegs t1, nodes t2, pickup t4, sparks t5), fl[2] flames.
  * Bodies: 'player' per slot, x/z/y mirror the game position (for the shared view helpers).
@@ -45,17 +49,23 @@ export const KK_FLAME_R = 2304 / KK_S;
 /** shock wave reach (box half side) */
 export const KK_WAVE = 0x380;
 
-const INTRO_END = 99; // frame the intro flag (0x4000000) clears: input / AI start
+export const KK_INTRO_TICKS = 99; // last update with the native countdown input lock
+export const KK_FLAME_STEP = 12;
 const CLOCK_START = 126;
-/** update index that sets the win / lose flags (display 1:30 -> 0:00) */
-const END_G = 2813;
-export const KK_MAX_TIME = (END_G + 1 - INTRO_END) / 30;
+const LEGACY_END_G = 2813;
+export const KK_MAX_TIME = VERSUS_CLOCK_END / 30;
 
 const START: [number, number, number][] = [[-933, -1176, 3584], [-1141, 1343, 512], [1059, 1295, 1536], [1038, -1145, 2560]];
-/** engine character id (1..8) per look.ts CHARACTERS index: crash coco tiny dingodile cortex brio koala rilla big-stein (Cortex) */
+/** Engine character ID per roster look. Both custom carriers use Cortex's physics. */
 export const KK_CHAR = DISC_CHARACTER;
-/** player collision radius: 0x78 for every character (pair distance histogram of an all-CPU game: density starts at 2 x 120) */
-const RADIUS = [0, 120, 120, 120, 120, 120, 120, 120, 120];
+// FUN_800b46bc caches marker 0x40 at the collision pose in table 0x800bc188.
+// Coco, Brio and Koala also have no fallback cylinder in their Keg animation frames.
+const CYLINDER: readonly (readonly [bottom: number, radius: number, top: number] | null)[] = [
+  null, [0, 204, -502], null, [3, 153, -519], null, [-5, 179, -724], [-9, 119, -707], [0, 332, -718], null,
+];
+const LEGACY_CYLINDER = [Infinity, 120, -Infinity] as const;
+// Slots 0–12 hold the permanent scene and four fuse followers.
+const FIRST_DYNAMIC_SLOT = 13, OBJECT_SLOT_COUNT = 104;
 /** jump table (exe 0x8009d354): initial speed, max fall, fall accel, rise decel */
 const JUMP: number[][] = [[0, 0, 0, 0], [108, 114, 8, 10], [108, 114, 8, 10], [108, 114, 8, 10], [108, 114, 8, 10], [72, 114, 10, 6], [72, 114, 10, 6], [72, 114, 10, 6], [72, 114, 10, 6]];
 const SKILL = [14, 19, 22];
@@ -72,47 +82,36 @@ const GRID = 0xa00;
 // ---------------------------------------------------------------- exe math replicas
 const COS = new Int16Array(4096);
 for (let i = 0; i < 4096; i++) COS[i] = Math.round(4096 * Math.cos((i * 2 * Math.PI) / 4096));
-const AT = new Int16Array(2049);
-for (let i = 0; i <= 2048; i++) AT[i] = Math.round((Math.atan(i / 2048) * 4096) / (2 * Math.PI));
 const T = (i: number) => COS[i & 0xfff];
-/** FUN_8001463c */
-export function atan2g(a: number, b: number): number {
-  if (a === 0 && b === 0) return 0;
-  const q = (n: number, m: number) => Math.trunc(n / m);
-  if (a < 0) {
-    const n = -a;
-    if (b >= 0) return n < b ? 0x1000 - AT[q(n * 0x800, b)] : AT[q(b * 0x800, n)] + 0xc00;
-    const m = -b;
-    return n < m ? AT[q(n * 0x800, m)] + 0x800 : 0xc00 - AT[q(m * 0x800, n)];
-  }
-  if (b < 0) {
-    const m = -b;
-    return a < m ? 0x800 - AT[q(a * 0x800, m)] : AT[q(m * 0x800, a)] + 0x400;
-  }
-  return b <= a ? 0x400 - AT[q(b * 0x800, a)] : AT[q(a * 0x800, b)];
-}
 const angDiff = (a: number, b: number) => { const v = (b - a) & 0xfff; return v > 0x800 ? v - 0x1000 : v; };
-const dist = (ax: number, az: number, bx: number, bz: number) => Math.floor(Math.sqrt((bx - ax) * (bx - ax) + (bz - az) * (bz - az)));
+export const kkTurn = (yaw: number, target: number) => (yaw + (angDiff(yaw, target) >> 2)) & 0xfff;
+const dist = (ax: number, az: number, bx: number, bz: number) => ps1SqrtQ6((bx - ax) ** 2 + (bz - az) ** 2) >> 6;
 
 // ---------------------------------------------------------------- data
 export interface AnimSt { id: number; pc: number; c: number; h: number; l: number; d: number; pose: number }
 export interface KAi { mode: number; tm: number; pad: number; tx: number; tz: number; ang: number; keg: number; pk: number; burn: number }
 export interface KP {
-  ch: number; bot: boolean; slot: number;
+  ch: number; bot: boolean; slot: number; cpuFallback?: boolean;
   x: number; y: number; z: number; yaw: number; hd: number; spd: number; mv: number; run: number;
   st: number; fl: number; score: number;
   /** jump physics: speed, cap, fall accel, rise decel, rising (cap 0 = off) */
   jv: number; jc: number; ja: number; jd: number; jr: number;
   pad: number; ppad: number; lay: number; combo: number; shock: number; fuse: number; fuseP: number;
-  nx: number; nz: number; hasN: number;
+  fuseStart?: number; fuseVariant?: number;
+  /** Last spark in the seat's update order, plus the origin read by this tick's audio update. */
+  fuseOrigin?: [number, number]; fuseMixOrigin?: [number, number];
+  nx: number; nz: number; hasN: number; lastNodeSlot?: number;
   sl: number; sr: number;
   an: AnimSt; ai: KAi;
 }
-export interface KKeg { t: 1; id: number; x: number; z: number; sc: number; gr: number; hit: number; kind: number; claim: number; sl: number; born: number; dead?: boolean }
-export interface KNode { t: 2; id: number; x: number; z: number; y: number; vy: number; life: number; own: number; born: number; dead?: boolean }
-export interface KPick { t: 4; id: number; x: number; z: number; y: number; vy: number; ch: number; born: number; dead?: boolean }
-export interface KSpark { t: 5; id: number; x: number; z: number; tx: number; tz: number; st: number; life: number; own: number; born: number; dead?: boolean }
-export type KObj = KKeg | KNode | KPick | KSpark;
+interface ArenaObject { poolSlot?: number }
+export interface KKeg extends ArenaObject { t: 1; id: number; x: number; z: number; sc: number; gr: number; hit: number; kind: number; claim: number; sl: number; born: number; dead?: boolean }
+export interface KNode extends ArenaObject { t: 2; yaw?: number; id: number; x: number; z: number; y: number; vy: number; life: number; own: number; born: number; dead?: boolean }
+export interface KPick extends ArenaObject { t: 4; id: number; x: number; z: number; y: number; vy: number; ch: number; born: number; dead?: boolean }
+export interface KSpark extends ArenaObject { t: 5; id: number; x: number; z: number; tx: number; tz: number; st: number; life: number; own: number; sc?: number; born: number; dead?: boolean }
+// Point numbers and blast scripts occupy the same native slots as kegs and powder.
+interface KEffect extends ArenaObject { t: 6; id: number; x: number; z: number; life: number; born: number; dead?: boolean }
+export type KObj = KKeg | KNode | KPick | KSpark | KEffect;
 export interface KKData {
   g: number;
   p: (KP | null)[];
@@ -121,21 +120,25 @@ export interface KKData {
   /** keg spawner timer, pickup spawner timer, keg counter, object id */
   kt: number; pt: number; kn: number; nid: number;
   skill: number; over: boolean; winner: number;
+  shown?: number[];
+  random?: [number, number];
+  updateOrders?: number[][];
+  pool?: { next: number; free: number[] };
 }
 
-const rn = (w: World, n: number) => (n < 2 ? 0 : Math.floor(rand(w) * n));
-/** test hook: replace the random source (the PS1 LCG) when comparing with an emulator trace */
+/** Substitute recorded draws when comparing with an emulator trace. */
 export const kkTest: { rn: ((w: World, n: number) => number) | null } = { rn: null };
-const R = (w: World, n: number) => (kkTest.rn ? kkTest.rn(w, n) : rn(w, n));
+const R = (w: World, n: number) => (kkTest.rn ? kkTest.rn(w, n) : discRandomInt(w, n));
 
 // ---------------------------------------------------------------- animation script interpreter (FUN_8008502c / FUN_800854c0)
-const scriptOf = (P: KP) => KK_SCRIPTS[P.ch][P.an.id - 0x61];
-function animCall(P: KP, id: number, onState?: (st: number) => void): number {
-  P.an = { id, pc: 0, c: -1, h: 0, l: P.an?.l ?? 0, d: KK_SCRIPTS[P.ch][id - 0x61][0], pose: P.an?.pose ?? 0 };
+type AnimPlayer = Pick<KP, 'ch' | 'an'>;
+const scriptOf = (P: AnimPlayer, id = P.an.id) => id >= 0x61 ? KK_SCRIPTS[P.ch][id - 0x61] : KK_AIR_HIT_SCRIPTS[P.ch][id];
+function animCall(P: AnimPlayer, id: number, onState?: (st: number) => void): number {
+  P.an = { id, pc: 0, c: -1, h: 0, l: P.an?.l ?? 0, d: scriptOf(P, id)[0], pose: P.an?.pose ?? 0 };
   return animStep(P, onState);
 }
 export function animStart(P: KP, id: number, onState?: (st: number) => void): number { return animCall(P, id, onState); }
-export function animStep(P: KP, onState?: (st: number) => void): number {
+export function animStep(P: AnimPlayer, onState?: (st: number) => void): number {
   const a = P.an, S = scriptOf(P);
   a.c--;
   let ret = 0;
@@ -160,10 +163,51 @@ export function animStep(P: KP, onState?: (st: number) => void): number {
 /** [clip, frame] of the current pose (clip = gltf animation index, 30 fps = one logic frame per key) */
 export const kkPose = (an: AnimSt): [number, number] => [(an.pose - 0x4000) >> 7, an.pose & 0x7f];
 
+function startOpeningIdle(player: AnimPlayer) {
+  animCall(player, 0x61);
+  // The first drawn native arena frame has already run one idle update after the initial call.
+  animStep(player);
+}
+
+/** Sample the locked opening's idle script from its initial call, independently of the host snapshot. */
+export function kkOpeningPoses(ch: number): [number, number][] {
+  const player: AnimPlayer = { ch, an: { id: 0x61, pc: 0, c: -1, h: 0, l: 0, d: 0, pose: 0 } };
+  startOpeningIdle(player);
+  const poses = [kkPose(player.an)];
+  for (let tick = 0; tick < KK_INTRO_TICKS; tick++) {
+    animStep(player);
+    poses.push(kkPose(player.an));
+  }
+  return poses;
+}
+
+export function kkStartFall(P: KP) {
+  P.mv = 1; P.jv = 8; P.jc = 0x70; P.ja = 10; P.jd = 0; P.jr = 0;
+}
+
+/** Advance the native vertical integrator (FUN_800860d4), returning true at the apex. */
+export function kkStepJump(P: KP, crossHeld: boolean): boolean {
+  if (P.jc === 0) return false;
+  if (P.jr) {
+    const dec = !P.bot && !crossHeld && P.jv > 0x40 ? 0x28 : P.jd;
+    P.jv -= dec;
+    if (P.jv < 0) {
+      P.jv = 0; P.jr = 0;
+      return true;
+    }
+    P.y -= P.jv;
+  } else {
+    P.jv = Math.min(P.jv + P.ja, P.jc);
+    P.y += P.jv;
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------- helpers
-const intro = (d: KKData) => d.g < INTRO_END;
+const intro = (d: KKData) => d.g < KK_INTRO_TICKS;
 const cellOf = (x: number, z: number) => ((z + GRID) >> 7) * 0x28 + ((x + GRID) >> 7);
-let grid = new Map<number, KNode>();
+const grid = new Map<number, KNode>();
+const bySlot = new Map<number, KObj>();
 
 const liveKegs = (d: KKData): KKeg[] => {
   const out: KKeg[] = [];
@@ -178,11 +222,26 @@ const findPick = (d: KKData): KPick | undefined => {
   for (const o of d.o) if (o.t === 4 && !o.dead) return o;
   return undefined;
 };
-const kill = (o: KObj) => {
+const kill = (d: KKData, o: KObj) => {
   o.dead = true;
+  if (d.pool && o.poolSlot !== undefined) {
+    d.pool.free.push(o.poolSlot);
+    bySlot.delete(o.poolSlot);
+  }
   if (o.t === 2 && grid.get(cellOf(o.x, o.z)) === o) grid.delete(cellOf(o.x, o.z));
 };
-const add = <T extends KObj>(d: KKData, o: T): T => { d.o.push(o); return o; };
+function indexSlot(d: KKData, o: KObj) {
+  if (!d.pool) return;
+  o.poolSlot ??= d.pool.free.pop() ?? d.pool.next++;
+  bySlot.set(o.poolSlot, o);
+}
+const poolFull = (d: KKData) => !!d.pool && !d.pool.free.length && d.pool.next >= OBJECT_SLOT_COUNT;
+const add = <T extends KObj>(d: KKData, o: T): T | undefined => {
+  if (poolFull(d)) return undefined;
+  indexSlot(d, o);
+  d.o.push(o);
+  return o;
+};
 
 function clampArena(P: KP) {
   if (P.x < -KK_BOX || P.x > KK_BOX || P.z < -KK_BOX || P.z > KK_BOX) {
@@ -198,6 +257,11 @@ function clampArena(P: KP) {
 /** a player the keg spawner / pickup spawner / pickup consider alive (flags & 0xc000 == 0) */
 const free = (P: KP | null): P is KP => !!P && (P.fl & 0xc000) === 0;
 
+// The renderer plays the visual independently. Its native callback still occupies a slot.
+function allocateEffect(d: KKData, x: number, z: number, life: number) {
+  if (d.pool) add<KEffect>(d, { t: 6, id: d.nid++, x, z, life, born: d.g });
+}
+
 // ---------------------------------------------------------------- scoring: FUN_800b7df0
 function chain(w: World, d: KKData, x: number, z: number, owner: number, base: number, rad: number, depth: number): number {
   let tot = 0;
@@ -212,6 +276,7 @@ function chain(w: World, d: KKData, x: number, z: number, owner: number, base: n
     else v = Math.min(10, base + tot + 2);
     const P = d.p[owner];
     if (P) P.score += v;
+    allocateEffect(d, k.x, k.z, Math.max(1, depth) + 103);
     depth += 10;
     emit(w, 'pop', kkX(k.x), kkZ(k.z), owner, v, k.kind);
     const sub = chain(w, d, k.x, k.z, owner, v, 0x120, depth);
@@ -239,25 +304,28 @@ function enter(w: World, d: KKData, i: number, st: number) {
       P.jv = t[0]; P.jc = t[1]; P.ja = t[2]; P.jd = t[3]; P.jr = 1;
       break;
     }
-    case 0x7a: P.mv = 1; P.jv = 8; P.jc = 0x70; P.ja = 10; P.jd = 0; P.jr = 0; animCall(P, 0x66, onState); break;
+    case 0x7a: kkStartFall(P); animCall(P, 0x66, onState); break;
     case 0x7b: P.mv = 1; P.jc = 0; animCall(P, 0x67, onState); emit(w, 'land', kkX(P.x), kkZ(P.z), i, 1); break; // 0x67: voice on frame 1
   }
 }
 
-/** FUN_800b52c8 (players): the moving player is pushed out of the others; kegs push a moving player out too */
+/** FUN_800b52c8 resolves player cylinders. The keg object has its own contact callback. */
 function collide(d: KKData, i: number) {
   const P = d.p[i]!;
-  const rp = RADIUS[P.ch];
+  const marker = d.pool ? CYLINDER[P.ch] : LEGACY_CYLINDER;
+  if (!marker) return;
   for (let j = 0; j < 4; j++) {
     const Q = d.p[j];
     if (!Q || j === i || (Q.fl & 0xf800)) continue;
     const take = P.spd !== 0 ? true : Q.spd === 0;
     if (!take) continue;
-    const r = rp + RADIUS[Q.ch];
+    const other = d.pool ? CYLINDER[Q.ch] : LEGACY_CYLINDER;
+    if (!other || P.y + marker[2] >= Q.y + other[0] || Q.y + other[2] >= P.y + marker[0]) continue;
+    const r = marker[1] + other[1];
     const dx = Q.x - P.x, dz = Q.z - P.z;
     const d2 = dx * dx + dz * dz;
     if (d2 < r * r) {
-      const dd = Math.floor(Math.sqrt(d2));
+      const dd = ps1SqrtQ6(d2) >> 6;
       if (dd < r) {
         const a = atan2g(dx, dz);
         const o = r - dd + 1;
@@ -266,12 +334,12 @@ function collide(d: KKData, i: number) {
       }
     }
   }
-  if (P.spd !== 0) {
+  if (!d.pool && P.spd !== 0) {
     for (const k of liveKegs(d)) {
       const dx = k.x - P.x, dz = k.z - P.z;
       const r = 224;
       if (dx * dx + dz * dz < r * r) {
-        const dd = Math.floor(Math.sqrt(dx * dx + dz * dz));
+        const dd = ps1SqrtQ6(dx * dx + dz * dz) >> 6;
         if (dd < r) {
           const a = atan2g(dx, dz);
           const o = r - dd + 1;
@@ -395,7 +463,7 @@ function aiPick(w: World, d: KKData, i: number, P: KP) {
 }
 
 function aiFrame(w: World, d: KKData, i: number, P: KP): number {
-  if (intro(d)) return 0;
+  if (d.g < KK_INTRO_TICKS - (d.random ? 1 : 0)) return 0;
   const A = P.ai, sk = d.skill;
   const off = [-200, 0, 200, 0][(A.tm >> 4) & 3];
   A.pad = 0;
@@ -447,24 +515,40 @@ function aiFrame(w: World, d: KKData, i: number, P: KP): number {
   return A.pad;
 }
 
+// A disconnected seat's controller must run inside the same shuffled pass as the other players.
+const CPU_CONTROL = Symbol('Keg Kaboom CPU control');
+const cpuRequest = { ...IDLE, [CPU_CONTROL]: true };
+
 // ---------------------------------------------------------------- one player, one logic frame
 function playerFrame(w: World, d: KKData, i: number, inp: InputState | null | undefined) {
   const P = d.p[i]!;
   let pad = 0;
-  if (P.bot) pad = aiFrame(w, d, i, P);
-  else if (inp && !intro(d)) {
+  const cpu = P.bot || (inp ? CPU_CONTROL in inp : P.cpuFallback === true);
+  if (!P.bot && cpu) P.cpuFallback = true;
+  if (P.cpuFallback && !cpu) {
+    delete P.cpuFallback;
+    P.ai.pad = 0;
+  }
+  if (cpu) {
+    const previousPad = P.ai.pad;
+    const nextPad = aiFrame(w, d, i, P);
+    pad = d.random ? previousPad : nextPad;
+  } else if (inp && !intro(d)) {
     if (inp.y < -0.5) pad |= 0x10;
     if (inp.y > 0.5) pad |= 0x40;
     if (inp.x < -0.5) pad |= 0x80;
     if (inp.x > 0.5) pad |= 0x20;
     if (inp.a) pad |= 0x4000;
     if (inp.b) pad |= 0x8000;
+    if (inp.c) pad |= 0x2000;
+  }
+  if (d.shown && d.g - KK_INTRO_TICKS >= VERSUS_CLOCK_END) {
+    pad = 0;
+    P.hd = P.yaw;
   }
   const crossHeld = (pad & 0x4000) !== 0;
-  let pressX = crossHeld && !(P.ppad & 0x4000);
+  const pressX = crossHeld && !(P.ppad & 0x4000);
   P.ppad = pad;
-  // a charged player's A press is the shock wave instead of a jump
-  if (!P.bot && P.shock > 0 && pressX && P.y > -0x32) { pad = (pad & ~0x4000) | 0x2000; pressX = false; }
   P.pad = pad;
   // input -> control (FUN_800b48e4)
   P.spd = 0;
@@ -477,24 +561,13 @@ function playerFrame(w: World, d: KKData, i: number, inp: InputState | null | un
   }
   stateUpdate(w, d, i, pressX);
   // physics (FUN_80085d2c / FUN_800b4b34)
-  if (P.st !== 0x74 && P.st !== 0x75) P.yaw = (P.yaw + (angDiff(P.yaw, P.hd) >> 2)) & 0xfff;
+  if (P.st !== 0x74 && P.st !== 0x75) P.yaw = kkTurn(P.yaw, P.hd);
   P.run = (pad & 0x8000) === 0 ? 1 : 0;
-  if (P.jc !== 0) {
-    if (P.jr) {
-      let dec = P.jd;
-      if (!P.bot && (pad & 0x4000) === 0 && P.jv > 0x40) dec = 0x28;
-      P.jv -= dec;
-      if (P.jv < 0) {
-        P.jv = 0; P.jr = 0;
-        if (P.st === 0x78) enter(w, d, i, 0x7a); else { P.jv = 8; P.jc = 0x70; P.ja = 10; }
-      }
-      else P.y -= P.jv;
-    } else {
-      P.jv += P.ja;
-      if (P.jv > P.jc) P.jv = P.jc;
-      P.y += P.jv;
-      if (P.st === 0x73 && P.y >= 0) { P.y = 0; P.jc = 0; }
-    }
+  if (kkStepJump(P, crossHeld)) {
+    if (P.st === 0x78) enter(w, d, i, 0x7a);
+    else { P.jv = 8; P.jc = 0x70; P.ja = 10; }
+  } else if (P.jc !== 0 && !P.jr && P.st === 0x73 && P.y >= 0) {
+    P.y = 0; P.jc = 0;
   }
   if (P.spd !== 0) {
     P.x -= (P.spd * T(P.hd - 0x400)) >> 12;
@@ -506,21 +579,25 @@ function playerFrame(w: World, d: KKData, i: number, inp: InputState | null | un
     if (P.lay < 1) P.combo = 0;
   } else {
     P.lay = 0xf;
-    if (!P.hasN || (P.x - P.nx) * (P.x - P.nx) + (P.z - P.nz) * (P.z - P.nz) > 0x3ff) layNode(w, d, i, P);
+    // The native last-node pointer still refers to its slot if another effect has reused it.
+    const previous = P.lastNodeSlot === undefined ? undefined : bySlot.get(P.lastNodeSlot);
+    const dx = P.x - (previous?.x ?? P.nx), dz = P.z - (previous?.z ?? P.nz);
+    if (!P.hasN || dx * dx + dz * dz > 0x3ff) layNode(w, d, i, P);
   }
   // shock wave
   if ((pad & 0x2a00) !== 0 && P.y > -0x32 && P.shock !== 0) {
     P.shock = 0;
-    emit(w, 'wave', kkX(P.x), kkZ(P.z), i, KK_WAVE / KK_S);
+    emit(w, 'wave', kkX(P.x), kkZ(P.z), i, KK_WAVE / KK_S, -1, undefined, -P.y / KK_S);
     chain(w, d, P.x, P.z, i, 0, KK_WAVE, 0);
     for (let j = 0; j < 4; j++) {
       const Q = d.p[j];
       if (!Q || j === i) continue;
       if (Math.abs(P.x - Q.x) <= KK_WAVE && Math.abs(P.z - Q.z) <= KK_WAVE && !d.over && (Q.fl & 64000) === 0) {
         enter(w, d, j, 0x73);
-        emit(w, 'stun', kkX(Q.x), kkZ(Q.z), j, 1, i);
+        emit(w, 'stun', kkX(Q.x), kkZ(Q.z), j, d.random ? R(w, 4) : 1, i, undefined, -Q.y / KK_S);
       }
     }
+    allocateEffect(d, P.x, P.z, 9);
   }
   clampArena(P);
 }
@@ -534,10 +611,12 @@ function layNode(w: World, d: KKData, i: number, P: KP) {
   const nz = cl(P.z + ((dd * T(a)) >> 12));
   const c = cellOf(nx, nz);
   const old = grid.get(c);
-  if (old) kill(old);
   let life = 60;
   if (P.bot) life = (life * d.skill) >> 4;
-  const n = add<KNode>(d, { t: 2, id: d.nid++, x: nx, z: nz, y: P.y - yo, vy: 0, life, own: i, born: d.g });
+  const n = add<KNode>(d, { t: 2, id: d.nid++, x: nx, z: nz, y: P.y - yo, vy: 0, yaw: P.yaw, life, own: i, born: d.g });
+  if (!n) return;
+  if (n.poolSlot !== undefined) P.lastNodeSlot = n.poolSlot;
+  if (old) kill(d, old);
   grid.set(c, n);
   P.nx = nx; P.nz = nz; P.hasN = 1;
   void w;
@@ -551,8 +630,9 @@ function spawnKeg(w: World, d: KKData) {
   for (let tries = 0; tries < 400; tries++) {
     const x = (R(w, 8) - 4) * 0x200, z = (R(w, 8) - 4) * 0x200;
     if (dist(0, 0, x, z) > 0x800) continue;
-    if (d.p.some((P) => free(P) && Math.abs(x - P.x) <= 0x200 && Math.abs(z - P.z) <= 0x200)) continue;
+    if (d.p.some((P) => free(P) && Math.abs(x - P.x) <= 0x200 && Math.abs(z - P.z) < 0x200)) continue;
     if (liveKegs(d).some((k) => k.x === x && k.z === z)) continue;
+    if (poolFull(d)) return;
     d.kn++;
     const kind = (d.kn & 0x1f) === 0 ? 2 : (d.kn & 7) === 0 ? 1 : 0;
     add<KKeg>(d, { t: 1, id: d.nid++, x, z, sc: 1000, gr: 1, hit: 0, kind, claim: -23, sl, born: d.g });
@@ -577,18 +657,22 @@ function pickSpawner(w: World, d: KKData) {
   if (findPick(d)) return;
   for (let tries = 0; tries < 400; tries++) {
     const x = (R(w, 14) - 7) * 0x100, z = (R(w, 14) - 7) * 0x100;
-    if (d.p.some((P) => free(P) && Math.abs(x - P.x) <= 0x200 && Math.abs(z - P.z) <= 0x200)) continue;
+    if (d.p.some((P) => free(P) && Math.abs(x - P.x) <= 0x200 && Math.abs(z - P.z) < 0x200)) continue;
     if (liveKegs(d).some((k) => k.x === x && k.z === z)) continue;
+    if (poolFull(d)) return;
     add<KPick>(d, { t: 4, id: d.nid++, x, z, y: 0, vy: 0, ch: R(w, 2) + 1, born: d.g });
     emit(w, 'pspawn', kkX(x), kkZ(z));
     return;
   }
 }
 
+export function kkFlamePosition(angle: number): [number, number] {
+  return [(T(angle - 0x400) * 9) >> 4, (T(angle) * 9) >> 4];
+}
+
 function flameFrame(w: World, d: KKData, f: number) {
-  d.fl[f] = (d.fl[f] + 0xc) & 0xfff;
-  const ang = d.fl[f];
-  const fx = (T(ang - 0x400) * 9) >> 4, fz = (T(ang) * 9) >> 4;
+  d.fl[f] = (d.fl[f] + KK_FLAME_STEP) & 0xfff;
+  const [fx, fz] = kkFlamePosition(d.fl[f]);
   for (const [ox, oz] of NB) {
     const x = fx + ox, z = fz + oz;
     if (!(x > -GRID && x < GRID && z > -GRID && z < GRID)) continue;
@@ -597,7 +681,7 @@ function flameFrame(w: World, d: KKData, f: number) {
     add<KSpark>(d, { t: 5, id: d.nid++, x, z, tx: 0, tz: 0, st: -13, life: 15, own: n.own, born: d.g });
     add<KSpark>(d, { t: 5, id: d.nid++, x, z, tx: 0, tz: 0, st: -13, life: 15, own: n.own, born: d.g });
     emit(w, 'ignite', kkX(x), kkZ(z), n.own);
-    kill(n);
+    kill(d, n);
   }
 }
 
@@ -611,7 +695,8 @@ function sparkScan(d: KKData, s: KSpark) {
     if (!n) continue;
     if (s.st < 0) {
       s.st = 0; s.tx = n.x; s.tz = n.z; s.own = n.own;
-      kill(n);
+      s.sc = Math.min(4096, Math.max(600, Math.trunc((n.life + 15) * 4096 / 60)));
+      kill(d, n);
     } else {
       add<KSpark>(d, { t: 5, id: d.nid++, x: s.x, z: s.z, tx: n.x, tz: n.z, st: -7, life: 15, own: n.own, born: d.g });
     }
@@ -619,20 +704,22 @@ function sparkScan(d: KKData, s: KSpark) {
 }
 
 function sparkFrame(w: World, d: KKData, s: KSpark) {
-  const own = d.p[s.own];
-  if (own) own.ai.burn = 2;
+  const previousOwner = d.p[s.own];
+  if (previousOwner) previousOwner.ai.burn = 2;
   if (s.st === 0) {
     if (s.x < s.tx) s.x += 20; else if (s.x > s.tx) s.x -= 20;
     if (s.z < s.tz) s.z += 20; else if (s.z > s.tz) s.z -= 20;
     if (s.tx - s.x + 0x27 >= 0 && s.tx - s.x + 0x27 < 0x4f && s.tz - s.z + 0x27 >= 0 && s.tz - s.z + 0x27 < 0x4f) { s.x = s.tx; s.z = s.tz; s.st = -7; }
   } else {
     s.life--;
-    if (s.life < 1) { kill(s); return; }
+    if (s.life < 1) { kill(d, s); return; }
   }
   if (s.st < 0) sparkScan(d, s);
+  const own = d.p[s.own];
   if (!own) return;
   const tot = chain(w, d, s.x, s.z, s.own, own.combo, 300, 0);
   own.combo = Math.min(10, own.combo + tot);
+  own.fuseOrigin = [s.x, s.z];
   own.fuse = 10;
 }
 
@@ -653,18 +740,19 @@ function kegFrame(w: World, d: KKData, k: KKeg) {
     k.sc += 1000;
     if (k.sc > 5999) { k.sc = 6000; k.gr = 0; }
   } else if (k.hit !== 0) {
+    allocateEffect(d, k.x, k.z, 23);
     emit(w, 'boom', kkX(k.x), kkZ(k.z), -1, R(w, 4), k.kind);
-    kill(k);
+    kill(d, k);
   }
 }
 
-function nodeFrame(n: KNode) {
+function nodeFrame(d: KKData, n: KNode) {
   if (n.y !== 0 || n.vy !== 0) {
     n.vy += 12; n.y += n.vy;
     if (n.y > 0) { n.y = 0; n.vy = 0; }
   }
   n.life--;
-  if (n.life === 0) kill(n);
+  if (n.life === 0) kill(d, n);
 }
 
 function pickFrame(w: World, d: KKData, k: KPick) {
@@ -673,13 +761,13 @@ function pickFrame(w: World, d: KKData, k: KPick) {
   for (let j = 0; j < 4; j++) {
     const P = d.p[j];
     if (!free(P)) continue;
-    if (Math.abs(k.x - P.x) <= 0x100 && Math.abs(k.z - P.z) <= 0x100) {
+    if (Math.abs(k.x - P.x) <= 0x100 && Math.abs(k.z - P.z) < 0x100) {
       if (!d.over) {
         P.shock = 0;
         if (k.ch >= 1 && k.ch < 3) P.shock = k.ch;
-        emit(w, 'pick', kkX(k.x), kkZ(k.z), j, k.ch);
+        emit(w, 'pick', kkX(k.x), kkZ(k.z), j, k.ch, -1, undefined, -k.y / KK_S);
       }
-      kill(k);
+      kill(d, k);
       return;
     }
   }
@@ -690,34 +778,81 @@ function fuseFrame(w: World, d: KKData, i: number) {
   const P = d.p[i];
   if (!P) return;
   if (P.fuse > 0) {
-    if (P.fuseP === 0) emit(w, 'fuse', kkX(P.x), kkZ(P.z), i, R(w, 4));
-    else { P.fuse--; if (P.fuse < 1) P.combo = 0; }
+    P.fuseMixOrigin = P.fuseOrigin;
+    if (P.fuseP === 0) {
+      P.fuseStart = d.g;
+      P.fuseVariant = R(w, 4);
+      const [x, z] = P.fuseOrigin ?? [P.x, P.z];
+      emit(w, 'fuse', kkX(x), kkZ(z), i, P.fuseVariant);
+    } else { P.fuse--; if (P.fuse < 1) P.combo = 0; }
   }
   P.fuseP = P.fuse;
 }
 
 // ---------------------------------------------------------------- one logic frame
-function frame(w: World, d: KKData, inputs: (InputState | null | undefined)[]) {
-  const g = d.g;
-  grid = new Map();
-  for (const o of d.o) if (o.t === 2) grid.set(cellOf(o.x, o.z), o);
-  for (let i = 0; i < 4; i++) if (d.p[i]) playerFrame(w, d, i, inputs[i]);
+/** FUN_8007906c collects occupied addresses before the seats run. A slot can change occupants
+ * before its turn, so the queue contains addresses and resolves the current actor on dispatch. */
+function collectCallbacks(d: KKData) {
+  grid.clear();
+  bySlot.clear();
+  for (const o of d.o) {
+    if (o.dead) continue;
+    if (o.t === 2) grid.set(cellOf(o.x, o.z), o);
+    indexSlot(d, o);
+  }
+  return d.pool ? Array.from(bySlot.keys()).sort((a, b) => a - b) : undefined;
+}
+
+function stepObjects(w: World, d: KKData, slots: number[] | undefined) {
   for (let i = 0; i < 4; i++) fuseFrame(w, d, i);
   kegSpawner(w, d);
   flameFrame(w, d, 0);
   flameFrame(w, d, 1);
   pickSpawner(w, d);
-  for (const o of d.o.slice()) {
-    if (o.dead || o.born === g) continue;
+  const queue = slots ?? d.o.slice();
+  for (const entry of queue) {
+    const o = typeof entry === 'number' ? bySlot.get(entry) : entry;
+    if (!o || o.dead || (!slots && o.born === d.g)) continue;
     switch (o.t) {
       case 1: kegFrame(w, d, o); break;
-      case 2: nodeFrame(o); break;
+      case 2: nodeFrame(d, o); break;
       case 4: pickFrame(w, d, o); break;
       case 5: sparkFrame(w, d, o); break;
+      case 6: if (--o.life === 0) kill(d, o); break;
     }
   }
   if (d.o.some((o) => o.dead)) d.o = d.o.filter((o) => !o.dead);
-  if (g === END_G && !d.over) finish(w, d);
+}
+
+export function stepKegResultObjects(w: World, winnerEntered: boolean) {
+  const d = w.data as KKData;
+  // DAT_800bc444 is set by winner entry, not by the verdict. Draws keep their spawners.
+  d.over = winnerEntered;
+  dispatchSeats(w, d);
+  const slots = collectCallbacks(d);
+  stepObjects(w, d, slots);
+  d.g++;
+  w.tick++;
+  // After ranking the BCD clock is settled; the HUD keeps its normal four-tick cadence.
+  if (d.shown) tickPlayerTally(d.p, d.shown, w.tick % 4, 3);
+}
+
+const FIXED_SEATS = [0, 1, 2, 3];
+function dispatchSeats(w: World, d: KKData): readonly number[] {
+  if (!d.random) return FIXED_SEATS;
+  drawDiscRandom(d.random, 2); // FUN_800155fc, before the scene update.
+  return nextPlayerOrder(w.rng, d);
+}
+
+function frame(w: World, d: KKData, inputs: (InputState | null | undefined)[]) {
+  const g = d.g;
+  const slots = collectCallbacks(d);
+  for (const i of dispatchSeats(w, d)) if (d.p[i]) playerFrame(w, d, i, inputs[i]);
+  stepObjects(w, d, slots);
+  if (g >= KK_INTRO_TICKS && !d.over) {
+    const tick = g - KK_INTRO_TICKS + 1;
+    if (d.shown ? tickPlayerTally(d.p, d.shown, tick, 3, VERSUS_CLOCK_END - 1) : g >= LEGACY_END_G) finish(w, d);
+  }
   d.g++;
 }
 
@@ -752,9 +887,10 @@ function syncBodies(w: World, d: KKData) {
 export const kegKaboom: MiniGame = {
   id: 'kegKaboom',
   name: 'Keg Kaboom',
-  description: 'Lay gunpowder trails to the powder kegs and let the flames light them. Gold and silver kegs are worth the most!',
-  controls: '{move} run. Hold {b} to lay gunpowder. {a} jump (shock wave when charged).',
+  description: 'Link flames to kegs with gunpowder trails. Gold is worth 20, silver 10. Highest score wins.',
+  controls: '{move} run. Hold {b} to lay gunpowder. {a} jump. {c} use shock wave pickup.',
   maxTime: KK_MAX_TIME,
+  settlesAfterTimeout: true,
 
   setup(w: World, slots: SlotInfo[]) {
     const ps: (KP | null)[] = [null, null, null, null];
@@ -775,42 +911,26 @@ export const kegKaboom: MiniGame = {
         ai: { mode: 1, tm: 1, pad: 0, tx: 0, tz: 0, ang: 0, keg: -1, pk: -1, burn: 0 },
       };
       ps[i] = P;
-      addBody(w, 'player', i, kkX(x), kkZ(z), RADIUS[ch] / KK_S, 1);
-      animCall(P, 0x61);
+      addBody(w, 'player', i, kkX(x), kkZ(z), (CYLINDER[ch]?.[1] ?? 120) / KK_S, 1);
+      startOpeningIdle(P);
     }
-    const a0 = Math.floor(rand(w) * 0x1000);
-    const d: KKData = { g: 0, p: ps, o: [], fl: [(a0 - 0xc) & 0xfff, (a0 + 0x800 - 0xc) & 0xfff], kt: 59, pt: 599, kn: 0, nid: 1, skill, over: false, winner: -2 };
+    const random = discRandomState(w.rng);
+    for (let i = 0; i < 4; i++) drawDiscRandom(random, 60); // generic seat idle timers
+    const updateOrders = shufflePlayerOrders(random);
+    const a0 = drawDiscRandom(random, 0x1000) + KK_FLAME_STEP;
+    const d: KKData = { g: 0, p: ps, o: [], fl: [a0 & 0xfff, (a0 + 0x800) & 0xfff], kt: 59, pt: 599, kn: 0, nid: 1, skill, over: false, winner: -2, shown: [0, 0, 0, 0], random, updateOrders, pool: { next: FIRST_DYNAMIC_SLOT, free: [] } };
     w.data = d;
+    // Reproduce the 31 intervening RNG advances in the reference full-round load.
+    for (let i = 0; i < 31; i++) drawDiscRandom(random, 2);
+    dispatchSeats(w, d); // first visible scene update, already reflected in the timers and opening poses
     // the real game's intro (players locked, spawner / flames / pickup timers running)
-    for (let k = 0; k < INTRO_END; k++) frame(w, d, []);
+    for (let k = 0; k < KK_INTRO_TICKS; k++) frame(w, d, []);
     w.ev.length = 0;
     syncBodies(w, d);
     for (const b of w.bodies) { b.vx = 0; b.vz = 0; }
   },
 
-  /** Seats that are not CPU slots (a human who disconnected mid-round) are driven here with the same AI on their own `P.ai`
-   *  (humans never touch it); real CPU slots run it inside frame(), so they return idle. Random draws come from a hash of
-   *  (tick, slot), never `w.rng`, so this call leaves the sim state alone. */
-  bot(w: World, slot: number): InputState {
-    const d = w.data as KKData;
-    const P = d?.p?.[slot];
-    const idle = { x: 0, y: 0, a: false, b: false };
-    if (!P || P.bot || d.over) return idle;
-    let c = 0;
-    const saved = kkTest.rn;
-    kkTest.rn = (_w, n) => {
-      c++;
-      let h = (Math.imul(w.tick + 1, 0x9e3779b1) ^ Math.imul(slot + 1, 0x85ebca6b) ^ Math.imul(c, 0xc2b2ae35)) >>> 0;
-      h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0;
-      h = Math.imul(h ^ (h >>> 12), 0x297a2d39) >>> 0;
-      return n < 2 ? 0 : (h ^ (h >>> 15)) % n;
-    };
-    let pad: number;
-    try { pad = aiFrame(w, d, slot, P); } finally { kkTest.rn = saved; }
-    // circle = shock wave (only when charged: the human mapping turns a charged A press into the wave), cross = jump
-    const a = (pad & 0x4000) !== 0 || ((pad & 0x2000) !== 0 && P.shock > 0);
-    return { x: pad & 0x80 ? -1 : pad & 0x20 ? 1 : 0, y: pad & 0x10 ? -1 : pad & 0x40 ? 1 : 0, a, b: (pad & 0x8000) !== 0 };
-  },
+  bot() { return cpuRequest; },
 
   step(w, inputs) {
     const d = w.data as KKData;
@@ -821,6 +941,8 @@ export const kegKaboom: MiniGame = {
   isOver(w) {
     return (w.data as KKData).over;
   },
+
+  isDraw(w, [a, b]) { return w.data.p[a]?.score === w.data.p[b]?.score; },
 
   placements(w) {
     const d = w.data as KKData;

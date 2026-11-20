@@ -20,6 +20,7 @@ export class Predictor {
   }
 
   onSnapshot(w: World, ack: number) {
+    this.seq = Math.max(this.seq, ack);
     this.auth = w;
     this.pending = this.pending.filter((i) => i.seq > ack);
     this.pred = cloneWorld(w);

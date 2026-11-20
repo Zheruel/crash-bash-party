@@ -82,6 +82,18 @@ export const charEntry = (id: string) => catalog.characters.find((c) => c.id ===
  *    happens on the encoded framebuffer, i.e. in PS1 space too;
  *  - semi-transparent parts (material extras semi_transparent/abr) use the four GPU blend modes.
  */
+export const nativeRaster = { value: false };
+
+class DiscMaterial extends THREE.MeshBasicMaterial {
+  override copy(source: this): this {
+    super.copy(source);
+    this.defines = { ...source.defines };
+    this.onBeforeCompile = source.onBeforeCompile;
+    this.customProgramCacheKey = source.customProgramCacheKey;
+    return this;
+  }
+}
+
 export function ps1Material(src: THREE.Material): THREE.Material {
   const s = src as THREE.MeshStandardMaterial;
   const x = (src.userData ?? {}) as { textured?: boolean; semi_transparent?: boolean; abr?: number };
@@ -93,13 +105,16 @@ export function ps1Material(src: THREE.Material): THREE.Material {
     // PS1 UVs never wrap: a UV on the far edge must not sample the opposite edge (seams along quad borders)
     s.map.wrapS = s.map.wrapT = THREE.ClampToEdgeWrapping;
   }
-  const m = new THREE.MeshBasicMaterial({ map: s.map ?? null, vertexColors: true, side: THREE.DoubleSide, alphaTest: s.map ? 0.5 : 0 });
+  const m = new DiscMaterial({ map: s.map ?? null, vertexColors: true, side: THREE.DoubleSide, alphaTest: s.map ? 0.5 : 0 });
   m.name = src.name;
   m.userData = { ...src.userData, hadMap: !!s.map };
   if (x.semi_transparent) {
     m.transparent = true;
     m.depthWrite = false;
     m.blending = THREE.CustomBlending;
+    m.blendEquationAlpha = THREE.AddEquation;
+    m.blendSrcAlpha = THREE.ZeroFactor;
+    m.blendDstAlpha = THREE.OneFactor;
     switch (x.abr ?? 0) {
       case 1: // B + F
         m.blendEquation = THREE.AddEquation; m.blendSrc = THREE.OneFactor; m.blendDst = THREE.OneFactor; break;
@@ -114,10 +129,27 @@ export function ps1Material(src: THREE.Material): THREE.Material {
   // textured without a texture (bit-15 ids past the paired t08, source unknown): treat the texel as mid grey
   m.defines = { PS1_X2: x.textured && s.map ? '(255.0 / 128.0)' : '1.0' };
   m.onBeforeCompile = (sh, renderer) => {
+    sh.uniforms.nativeRaster = nativeRaster;
+    sh.vertexShader = 'uniform bool nativeRaster;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+      if (nativeRaster && gl_Position.w > 0.0) {
+        vec2 pixels = vec2(256.0, 120.0);
+        gl_Position.xy = floor(gl_Position.xy / gl_Position.w * pixels + 0.5) * gl_Position.w / pixels;
+        #ifdef USE_MAP
+          vMapUv *= gl_Position.w;
+        #endif
+      }`);
+    sh.fragmentShader = 'uniform bool nativeRaster;\n' + sh.fragmentShader.replace('#include <map_fragment>',
+      THREE.ShaderChunk.map_fragment.replace('map, vMapUv', 'map, nativeRaster ? vMapUv * gl_FragCoord.w : vMapUv'));
     const srgbOut = renderer.outputColorSpace === THREE.SRGBColorSpace;
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <color_fragment>', '#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )\n diffuseColor.rgb *= vColor.rgb * PS1_X2;\n#endif')
       .replace('#include <opaque_fragment>', `outgoingLight = clamp( outgoingLight, 0.0, 1.0 );
+if (nativeRaster) {
+  const mat4 dither = mat4(-4., 2., -3., 3., 0., -2., 1., -1., -3., 3., -4., 2., 1., -1., 0., -2.);
+  ivec2 pixel = ivec2(gl_FragCoord.xy);
+  float bias = dither[pixel.x & 3][(239 - pixel.y) & 3];
+  outgoingLight = floor(clamp(outgoingLight * 255.0 + bias, 0.0, 255.0) / 8.0) / 31.0;
+}
 ${srgbOut ? 'outgoingLight = mix( pow( outgoingLight * 0.9478672986 + vec3( 0.0521327014 ), vec3( 2.4 ) ), outgoingLight * 0.0773993808, vec3( lessThanEqual( outgoingLight, vec3( 0.04045 ) ) ) );' : ''}
 #include <opaque_fragment>`);
   };
@@ -150,6 +182,9 @@ export class ModelInstance {
   private clips: THREE.AnimationClip[] = [];
   private action: THREE.AnimationAction | null = null;
   private role = '';
+  private groupClips = new Map<number, { clip: number; part: string }>();
+  private activePart: string | null = null;
+  private modelParts: { mesh: THREE.Mesh; name: string; visible: boolean }[] = [];
   constructor(public ref: ModelRef | null) {}
 
   /** Fill from cache (must be preloaded) or return false so the caller can show a fallback. */
@@ -164,37 +199,84 @@ export class ModelInstance {
     inner.rotation.y = this.ref.yaw ?? 0;
     this.root.add(inner);
     this.clips = loaded.anims;
+    this.clips.forEach((clip, index) => {
+      const match = /^group(\d+)_(part\d+)/.exec(clip.name);
+      if (match) this.groupClips.set(Number(match[1]), { clip: index, part: match[2] });
+    });
+    if (this.ref.parts) inner.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const name = /^part\d+$/.test(mesh.name) ? mesh.name : mesh.parent?.name ?? '';
+      if (/^part\d+$/.test(name)) this.modelParts.push({ mesh, name, visible: mesh.visible });
+    });
     if (this.clips.length) this.mixer = new THREE.AnimationMixer(inner);
     return true;
   }
 
   play(role: string, fade = 0.15) {
+    this.showPart(null);
     if (!this.mixer || role === this.role) return;
     const idx = this.ref?.anims?.[role];
     const clip = idx != null ? this.clips[idx] : undefined;
     if (!clip) return;
     this.role = role;
     const next = this.mixer.clipAction(clip);
-    next.reset().fadeIn(fade).play();
-    this.action?.fadeOut(fade);
+    if (next === this.action && this.posed < 0) return;
+    const previous = this.action;
+    this.posed = -1;
+    next.reset().setLoop(THREE.LoopRepeat, Infinity).setEffectiveWeight(1).play();
+    next.clampWhenFinished = false;
+    if (previous && previous !== next && fade > 0) {
+      next.fadeIn(fade);
+      previous.fadeOut(fade);
+    } else if (previous !== next) previous?.stop();
     this.action = next;
   }
 
   /** Show one frame of a clip by index (30 fps frames, may be fractional): the real game's own anim scripts drive this. */
-  pose(clip: number, frame: number) {
+  pose(clip: number, frame: number, loop = false) {
     const c = this.clips[clip];
     if (!this.mixer || !c) return;
     if (this.posed !== clip || !this.action) {
-      this.action?.stop();
+      this.mixer.stopAllAction();
       this.action = this.mixer.clipAction(c);
-      this.action.reset().play();
+      this.action.reset().setLoop(THREE.LoopOnce, 1).setEffectiveWeight(1).play();
+      this.action.clampWhenFinished = true;
       this.posed = clip;
       this.role = '';
     }
-    this.action.time = Math.max(0, Math.min(frame / 30, c.duration - 1e-4));
+    const time = Math.max(0, frame / 30);
+    this.action.time = loop && c.duration > 0 ? time % c.duration : Math.min(time, c.duration);
     this.mixer.update(0);
   }
   private posed = -1;
+
+  private showPart(part: string | null) {
+    if (part === this.activePart) return;
+    for (const p of this.modelParts) p.mesh.visible = part ? p.name === part : p.visible;
+    this.activePart = part;
+  }
+
+  /** A PS1 render word selects either a static part or an animation group and frame. */
+  nativePose(word: number): boolean {
+    if ((word & 0xe000) === 0x2000) {
+      const part = 'part' + ((word & 0x1fff) - 1);
+      if (!this.modelParts.some(p => p.name === part)) return false;
+      if (this.action) {
+        this.mixer?.stopAllAction();
+        this.action = null;
+        this.posed = -1;
+        this.role = '';
+      }
+      this.showPart(part);
+      return true;
+    }
+    const group = this.groupClips.get((word & 0x1fff) >> 7);
+    if (!group || (word & 0xe000) !== 0x4000) return false;
+    this.showPart(this.modelParts.length ? group.part : null);
+    this.pose(group.clip, word & 127);
+    return true;
+  }
 
   update(dt: number) {
     this.mixer?.update(dt);

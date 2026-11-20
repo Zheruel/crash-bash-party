@@ -8,7 +8,7 @@
 - Hints from slot order: Crate Crush pairs (main, backdrop) alphabetical: (711,709) Drain, (715,713) Jungle, (707,705) Snow,
   (703,701) Space, (699,697) Tie-Breaker?. Twins (same mesh, different texture): 683/693, 685/695, 649/651.
   Tank stage slots 71–78: 675 671 667 663 | 673 669 665 661.
-- Confirmed: 691 = JUNGLE FOX (Tank Wars), 478 = POLAR PANIC. Ring Ding likely 625 (627 brown-wall twin).
+- Confirmed: 691 = JUNGLE FOX (Tank Wars), 478 = POLAR PANIC. Ring Ding uses 627, Dragon Drop uses 621.
   Real CRASHBALL arena is neon teal (docs/reference). Pogo-a-gogo = construction site grid ~10×7; El Pogo Loco = pink desert
   sand grid; Pogo Padlock = warehouse with hazard stripes; Pogo Painter = jungle temple stone grid.
 - Level ids: 0–3 Crate Crush (Jungle, Space, Snow, Drain), 4 Papu Pummel, 5–9 Tank (Swamp, Desert, Jungle, Metal, Big Bad),

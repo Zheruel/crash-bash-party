@@ -1,5 +1,6 @@
 import { CHARACTERS } from '../../shared/look';
 import { propIcon } from '../shell/avatar';
+import { ASSET_BASE } from '../crash';
 import { hudFace } from './ps1hud';
 
 export const $ = <T extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = document) => root.querySelector(sel) as T;
@@ -22,18 +23,34 @@ export function pop(el: HTMLElement, cls = 'pop') {
   el.classList.add(cls);
 }
 
-/** Silver cup (the round trophy of the real game's score screens). */
+/** Loading fallback while the original silver trophy model streams in. */
 const CUP = '<svg class="ico cup" viewBox="0 0 32 32" aria-hidden="true"><path d="M9.5 6H4.5c0 5 2 8.200 6 9.200M22.500 6h5c0 5-2 8.200-6 9.200" fill="none" stroke="#15102c" stroke-width="4.200" stroke-linecap="round"/><path d="M9.5 6H4.5c0 5 2 8.200 6 9.200M22.500 6h5c0 5-2 8.200-6 9.200" fill="none" stroke="#b9b3e8" stroke-width="2" stroke-linecap="round"/><path d="M8.500 3h15v8c0 5.500-3.200 8.800-7.500 8.800S8.500 16.500 8.500 11z" fill="#d4d0f4" stroke="#15102c" stroke-width="1.800" stroke-linejoin="round"/><path d="M11 5h3v6c0 3 .8 5 2 6.200C12.500 16.500 11 14 11 11z" fill="#fff"/><path d="M14 19.500h4v4.500h-4z" fill="#9a93d4" stroke="#15102c" stroke-width="1.600"/><rect x="9" y="24" width="14" height="5" rx="1" fill="#b3addf" stroke="#15102c" stroke-width="1.800"/></svg>';
 
-/** Wumpa / crystal / Aku Aku icons rendered from the real models; trophy cup is a flat vector. */
+/** The score screens use the same silver trophy mesh as the native podium strip. */
 export function icon(name: 'wumpa' | 'crystal' | 'cup' | 'aku'): string {
-  if (name === 'cup') return CUP;
-  const u = propIcon(name === 'aku' ? 'akuAku' : name);
+  const u = propIcon(name === 'cup' ? 'podiumStripTrophy' : name === 'aku' ? 'akuAku' : name);
+  if (!u && name === 'cup') return CUP;
   return u ? `<img class="ico img" src="${u}" alt="">` : `<i class="ico ico-${name}"></i>`;
 }
 
+// Player cursors from atlas 0130 and the matching rims of title model 0131.
+export const MENU_PLAYERS = [
+  { cursor: 117, color: '#ffff00' }, { cursor: 119, color: '#ef00ff' },
+  { cursor: 121, color: '#42ff00' }, { cursor: 101, color: '#ff0000' },
+] as const;
+
+// Menu atlas 0130 stores the 56 × 38 character-select portraits in 64 × 64 pages.
+const SELECT_PORTRAIT: Record<string, number> = { crash: 107, coco: 103, tiny: 115, dingodile: 109, cortex: 105, brio: 123, rilla: 113, koala: 111 };
+export const menuTex = (id: number) => `${ASSET_BASE}textures/0130/tex${String(id).padStart(3, '0')}.png`;
+
+export function selectFace(char: number) {
+  const c = CHARACTERS[char], texture = SELECT_PORTRAIT[c.id];
+  const url = texture != null ? menuTex(texture) : 'portrait' in c ? ASSET_BASE + c.portrait : hudFace(char);
+  return `<span class="select-face ${texture != null ? 'atlas' : 'custom'}" style="--bg:${FACE_BG[char] ?? '#667'}"><img src="${url}" alt="" draggable="false"></span>`;
+}
+
 /** Background colours of the character-select squares (same order as the roster). */
-const FACE_BG = ['#f5a30f', '#f06cae', '#1fa85c', '#2f6be0', '#86c53a', '#d634b6', '#8a40d4', '#18bfc6'];
+const FACE_BG = ['#f5a30f', '#f06cae', '#1fa85c', '#2f6be0', '#86c53a', '#d634b6', '#8a40d4', '#18bfc6', '#617fc6', '#b56a32'];
 
 /** Character face icon in a coloured square (bare = no square, like the in-game HUD). */
 export function face(char: number, bare = false, cls = ''): string {

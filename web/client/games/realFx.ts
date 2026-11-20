@@ -78,8 +78,8 @@ const qCam = new THREE.Quaternion(), qZ = new THREE.Quaternion(), eul = new THRE
 export const preloadFx = (models: number[]) => ready(models.map((model) => ({ model })));
 
 const templates = new Map<string, THREE.Object3D | null>();
-function template(model: number, part: number, scale: number): THREE.Object3D | null {
-  const key = `${model}:${part}:${scale}`;
+export function fxPartTemplate(model: number, part: number, scale: number, add = false): THREE.Object3D | null {
+  const key = `${model}:${part}:${scale}:${add}`;
   let t = templates.get(key);
   if (t === undefined) {
     const inst = new ModelInstance({ model, parts: [`part${part}`], scale });
@@ -88,11 +88,48 @@ function template(model: number, part: number, scale: number): THREE.Object3D | 
       const drop: THREE.Object3D[] = [];
       t.traverse((o) => { if ((o as THREE.Mesh).isMesh && !o.visible) drop.push(o); });
       for (const o of drop) o.removeFromParent();
+      if (add) t.traverse(node => {
+        const mesh = node as THREE.Mesh;
+        if (mesh.isMesh) mesh.material = Array.isArray(mesh.material)
+          ? mesh.material.map(m => ownMaterial(m, true)) : ownMaterial(mesh.material, true);
+      });
       t.userData.shared = true;
       templates.set(key, t);
     }
   }
   return t ?? null;
+}
+
+const shadowMaterials = new WeakMap<THREE.Material, THREE.Material>();
+
+/** The supply objects flag their ground mesh for subtractive drawing. */
+export function pickupShadow(model: number, part: number, scale: number) {
+  const root = fxPartTemplate(model, part, scale)?.clone();
+  if (!root) return new THREE.Group();
+  const shadow = (source: THREE.Material) => {
+    let mat = shadowMaterials.get(source);
+    if (!mat) {
+      mat = source.clone();
+      mat.transparent = true;
+      mat.depthWrite = false;
+      mat.blending = THREE.CustomBlending;
+      mat.blendEquation = THREE.ReverseSubtractEquation;
+      mat.blendSrc = mat.blendDst = THREE.OneFactor;
+      mat.blendEquationAlpha = THREE.AddEquation;
+      mat.blendSrcAlpha = THREE.ZeroFactor;
+      mat.blendDstAlpha = THREE.OneFactor;
+      shadowMaterials.set(source, mat);
+    }
+    return mat;
+  };
+  root.traverse(node => {
+    const mesh = node as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(shadow) : shadow(mesh.material);
+    mesh.renderOrder = 2;
+  });
+  root.position.y = 0.002;
+  return root;
 }
 
 export class RealFx {
@@ -111,7 +148,7 @@ export class RealFx {
   }
 
   private node(model: number, part: number, add = false): Node | null {
-    const t = template(model, part, this.scale);
+    const t = fxPartTemplate(model, part, this.scale);
     if (!t) return null;
     const obj = new THREE.Group();
     const c = t.clone();
@@ -318,7 +355,7 @@ export class RealFx {
 }
 
 /** A private copy of a part material that keeps the PS1 shader hooks (clone() drops them); `add` forces additive blending. */
-function ownMaterial(q: THREE.Material, add = false): THREE.MeshBasicMaterial {
+export function ownMaterial(q: THREE.Material, add = false): THREE.MeshBasicMaterial {
   const n = q.clone() as THREE.MeshBasicMaterial;
   n.onBeforeCompile = q.onBeforeCompile; n.customProgramCacheKey = q.customProgramCacheKey; n.defines = q.defines;
   n.depthWrite = false;
@@ -333,7 +370,7 @@ export class PartBatch {
   private m = new THREE.Matrix4(); private q = new THREE.Quaternion(); private p = new THREE.Vector3(); private s = new THREE.Vector3(); private e = new THREE.Euler();
   private own: THREE.Material[] = [];
   constructor(parent: THREE.Object3D, model: number, part: number, scale: number, private max: number, add = false) {
-    const t = template(model, part, scale);
+    const t = fxPartTemplate(model, part, scale);
     if (!t) return;
     t.updateMatrixWorld(true);
     t.traverse((o) => {

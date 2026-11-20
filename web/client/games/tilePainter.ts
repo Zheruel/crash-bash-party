@@ -1,27 +1,70 @@
 // POGO PANDEMONIUM view (shared/games/tilePainter.ts): the real stages 675 / 671 / 667 / 663 with an 8x8 painted floor.
 import * as THREE from 'three';
-import { borderColor, TP_N, TP_TILE, tileCenter, tileWorld } from '../../shared/games/tilePainter';
+import { BEAM_FRAMES, createPogoResult, enterPogoResult, finishPogoHop, pogoResultPickup, pogoWinnerLand, PADLOCK_INTRO_TICKS, POGO_TRAIL_FRAMES, tickPogoResultObjects, tickPogoTiles, TP_TILE, tileWorld, type PogoProjectileTrail } from '../../shared/games/tilePainter';
+import type { World } from '../../shared/types';
 import { createCharacter, usedVariant } from '../characters';
 import { ASSET_BASE, getCatalog, ModelInstance } from '../crash';
 import { sfx, sfxRate } from '../shell/sound';
+import { charVoice, hitVoice, winnerVoice } from '../shell/voice';
+import { FX_PACKS } from './fxScripts';
 import type { ActorParts } from './kit';
-import { canvasTexture, catalogInstance, disposeTree, Kit, preloadCatalogFor } from './kit';
+import { catalogInstance, disposeTree, Kit, preloadCatalogFor } from './kit';
 import { applyPose, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type Placements } from './ps1cam';
-import { scoreHud } from '../ui/ps1hud';
-import { getGame } from '../../shared/registry';
+import { POGO_HOP } from './playerPoseData';
+import { poseTicks } from './playerPose';
+import { arenaClockSprites, scoreHud } from '../ui/ps1hud';
 import { CHARACTERS } from '../../shared/look';
 import type { ClientMiniGame } from './types';
+import { PogoBoard, POGO_RIM_PARTS } from './pogoBoard';
 import { PartBatch, preloadFx } from './realFx';
 
 /**
- * Real effects (re/notes/pogoPainter.md "Effects"): object pack 0770's effect scripts (0 explosion, 1 pickup puff, 2 stun
- * puff, 3 crate break, 4 touchdown dust, 8 beam end), its beam segment frames (parts 2-9), the HUD digits (0732) for the
+ * Real effects (re/notes/pogoPainter.md "Effects"): object pack 0770's effect scripts (0 explosion, 1 pickup puff, 2 loser
+ * smoke, 3 crate break, 4 touchdown dust, 7 cast spark, 8 beam end), its beam segment frames (parts 2-9), the HUD digits (0732) for the
  * cash-in score and El Pogo Loco's own mine blast (level model 0667 script 1).
  */
-/** El Pogo Loco's monster (object 0x1406): pack db 0x80053bd4 = disc 0768 (render id 0x2001, three clips: 0 wait 21 f,
- *  1 spin 26 f, 2 hop 14 f = the hop cycle of FUN_800c0cf4) */
+/** El Pogo Loco's monster (object 0x1406): pack db 0x80053bd4 = disc 0768 (render id 0x2001, three clips: 0 spin 21 f,
+ *  1 wait 26 f, 2 hop 14 f = the hop cycle of FUN_800c0cf4) */
 const MONSTER = 768;
 const PACK = 770, DIGITS = 732, LOCO = 667, K = TP_TILE * 2, U = K / 1024;
+const YAW_UNIT = 2 * Math.PI / 4096;
+const WIN_SCRIPT = 0x32, RESULT_HOP_SCRIPT = 0x2e;
+const TIME_UP_SOUND = 'sfx/0277/5.mp3', DRAW_SOUND = 'sfx/0278/13.mp3';
+const DRAW_ARENA_FRAMES = 120; // FUN_8007d9dc sets a 120-frame draw timer at timeout.
+const WIN_NAME_WAIT = [24, 23, 26, 23, 23, 23, 26, 26];
+const WIN_ARENA_TAIL = 63 + 2 + 90 + 30; // Voice cue at age 63 + name wait, then the common result timers.
+
+interface PogoResult {
+  world: World;
+  at: number;
+  entered: number[];
+  lastFrame: number;
+}
+
+// VM cues from L10.ram's script 0x32. Frames are relative to the first rendered pose.
+const CHEER_SOUND_FRAME = [11, 0, 0, 0, 0, 0, 0, 2];
+const CHEER_EVENTS: ReadonlyArray<Record<number, number>> = [
+  { 4: 0x12, 27: 0x12, 31: 0x14 },
+  { 23: 0x12, 26: 0x14, 39: 0x12, 43: 0x14, 56: 0x12, 60: 0x14 },
+  {},
+  {},
+  { 19: 0x12 }, // the event at the beginning of Tiny's script is ignored on entry and handled on each loop
+  { 19: 0x14, 20: 0x12, 38: 0x14, 39: 0x12, 56: 0x14, 57: 0x12 },
+  { 1: 0x12, 3: 0x11, 19: 0x12, 23: 0x11, 33: 0x12 },
+  { 1: 0x12, 4: 0x11, 19: 0x12, 21: 0x11 },
+];
+
+// Disc pack 0770 script 6 reuses script 4's keys with different meshes. FUN_800b72b0 blends
+// the dust and leaves render id 0x2022 (part 33) in its own material mode.
+const DUST_FLASH = -6;
+const pogoFx = FX_PACKS[PACK].scripts;
+pogoFx[6] = { dur: 11, tracks: pogoFx[4].tracks.map((t, i) => ({ ...t, part: i % 2 === 0 ? 23 : 25 })) };
+pogoFx[DUST_FLASH] = { dur: 11, tracks: [{ part: 33, end: 11, keys: [
+  [0, 1, -71, -3, 0, 0, 0, 4096, 4096, 4096, 921],
+  [2, 0, -76, -6, 0, 0, 0, 7051, 7051, 7051, 4096],
+  [4, 0, -74, -6, 0, 0, 0, 10007, 10007, 10007, 4096],
+  [11, -1, -74, -1, 0, 0, 0, 13623, 13623, 13623, 0],
+] }] };
 
 /** Player colours are the pad colours of the corners (yellow BL, red TL, blue TR, green BR), not the character colours. */
 const PAD = ['#d8c81c', '#d02020', '#2438d0', '#1ea81e'];
@@ -31,13 +74,13 @@ const PAD = ['#d8c81c', '#d02020', '#2438d0', '#1ea81e'];
 const ITEM_PART = [-1, 12, 26, 1, 63, 11, 65];
 
 /** Per level: stage key, texture folder, fixed camera fitted to the real gameplay frames (model units -> x3.6 world). */
-interface Level { level: number; arena: string; tex: string; neutral: number; colors: number[]; mode: 'tex' | 'hole' | 'sand'; bg: number; pos: [number, number, number]; pitch: number; fov: number; sfx: string }
+interface Level { level: number; arena: string; bg: number; pos: [number, number, number]; pitch: number; fov: number; sfx: string }
 const S = 3.6;
 const LEVELS: Record<string, Level> = {
-  pogo: { level: 10, arena: 'tilePainter:pogoPainter', tex: '0674', neutral: 0, colors: [56, 53, 54, 55], mode: 'tex', bg: 0x1c2a16, pos: [0, 2.98 * S, 6.244 * S], pitch: 24.41, fov: 36.3, sfx: '0171' },
-  agogo: { level: 11, arena: 'tilePainter:pogoAGogo', tex: '', neutral: 0, colors: [], mode: 'hole', bg: 0x9ac4e8, pos: [0, 3.15 * S, 5.85 * S], pitch: 27.06, fov: 37.2, sfx: '0170' },
-  elpogoloco: { level: 12, arena: 'tilePainter:elPogoLoco', tex: '', neutral: 0, colors: [], mode: 'sand', bg: 0xb8806a, pos: [0, 3.217 * S, 5.928 * S], pitch: 27.06, fov: 37.2, sfx: '0169' },
-  padlock: { level: 13, arena: 'tilePainter:pogoPadlock', tex: '0662', neutral: 0, colors: [41, 38, 39, 40], mode: 'tex', bg: 0x4a4a52, pos: [0, 3.217 * S, 5.928 * S], pitch: 27.06, fov: 37.2, sfx: '0168' },
+  pogo: { level: 10, arena: 'tilePainter:pogoPainter', bg: 0x1c2a16, pos: [0, 2.98 * S, 6.244 * S], pitch: 24.41, fov: 36.3, sfx: '0171' },
+  agogo: { level: 11, arena: 'tilePainter:pogoAGogo', bg: 0x9ac4e8, pos: [0, 3.15 * S, 5.85 * S], pitch: 27.06, fov: 37.2, sfx: '0170' },
+  elpogoloco: { level: 12, arena: 'tilePainter:elPogoLoco', bg: 0xb8806a, pos: [0, 3.217 * S, 5.928 * S], pitch: 27.06, fov: 37.2, sfx: '0169' },
+  padlock: { level: 13, arena: 'tilePainter:pogoPadlock', bg: 0x4a4a52, pos: [0, 3.217 * S, 5.928 * S], pitch: 27.06, fov: 37.2, sfx: '0168' },
 };
 
 const placements = new Map<number, Placements | null>();
@@ -51,14 +94,14 @@ function boardTiles(pl: Placements | null): string[] {
 const pad3 = (n: number) => String(Math.max(0, Math.min(999, Math.round(n)))).padStart(3, '0');
 /**
  * Original sound id (FUN_80022660 arg) -> sample index n in the level's sfx bank (VAB tone -> vag - 1; see re/notes/pogoPainter.md).
- * 0x55a..0x565 (foreign-tile steps 55a-55d, landing per character 55e-565) are a contiguous run starting at RUN[bank].
+ * 0x55a..0x56d (foreign-tile steps, landings, cheers) are a contiguous run starting at RUN[bank].
  */
 const RUN: Record<string, number> = { '0171': 13, '0170': 14, '0169': 21, '0168': 24 };
 const SND: Record<string, Record<number, number>> = {
-  '0171': { 0x514: 2, 0x515: 3, 0x51d: 5, 0x51e: 7, 0x51f: 8, 0x520: 9, 0x522: 11, 0x438: 6, 0x43c: 12, 0x41c: 34, 0x41f: 36, 0x3fa: 35, 0x529: 1, 0x1c2: 33 },
-  '0170': { 0x514: 3, 0x515: 4, 0x51d: 6, 0x51e: 8, 0x51f: 9, 0x520: 10, 0x522: 12, 0x438: 7, 0x43c: 13, 0x41c: 35, 0x41f: 37, 0x3fa: 36, 0x532: 0, 0x533: 1, 0x534: 2, 0x1c2: 34 },
-  '0169': { 0x514: 10, 0x515: 11, 0x51d: 13, 0x51e: 15, 0x51f: 16, 0x520: 17, 0x522: 19, 0x438: 14, 0x43c: 20, 0x41c: 42, 0x41f: 44, 0x3fa: 43, 0x3ec: 5, 0x3ed: 6, 0x3ee: 5, 0x3ef: 6, 0x3f1: 8, 0x3f2: 9, 0x3f3: 8, 0x3f4: 9, 0x542: 3, 0x543: 4, 0x1c2: 41 },
-  '0168': { 0x514: 13, 0x515: 14, 0x51d: 16, 0x51e: 18, 0x51f: 19, 0x520: 20, 0x522: 22, 0x438: 17, 0x43c: 23, 0x41c: 45, 0x41f: 47, 0x3fa: 46, 0x54b: 5, 0x54c: 6, 0x54d: 7, 0x54e: 8, 0x54f: 9, 0x550: 10, 0x551: 11, 0x552: 12, 0x1c2: 44 },
+  '0171': { 0x514: 2, 0x515: 3, 0x51d: 5, 0x51e: 7, 0x51f: 8, 0x520: 9, 0x521: 10, 0x522: 11, 0x438: 6, 0x43c: 12, 0x41c: 34, 0x41f: 36, 0x3fa: 35, 0x529: 1, 0x1c2: 33 },
+  '0170': { 0x514: 3, 0x515: 4, 0x51d: 6, 0x51e: 8, 0x51f: 9, 0x520: 10, 0x521: 11, 0x522: 12, 0x438: 7, 0x43c: 13, 0x41c: 35, 0x41f: 37, 0x3fa: 36, 0x532: 0, 0x533: 1, 0x534: 2, 0x1c2: 34 },
+  '0169': { 0x514: 10, 0x515: 11, 0x51d: 13, 0x51e: 15, 0x51f: 16, 0x520: 17, 0x521: 18, 0x522: 19, 0x438: 14, 0x43c: 20, 0x41c: 42, 0x41f: 44, 0x3fa: 43, 0x3ec: 5, 0x3ed: 6, 0x3ee: 5, 0x3ef: 6, 0x3f0: 7, 0x3f1: 8, 0x3f2: 9, 0x3f3: 8, 0x3f4: 9, 0x53c: 0, 0x53d: 1, 0x53e: 2, 0x53f: 0, 0x540: 1, 0x541: 2, 0x542: 3, 0x543: 4, 0x1c2: 41 },
+  '0168': { 0x514: 13, 0x515: 14, 0x51d: 16, 0x51e: 18, 0x51f: 19, 0x520: 20, 0x521: 21, 0x522: 22, 0x438: 17, 0x43c: 23, 0x41c: 45, 0x41f: 47, 0x3fa: 46, 0x54b: 5, 0x54c: 6, 0x54d: 7, 0x54e: 8, 0x54f: 9, 0x550: 10, 0x551: 11, 0x552: 12, 0x1c2: 44 },
 };
 
 function makePogo(hex: string): THREE.Group {
@@ -80,96 +123,127 @@ function makePogo(hex: string): THREE.Group {
   return g;
 }
 
-// ---------------------------------------------------------------- canvas art (the real tile/splat textures are not in the stage models)
 const hash = (i: number) => { let x = Math.imul(i + 1, 2654435761) >>> 0; x ^= x >>> 15; return (x >>> 0) / 4294967296; };
-
-function blobTexture(): THREE.CanvasTexture {
-  return canvasTexture(128, (g, s) => {
-    g.clearRect(0, 0, s, s);
-    g.fillStyle = '#fff';
-    g.beginPath();
-    const lobes = 6;
-    for (let k = 0; k <= 64; k++) {
-      const a = (k / 64) * Math.PI * 2;
-      const r = s * (0.36 + 0.05 * Math.sin(a * lobes + 1) + 0.03 * Math.sin(a * 3 + 2));
-      const x = s / 2 + Math.cos(a) * r, y = s / 2 + Math.sin(a) * r;
-      if (k) g.lineTo(x, y); else g.moveTo(x, y);
-    }
-    g.fill();
-    g.fillStyle = 'rgba(0,0,0,0.22)';
-    g.beginPath(); g.arc(s / 2, s / 2, s * 0.16, 0, Math.PI * 2); g.fill();
-  }, undefined, false);
-}
-
-function holeTileTexture(): THREE.CanvasTexture {
-  return canvasTexture(64, (g, s) => {
-    g.fillStyle = '#8e8c7e'; g.fillRect(0, 0, s, s);
-    g.fillStyle = '#a6a496'; g.fillRect(1, 1, s - 2, 2); g.fillRect(1, 1, 2, s - 2);
-    g.fillStyle = '#5e5c50'; g.fillRect(1, s - 3, s - 2, 2); g.fillRect(s - 3, 1, 2, s - 2);
-    g.fillStyle = '#3c3c34'; g.beginPath(); g.ellipse(s / 2, s / 2, s * 0.36, s * 0.36, 0, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#6a685c'; g.beginPath(); g.ellipse(s / 2, s / 2 + 2, s * 0.3, s * 0.28, 0, 0, Math.PI * 2); g.fill();
-  });
-}
-
-function sandGridTexture(): THREE.CanvasTexture {
-  return canvasTexture(64, (g, s) => {
-    g.clearRect(0, 0, s, s);
-    g.strokeStyle = 'rgba(90,50,30,0.45)'; g.lineWidth = 3;
-    g.strokeRect(1, 1, s - 2, s - 2);
-    g.strokeStyle = 'rgba(255,220,180,0.18)'; g.lineWidth = 2;
-    g.strokeRect(4, 4, s - 8, s - 8);
-  });
-}
 
 export function createTilePainterView(): ClientMiniGame {
   let kit: Kit;
   let loaded = false;
   let variant = 'pogo';
   let lv: Level = LEVELS.pogo;
-  const loader = new THREE.TextureLoader();
-  const owner = new Array<number>(TP_N * TP_N).fill(-2);
-  const capd = new Array<number>(TP_N * TP_N).fill(0);
-  const pop = new Float32Array(TP_N * TP_N);
-  const tileMesh: THREE.Mesh[] = [];
-  const paintMesh: THREE.Mesh[] = [];
-  const mats: THREE.MeshBasicMaterial[] = []; // 0..3 owner, 4 neutral
-  const paintMats: THREE.MeshBasicMaterial[] = [];
+  const boardTexture = new THREE.Texture();
+  const boardReady = new THREE.ImageLoader().loadAsync(ASSET_BASE + 'textures/pogo-board.png').then(image => {
+    boardTexture.image = image;
+    boardTexture.needsUpdate = true;
+  });
+  let board: PogoBoard | null = null;
   const pogoSprings = new Map<number, THREE.Object3D>();
-  const objs = new Map<number, { obj: THREE.Object3D; boom?: boolean; yaw?: number; mon?: ModelInstance; t?: number }>();
+  const objs = new Map<number, { obj: THREE.Object3D; yaw?: number; lock?: THREE.Object3D; mon?: ModelInstance; shadow?: THREE.Object3D }>();
   /** held item per slot: the pack part on the player's held-item node */
   const icons = new Map<number, { item: number; obj: THREE.Object3D | null }>();
   /** one pack 0770 part at the stage scale (render id 0x2000 + part + 1) */
   const packPart = (part: number): THREE.Object3D => catalogInstance({ model: PACK, scale: K, parts: [`part${part}`] })?.root ?? new THREE.Group();
-  const stunT = new Map<number, number>();
-  /** last hop counter per slot (touchdown dust at 14), beam segment batches (parts 2-9), current level */
-  const lastCnt = [-1, -1, -1, -1];
   let beams: PartBatch[] = [];
-  let gameLvl = 10;
-  const mkBeams = () => { for (const b of beams) b.dispose(); beams = Array.from({ length: 8 }, (_, i) => new PartBatch(kit.root, PACK, 2 + i, K, 16, true)); };
-  const ovMesh: THREE.Mesh[] = []; // per-tile overlay: mine / cross tile / locked
-  const ovMats: Record<string, THREE.MeshBasicMaterial> = {};
-  const stripMesh: THREE.Mesh[] = []; // lvl 11 rotating border (32 segments)
-  let stripKey = -1;
-  const stN = new Array<number>(TP_N * TP_N).fill(-1);
+  let missileTrail: PartBatch;
+  const trailFacing = new THREE.Euler(0, 0, 0, 'YXZ');
+  let lastImpact = 0;
+  let result: PogoResult | null = null;
+  let catchingUp = false;
+  const mkBeams = () => { for (const b of beams) b.dispose(); beams = Array.from({ length: 8 }, (_, i) => new PartBatch(kit.root, PACK, 2 + i, K, 28, true)); };
+  function mkMissileTrail() {
+    missileTrail?.dispose();
+    // Render id 0x2018. Keep the disc's ABR 2 subtractive material and texture palette.
+    missileTrail = new PartBatch(kit.root, PACK, 23, K, 128);
+  }
+
+  function drawMissileTrail(w: World, camera: THREE.Camera) {
+    trailFacing.setFromQuaternion(camera.quaternion);
+    missileTrail.begin();
+    const trail: PogoProjectileTrail[] = w.data.projTrail ?? [];
+    for (const { x, y, z, tick } of trail) {
+      const size = 1 - (w.tick - tick) / POGO_TRAIL_FRAMES;
+      missileTrail.add(x, y, z, trailFacing.y, trailFacing.x, size);
+    }
+    missileTrail.end();
+  }
   let arena: THREE.Group | null = null;
   // samples are shared between banks on disc, so the file comes from audio/index.json
   let bankIdx: Record<string, { file?: string | null }[]> | null = null;
-  void fetch(ASSET_BASE + 'audio/index.json').then((r) => (r.ok ? r.json() : null)).then((j) => {
+  const bankReady = fetch(ASSET_BASE + 'audio/index.json').then((r) => (r.ok ? r.json() : null)).then((j) => {
     bankIdx = {};
     for (const [k, v] of Object.entries<{ samples: { file?: string | null }[] }>(j?.sfx?.banks ?? {})) bankIdx[k] = v.samples;
   }).catch(() => { /* silent */ });
   function playId(id: number, vol = 0.55) {
+    if (catchingUp) return;
     let n = SND[lv.sfx]?.[id];
-    if (n === undefined && id >= 0x55a && id <= 0x565) n = RUN[lv.sfx] + (id - 0x55a);
+    if (n === undefined && id >= 0x55a && id <= 0x56d) n = RUN[lv.sfx] + (id - 0x55a);
     if (n === undefined) return;
     const f = bankIdx?.[lv.sfx]?.[n]?.file;
-    if (f) sfx.playFile(f, vol, false, sfxRate(lv.sfx, id));
+    if (f) sfx.playFile(f, vol, kit.over.done, sfxRate(lv.sfx, id));
   }
 
-  function tex(dir: string, n: number): THREE.Texture {
-    const t = loader.load(`${ASSET_BASE}textures/${dir}/tex${String(n).padStart(3, '0')}.png`);
-    t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
-    return t;
+  function playProjectileImpacts(w: World) {
+    // Use the displayed snapshot so an impact lines up with the interpolated head's removal.
+    for (const e of w.ev) {
+      if (e.k !== 'pogoProjectileEnd' || e.id <= lastImpact) continue;
+      lastImpact = e.id;
+      kit.real.play(PACK, 0, e.x, e.v, e.z);
+      playId(0x521);
+    }
+  }
+
+  function playDust(script: number, x: number, z: number, random = Math.random()) {
+    const yaw = Math.floor(random * 360) * Math.PI / 180;
+    kit.real.play(PACK, script, x, 0, z, { yaw, add: true });
+    if (script === 6) kit.real.play(PACK, DUST_FLASH, x, 0, z, { yaw });
+  }
+
+  function tickResult(state: PogoResult, frame: number) {
+    const { world: w, entered } = state;
+    w.tick++;
+    const draw = kit.over.winners.size === 0;
+    // FUN_80082d90: 0x1af plays once the draw logo reaches its size threshold.
+    if (draw && frame === 23 && !catchingUp) sfx.playFile(DRAW_SOUND, 0.9, true, sfxRate('0278', 0x1af));
+    tickPogoTiles(w);
+    for (const p of w.bodies) {
+      if (p.kind !== 'player') continue;
+      const slot = p.slot, win = kit.over.winners.has(slot), lose = !draw && !win;
+      pogoResultPickup(w, p, entered[slot] >= 0);
+      if (entered[slot] < 0) {
+        if (finishPogoHop(w, p)) continue;
+        enterPogoResult(w, p, lose);
+        entered[slot] = frame;
+        if (win) state.lastFrame = frame + WIN_ARENA_TAIL + (WIN_NAME_WAIT[w.data.fam[slot] - 1] ?? 26);
+        if (lose) kit.real.play(PACK, 0, p.x, 0, p.z);
+      }
+      const age = frame - entered[slot];
+      if (age > 0) {
+        let yaw = Math.round(-p.face / YAW_UNIT) & 0xfff;
+        if (lose) yaw += 0xe3; // FUN_800b6ae0
+        else {
+          if (win) { // FUN_8008a200: signed quarter-turn correction before the Pogo handler's unsigned correction
+            const diff = -yaw & 0xfff;
+            yaw = (yaw + ((diff > 0x800 ? diff - 0x1000 : diff) >> 2)) & 0xfff;
+          }
+          yaw += Math.min(yaw, 0x1000 - yaw) >> 3; // FUN_80015480(0, yaw) is unsigned
+        }
+        p.face = -(yaw & 0xfff) * YAW_UNIT;
+        if (lose && ((w.tick + slot) & 3) === 0) kit.real.play(PACK, 2, p.x, p.y, p.z);
+      }
+      // FUN_800b6960 sets a constant upward speed. Physics runs after the result handler,
+      // so the first rise is on entry and each smoke puff uses the preceding height.
+      if (lose) p.y += 0x30 * U;
+      if (win) {
+        const family = w.data.fam[slot];
+        const period = poseTicks(WIN_SCRIPT, family);
+        if (period && age % period === CHEER_SOUND_FRAME[family - 1]) playId(0x566 + family - 1);
+        const event = age > 0 && period ? CHEER_EVENTS[family - 1][1 + (age - 1) % period] : undefined;
+        if (event === 0x12) pogoWinnerLand(w, slot);
+        if (event === 0x11 || event === 0x14) playDust(event === 0x11 ? 6 : 4, p.x, p.z, hash(w.tick * 4 + slot));
+        if (!catchingUp) winnerVoice('tilePainter', kit.look(slot).char, age - 1, age);
+        else if (age === 0) sfx.enterRoundResult('winner');
+      }
+    }
+    tickPogoResultObjects(w);
   }
 
   function build() {
@@ -177,79 +251,22 @@ export function createTilePainterView(): ClientMiniGame {
     const ref = getCatalog().arenas[lv.arena];
     // the level as the real game builds it (RAM object list); the 64 board tiles are ours (paintable)
     const pl = placements.get(lv.level) ?? null;
-    const lvl = ref ? levelStage(ref, pl, (r) => catalogInstance(r)?.root ?? null, { skip: boardTiles(pl) }) : null;
+    const tileParts = boardTiles(pl);
+    const skip = variant === 'agogo' ? [...tileParts, ...POGO_RIM_PARTS] : tileParts;
+    const lvl = ref ? levelStage(ref, pl, r => catalogInstance(r)?.root ?? null, { skip }) : null;
     if (lvl) { arena = lvl; R.add(lvl); }
     else {
-      const inst = catalogInstance(ref);
+      const inst = catalogInstance(variant === 'agogo' && ref ? { ...ref, parts: ref.parts?.filter(p => p !== 'extra_1d044') } : ref);
       if (inst) {
         arena = new THREE.Group(); arena.add(inst.root);
         for (const ex of (ref as { extra?: (typeof ref)[] } | undefined)?.extra ?? []) { const m = catalogInstance(ex); if (m) arena.add(m.root); }
         R.add(arena);
       }
     }
-    if (!lvl && lv.mode !== 'tex') { // fallback only: without the real level objects the ground ends early
-      const apron = new THREE.Mesh(new THREE.PlaneGeometry(300, 300).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: lv.mode === 'hole' ? 0xb4803c : 0xa0644a }));
-      apron.position.y = -0.03;
-      R.add(apron);
-    }
-    const geo = new THREE.PlaneGeometry(TP_TILE * 0.995, TP_TILE * 0.995).rotateX(-Math.PI / 2);
-    const mk = (map: THREE.Texture | null, color = 0xffffff, transparent = false) => new THREE.MeshBasicMaterial({ map, color, transparent, alphaTest: transparent ? 0.02 : 0, depthWrite: !transparent });
-    if (lv.mode === 'tex') {
-      for (let s = 0; s < 4; s++) mats.push(mk(tex(lv.tex, lv.colors[s])));
-      mats.push(mk(tex(lv.tex, lv.neutral)));
-    } else if (lv.mode === 'hole') {
-      const n = holeTileTexture();
-      for (let s = 0; s < 4; s++) mats.push(mk(n));
-      mats.push(mk(n));
-    } else {
-      const n = sandGridTexture();
-      for (let s = 0; s < 5; s++) mats.push(mk(n, 0xffffff, true));
-      const floor = new THREE.Mesh(new THREE.PlaneGeometry(TP_N * TP_TILE, TP_N * TP_TILE).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xa87250 }));
-      floor.position.y = 0.01;
-      R.add(floor);
-    }
-    if (lv.mode !== 'tex') {
-      const b = blobTexture();
-      for (let s = 0; s < 4; s++) paintMats.push(mk(b, new THREE.Color(PAD[s]).getHex(), true));
-    }
-    for (let i = 0; i < TP_N * TP_N; i++) {
-      const m = new THREE.Mesh(geo, mats[4]);
-      const [x, z] = tileCenter(i);
-      m.position.set(x, 0.03, z);
-      R.add(m);
-      tileMesh.push(m);
-      if (lv.mode !== 'tex') {
-        const p = new THREE.Mesh(geo, paintMats[0]);
-        p.position.set(x, 0.06, z);
-        p.rotation.y = hash(i) * Math.PI * 2;
-        p.scale.setScalar(0.95 + hash(i + 99) * 0.15);
-        p.visible = false;
-        R.add(p);
-        paintMesh.push(p);
-      }
-    }
-    for (const [k, c] of [['mine', 0xff2a1a], ['cross', 0xffd020], ['lock', 0xb8c4ff]] as [string, number][]) ovMats[k] = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.55, depthWrite: false });
-    const ovGeo = new THREE.PlaneGeometry(TP_TILE * 0.8, TP_TILE * 0.8).rotateX(-Math.PI / 2);
-    for (let i = 0; i < TP_N * TP_N; i++) {
-      const m = new THREE.Mesh(ovGeo, ovMats.mine);
-      const [x, z] = tileCenter(i);
-      m.position.set(x, 0.09, z);
-      m.visible = false;
-      R.add(m);
-      ovMesh.push(m);
-    }
-    if (variant === 'agogo') { // the colour border around the arena (FUN_800bb840 reads the same ring)
-      const sg = new THREE.PlaneGeometry(TP_TILE * 0.96, 0.7).rotateX(-Math.PI / 2);
-      for (let k = 0; k < 32; k++) {
-        const m = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: 0x888888 }));
-        const side = Math.floor(k / 8), seg = k % 8;
-        const [x, z] = side === 0 ? tileWorld(-0.95, seg) : side === 1 ? tileWorld(seg, 7.95) : side === 2 ? tileWorld(7.95, 7 - seg) : tileWorld(7 - seg, -0.95);
-        m.position.set(x, 0.05, z);
-        if (side === 0 || side === 2) m.rotation.y = Math.PI / 2;
-        R.add(m);
-        stripMesh.push(m);
-      }
-    }
+    const tiles = pl?.objects.filter(o => tileParts.includes(o.part)).sort((a, b) => parseInt(a.part.slice(6), 16) - parseInt(b.part.slice(6), 16)) ?? [];
+    board?.dispose();
+    board = new PogoBoard(lv.level, pl?.model ?? ref?.model, tiles, boardTexture);
+    R.add(board.root);
   }
 
   function makeParts(slot: number): ActorParts {
@@ -293,175 +310,237 @@ export function createTilePainterView(): ClientMiniGame {
 
   return {
     id: 'tilePainter',
-    async preload() { await Promise.all([preloadCatalogFor('tilePainter', []), preloadFx([PACK, DIGITS, LOCO, MONSTER]), ...Object.values(LEVELS).map((l) => loadPlacements('L' + l.level).then((p) => { placements.set(l.level, p); }))]); loaded = true; },
+    async preload() { await Promise.all([boardReady, bankReady, preloadCatalogFor('tilePainter', []), preloadFx([PACK, DIGITS, LOCO, MONSTER]), ...Object.values(LEVELS).map((l) => loadPlacements('L' + l.level).then((p) => { placements.set(l.level, p); }))]); loaded = true; },
 
     init(ctx, world) {
       variant = world.data.variant ?? 'pogo';
       lv = LEVELS[variant] ?? LEVELS.pogo;
+      result = null;
+      lastImpact = 0;
+      for (const e of world.ev) if (e.k === 'pogoProjectileEnd' && e.t < world.tick - 1) lastImpact = e.id;
+      sfx.preloadFile(TIME_UP_SOUND);
+      sfx.preloadFile(DRAW_SOUND);
+      const bank = lv.sfx;
+      void bankReady.then(() => {
+        const samples = bankIdx?.[bank];
+        for (const sample of samples?.slice(RUN[bank], RUN[bank] + 20) ?? []) {
+          if (sample.file) sfx.preloadFile(sample.file);
+        }
+        const cueIds = [0x520, 0x521, 0x522, 0x43c];
+        if (lv.level === 12) cueIds.push(0x53c, 0x53d, 0x53e, 0x542, 0x543);
+        for (const id of cueIds) {
+          const file = samples?.[SND[bank][id]]?.file;
+          if (file) sfx.preloadFile(file);
+        }
+      });
       kit = new Kit(ctx, 'tilePainter', { bg: lv.bg, hemi: [0xffffff, 0xaaaaaa, 1.5] });
-      kit.realFx(K); beams = []; mkBeams(); lastCnt.fill(-1);
-      owner.fill(-2); capd.fill(0); pop.fill(0); pogoSprings.clear(); objs.clear(); icons.clear(); stunT.clear();
-      tileMesh.length = 0; paintMesh.length = 0; mats.length = 0; paintMats.length = 0; ovMesh.length = 0; stripMesh.length = 0; stripKey = -1; stN.fill(-1); arena = null;
+      kit.realFx(K); beams = []; mkBeams(); mkMissileTrail();
+      pogoSprings.clear(); objs.clear(); icons.clear();
+      arena = null;
       build();
       setCamera(ctx);
-      if (!loaded) this.preload!().then(() => { if (!arena) { kit.root.clear(); kit.realFx(K); tileMesh.length = 0; paintMesh.length = 0; mats.length = 0; paintMats.length = 0; ovMesh.length = 0; stripMesh.length = 0; stripKey = -1; stN.fill(-1); build(); } if (kit) mkBeams(); });
+      if (!loaded) this.preload!().then(() => { if (!arena) { kit.root.clear(); kit.realFx(K); build(); } if (kit) { mkBeams(); mkMissileTrail(); } });
     },
 
     render(ctx, w, dt) {
-      kit.checkOver(w);
+      if (!result) {
+        catchingUp = ctx.resultReplayAt !== undefined && ctx.time - ctx.resultReplayAt >= 1 / 30;
+        playProjectileImpacts(w);
+        kit.checkOver(w);
+        if (kit.over.done) {
+          const lastFrame = kit.over.winners.size ? 17 + WIN_ARENA_TAIL + Math.max(...WIN_NAME_WAIT) : DRAW_ARENA_FRAMES;
+          result = { world: createPogoResult(w), at: ctx.resultReplayAt ?? ctx.time, entered: [-1, -1, -1, -1], lastFrame };
+        }
+      }
+      if (result) {
+        w = result.world;
+        kit.world = w;
+        const frame = Math.floor((ctx.time - result.at) * 30 + 1e-7);
+        while (kit.over.frame < frame && kit.over.frame < result.lastFrame) {
+          tickResult(result, ++kit.over.frame);
+          playProjectileImpacts(w);
+          for (const e of w.ev) this.onEvent!(ctx, e);
+          w.ev.length = 0;
+          kit.real.update(1 / 30, ctx.camera);
+        }
+      }
+      catchingUp = false;
       setCamera(ctx);
       const d = w.data;
-      const data: number[] = d.tiles ?? [];
-      const cap: number[] = d.cap ?? [];
-      for (let i = 0; i < TP_N * TP_N; i++) {
-        const o = data[i] ?? -1;
-        const cp = cap[i] ?? 0;
-        if (o !== owner[i] || cp !== capd[i]) {
-          if (owner[i] !== -2 && o >= 0) pop[i] = 1;
-          owner[i] = o; capd[i] = cp;
-          const ob = o >= 0 && o < 4;
-          if (lv.mode === 'tex') tileMesh[i].material = mats[ob ? o : 4];
-          else if (paintMesh[i]) {
-            paintMesh[i].visible = ob;
-            if (ob) paintMesh[i].material = paintMats[o];
-          }
-        }
-        const stv = d.st?.[i] ?? 1;
-        const key = stv === 5 || stv === 7 || stv === 10 ? stv : 0;
-        if (key !== stN[i]) {
-          stN[i] = key;
-          const ov = ovMesh[i];
-          if (ov) { ov.visible = key > 0; if (key) ov.material = ovMats[key === 5 ? 'mine' : key === 7 ? 'cross' : 'lock']; }
-        }
-        if (key === 5 && ovMesh[i]) ovMats.mine.opacity = 0.35 + 0.3 * Math.sin(ctx.time * 12);
-        pop[i] = Math.max(0, pop[i] - dt * 3);
-        const k = 1 + Math.sin(pop[i] * Math.PI) * 0.12;
-        tileMesh[i].scale.set(k, 1, k);
-        tileMesh[i].position.y = 0.03 + Math.sin(pop[i] * Math.PI) * 0.12;
-      }
-
-      if (stripMesh.length && d.border !== stripKey) {
-        stripKey = d.border;
-        for (let k = 0; k < 32; k++) (stripMesh[k].material as THREE.MeshBasicMaterial).color.set(PAD[borderColor(d.border, Math.floor(k / 8), k % 8)]);
-      }
+      const arenaTick = result ? w.tick : Math.max(w.tick, Math.floor(w.time * 30 + 1e-6));
+      board?.update(d, arenaTick);
       const seen = new Set<number>();
       const seenO = new Set<number>();
-      gameLvl = d.lvl ?? gameLvl;
       for (const b of beams) b.begin();
       for (const b of w.bodies) {
         if (b.kind === 'player') {
+          const slot = b.slot, playerWorld = result ? w : kit.playerWorld(slot), d = playerWorld.data;
           seen.add(b.id);
-          const a = kit.actor(b, () => makeParts(b.slot));
+          const a = kit.actor(b, () => makeParts(slot));
+          const entered = result?.entered[slot] ?? -1;
+          const win = kit.over.winners.has(slot);
+          const lose = entered >= 0 && !win && kit.over.winners.size > 0;
           const air = b.y > 0.02;
-          const stun = (d.stun?.[b.slot] ?? 0) > 0;
-          const taz = (d.taz?.[b.slot] ?? 0) > 0;
-          a.update(b, dt, { role: kit.over.done ? undefined : stun ? 'hit' : taz ? 'action' : air ? 'hop' : 'idle', freeze: true });
-          const sp = pogoSprings.get(b.slot);
+          const stun = (d.stun?.[slot] ?? 0) > 0;
+          const taz = (d.taz?.[slot] ?? 0) > 0;
+          const counter = d.cnt?.[slot] ?? -1, fast = d.item?.[slot] === 5;
+          const playScript = stun ? 0x31 : taz ? 0x30 : fast ? 0x2f : 0x2e;
+          const script = entered < 0 ? playScript : win ? WIN_SCRIPT : RESULT_HOP_SCRIPT;
+          // The loser spins on the first pose. FUN_800b6ae0 never advances its script.
+          const scriptFrame = entered < 0 ? (stun ? d.stun[slot] - 1 : taz ? BEAM_FRAMES - d.taz[slot] : undefined)
+            : lose ? 0 : kit.over.frame - entered;
+          if (result) a.face = b.face;
+          a.update(b, dt, { role: stun ? 'hit' : taz ? 'action' : air ? 'hop' : 'idle', freeze: true,
+            keepYaw: !!result, script, scriptFrame,
+            renderWord: counter >= 0 && entered < 0 && !stun && !taz ? POGO_HOP[d.fam[slot] - 1]?.[Math.floor(counter)] : undefined });
+          if (lose) a.shadow.visible = false;
+          // The pogo model contains the vertical hop. The body height also drives gameplay and shadows.
+          if (a.inst.ref && !stun && !taz && !lose) a.holder.position.y = 0;
+          const sp = pogoSprings.get(slot);
           if (sp) sp.scale.y = air ? 1 : 0.6;
-          const item = d.item?.[b.slot] ?? 0;
-          const held = heldItem(b.slot, kit.over.done ? 0 : item);
-          if (held) { held.position.set(b.x, b.y + a.headY + 0.2, b.z); held.rotation.y += dt * 0x38 * 30 * Math.PI * 2 / 4096; }
-          // hop clip event 0x14 (three frames before the landing snap): touchdown dust, script 4 at a random yaw (FUN_800b741c)
-          const cnt = d.cnt?.[b.slot] ?? -1;
-          if (cnt >= 14 && lastCnt[b.slot] < 14 && lastCnt[b.slot] >= 0) kit.real.play(PACK, 4, b.x, 0, b.z, { yaw: Math.random() * Math.PI * 2, add: true });
-          lastCnt[b.slot] = cnt;
-          if (stun) { // stun state (FUN_800b6ae0): a smoke puff (script 2) every 4 frames on the spinning player
-            const t = (stunT.get(b.slot) ?? 0) - dt * 30;
-            stunT.set(b.slot, t <= 0 ? t + 4 : t);
-            if (t <= 0) kit.real.play(PACK, 2, b.x, b.y, b.z);
-          } else stunT.delete(b.slot);
+          const held = heldItem(slot, d.item?.[slot] ?? 0);
+          if (held) {
+            const tick = Math.max(arenaTick, playerWorld.tick);
+            const between = tick - playerWorld.tick;
+            const yaw = d.itemYaw?.[slot] ?? d.itemAge[slot] * 0x71;
+            // In the L13 opening global frame 3271 was play tick 1. The sim counts the pickup tick in itemT.
+            held.visible = d.item[slot] !== 6 || d.itemT[slot] + 1 - between > 90 || ((tick + 6) & 4) === 0;
+            held.position.set(b.x, b.y + a.headY + 0.2, b.z);
+            held.rotation.y = -((yaw + between * 0x71) & 0xfff) * YAW_UNIT;
+          }
         } else if (b.kind === 'crate' || b.kind === 'power' || b.kind === 'arrow' || b.kind === 'missile' || b.kind === 'monster' || b.kind === 'padlock' || b.kind === 'beam') {
           seenO.add(b.id);
           let o = objs.get(b.id);
           if (!o) {
             let obj: THREE.Object3D;
             let mon: ModelInstance | undefined;
+            let lock: THREE.Object3D | undefined, shadow: THREE.Object3D | undefined;
             if (b.kind === 'monster') {
               mon = new ModelInstance({ model: MONSTER, scale: K, parts: ['part0'] });
-              obj = mon.build() ? mon.root : new THREE.Group();
-              obj.userData.shared = true; // geometry belongs to the model cache
+              obj = new THREE.Group();
+              shadow = packPart(40);
+              shadow.scale.setScalar(0x15c0 / 4096);
+              obj.add(shadow);
+              if (mon.build()) {
+                mon.root.userData.shared = true;
+                obj.add(mon.root);
+              }
             } else if (b.kind === 'beam') obj = new THREE.Group();
             // real objects (pack 0770): padlock 0x2041, cash crate 0x200b, arrow 0x2001 / double arrow 0x200e, item on its tile,
             // projectile 0x200d (steal gun 0x2040)
-            else if (b.kind === 'padlock') obj = packPart(64);
+            else if (b.kind === 'padlock') {
+              obj = new THREE.Group();
+              lock = packPart(64);
+              obj.add(packPart(40), lock); // 0x2029 ground shadow does not turn or grow with 0x2041
+            }
             else if (b.kind === 'crate') obj = packPart(10);
             else if (b.kind === 'arrow') obj = packPart(b.m === 8 ? 13 : 0);
             else if (b.kind === 'power') obj = packPart(ITEM_PART[b.cd] ?? 12);
-            else obj = packPart(b.cd === 3 ? 63 : 12);
+            else obj = packPart(b.cd === 3 ? 63 : b.cd === 2 ? 26 : 12);
             kit.root.add(obj);
-            o = { obj, mon, t: 0 };
+            o = { obj, mon, lock, shadow };
             objs.set(b.id, o);
           }
-          if (b.kind === 'missile') { o.obj.position.set(b.x, b.y, b.z); o.obj.rotation.y = b.face; o.boom = true; }
+          if (b.kind === 'missile') { o.obj.position.set(b.x, b.y, b.z); o.obj.rotation.y = b.face + Math.PI / 2; } // pack 0770 missile noses point along local -x
           else if (b.kind === 'beam') { // FUN_800ba51c: electro sparks along the whole line ahead of the shooter
-            const dx = b.cd === 0 ? 1 : b.cd === 1 ? -1 : 0, dz = b.cd === 2 ? -1 : b.cd === 3 ? 1 : 0; // world z is flipped
-            const n = Math.round(b.dash);
-            // object 0x1405 (FUN_800ba994): one segment per tile, frame = (game frame + segment) & 7 of parts 2-9
-            for (let k = 1; k <= n; k++) beams[(w.tick + k) & 7]?.add(b.x + dx * k * TP_TILE, 128 * U, b.z + dz * k * TP_TILE, dz ? Math.PI / 2 : 0, 0, 1);
-          } else if (b.kind === 'monster') { // state in vx (1 wait, 2 patrol, 3/4 walk, 5 spin): clip 0 wait, 2 hop cycle, 1 spin
-            o.t = (o.t ?? 0) + dt * 30;
-            const clip = b.vx === 1 ? 0 : b.vx === 5 ? 1 : 2;
-            o.mon?.pose(clip, o.t % [21, 26, 14][clip]);
-            o.obj.position.set(b.x, 0, b.z);
-            o.obj.rotation.y = b.vx === 5 ? b.dash : b.face;
-          } else if (b.kind === 'padlock') {
-            const g = Math.min(1, b.vx);
-            o.obj.scale.setScalar(Math.max(0.01, g));
-            o.obj.position.set(b.x, Math.abs(Math.sin(ctx.time * 6)) * 0.15, b.z);
-            o.obj.rotation.y = Math.sin(ctx.time * 2) * 0.3;
+            const dx = b.cd === 0 ? 1 : b.cd === 1 ? -1 : 0;
+            const dz = b.cd === 2 ? -1 : b.cd === 3 ? 1 : 0;
+            const yaw = [0, Math.PI, Math.PI / 2, -Math.PI / 2][b.cd];
+            const firstTick = d.beams.find((beam: { id: number }) => beam.id === b.id)?.firstTick;
+            for (let k = 0; k < b.dash; k++) {
+              const frame = w.tick < (firstTick ?? 0) ? 2 : (w.tick + k) & 7;
+              const distance = (firstTick === undefined ? k + 0.5 : k) * TP_TILE;
+              beams[frame]?.add(b.x + dx * distance, 80 * U, b.z + dz * distance, yaw, dx ? Math.PI / 2 : 0);
+            }
+          } else if (b.kind === 'monster') {
+            const m = d.mon;
+            // A legacy snapshot has no render word. Recover its pose from the same arena timers.
+            const spin = m.st === 5;
+            const word = spin ? 0x4000 + (Math.max(0, 139 - m.tm) % 21)
+              : m.st === 1 ? 0x4080 + ((159 - m.tm + 26) % 26) : 0x4100 + ((m.cyc + 13) % 14);
+            o.mon?.nativePose(m.pose ?? word);
+            if (o.mon) {
+              o.mon.root.position.set(b.x, 0, b.z);
+              o.mon.root.rotation.y = m.yaw === undefined && spin ? b.dash : b.face;
+            }
+            if (o.shadow) {
+              const [x, z] = tileWorld(m.shadowX ?? m.x, m.shadowZ ?? m.z);
+              o.shadow.position.set(x, 16 * U, z);
+            }
+          } else if (b.kind === 'padlock' && o.lock) {
+            o.obj.position.set(b.x, 16 * U, b.z);
+            o.lock.scale.y = Math.min(1, b.vx + (arenaTick - w.tick) / 16);
+            o.lock.rotation.y = -((PADLOCK_INTRO_TICKS + arenaTick) * 0x38 & 0xfff) * YAW_UNIT;
           } else {
             o.obj.scale.setScalar(Math.max(0.05, Math.min(1, b.dash / 16))); // crates grow in over 16 frames (+0x100 / frame)
-            o.obj.position.set(b.x, 0, b.z);
+            // FUN_800baef0: after landing, +56 units of upward speed, then -8 per tick until the next bounce.
+            const bounce = b.kind === 'power' ? Math.max(0, b.dash - 17) % 15 : 0;
+            o.obj.position.set(b.x, 4 * bounce * (15 - bounce) * U, b.z);
             if (b.kind === 'arrow') { // FUN_800baba8: yaw eases 1/8 per frame toward dir * 0x400
               // the 0770 arrow mesh's tip is on its gltf +z, so add a half turn: the arrow then points along its fill
               // (checked on the emulator: dir 2 = yaw 0x800 points at the camera, game -z)
               const tgt = Math.PI - (b.cd & 3) * Math.PI / 2;
-              o.yaw ??= tgt;
-              const dy = Math.atan2(Math.sin(tgt - o.yaw), Math.cos(tgt - o.yaw));
-              o.yaw += dy * (1 - Math.pow(7 / 8, dt * 30));
+              if (result) {
+                // Reconstruct the turn from crate age so a replay needs no prior render frames.
+                const readyAge = b.dash - 17;
+                o.yaw = readyAge < 32 ? tgt : tgt + Math.PI / 2 * Math.pow(7 / 8, readyAge % 32 + 1);
+              } else {
+                o.yaw ??= tgt;
+                const dy = Math.atan2(Math.sin(tgt - o.yaw), Math.cos(tgt - o.yaw));
+                o.yaw += dy * (1 - Math.pow(7 / 8, dt * 30));
+              }
               o.obj.rotation.y = o.yaw;
-            } else if (b.kind === 'power' && (b.cd === 1 || b.cd === 2 || b.cd === 4)) o.obj.rotation.y += dt * 0x38 * 30 * Math.PI * 2 / 4096; // FUN_800baef0: missiles spin
+            } else if (b.kind === 'power' && (b.cd === 1 || b.cd === 2 || b.cd === 4)) {
+              o.obj.rotation.y = (b.dash * 0x38 & 0xfff) * YAW_UNIT;
+            }
           }
         }
       }
       kit.prune(seen);
       for (const [id, o] of objs) if (!seenO.has(id)) {
-        // a projectile ends in the pack's explosion (script 0, FUN_800bc5bc)
-        if (o.boom && !kit.over.done) kit.real.play(PACK, 0, o.obj.position.x, o.obj.position.y, o.obj.position.z);
         kit.root.remove(o.obj); disposeTree(o.obj); objs.delete(id);
       }
       for (const b of beams) b.end();
-      kit.real.update(dt, ctx.camera);
+      drawMissileTrail(w, ctx.camera);
+      if (!result) kit.real.update(dt, ctx.camera);
       kit.fx.update(dt);
     },
 
     onEvent(ctx, e) {
       if (!kit) return;
-      if (e.k === 'jump' || e.k === 'land') return;
+      if (e.k === 'jump' || e.k === 'land' || e.k === 'hit') return;
       if (kit.baseEvent(e)) return;
       switch (e.k) {
-        case 'sfx': playId(e.v); break;
+        case 'sfx': if (e.v !== 0x521) playId(e.v); break;
+        case 'pogoDust':
+          playDust(e.v, e.x, e.z, result ? hash(e.t * 4 + e.s) : undefined);
+          break;
+        case 'pogoCashCrate':
+          kit.real.play(PACK, 3, e.x, 0, e.z);
+          break;
         case 'cash':
-          // FUN_800b788c -> FUN_8008d5d4: the tiles cashed float up as a number over the tile; the "!" crate breaks (script 3)
+          // FUN_800b788c -> FUN_8008d5d4: banked tiles float up as a number.
           kit.real.number(e.v, e.x, 256 * U, e.z + 256 * U, 0);
-          if (gameLvl !== 11) kit.real.play(PACK, 3, e.x, 0, e.z);
           kit.shake(0.3);
           break;
         case 'pickup': case 'line': case 'cross':
           kit.real.play(PACK, 1, e.x, 0, e.z); // FUN_800b935c: every other pickup goes in script 1
           if (e.k === 'cross') kit.shake(0.2);
           break;
+        case 'pogoBeamSpark':
+          kit.real.play(PACK, 7, e.x, 80 * U, e.z);
+          break;
         case 'beam': {
-          // FUN_800ba51c: script 8 at the far end of the line, 128 u up
           const dir = Math.round(e.v), n = Math.max(1, Math.round(e.o));
           const dx = dir === 0 ? 1 : dir === 1 ? -1 : 0, dz = dir === 2 ? -1 : dir === 3 ? 1 : 0; // world z is flipped
-          kit.real.play(PACK, 8, e.x + dx * n * TP_TILE, 128 * U, e.z + dz * n * TP_TILE);
+          kit.real.play(PACK, 8, e.x + dx * (n + 0.5) * TP_TILE, 144 * U, e.z + dz * (n + 0.5) * TP_TILE);
           break;
         }
-        case 'hit':
-          kit.real.play(PACK, 0, e.x, 0, e.z); // stun entry (FUN_800b6960): the explosion at the victim
-          kit.actorForSlot(e.s)?.hit(1);
-          kit.shake(0.3);
+        case 'missile':
+          if (!catchingUp) charVoice('a2', kit.look(e.s).char, 0x10);
+          break;
+        case 'stun':
+          if (!catchingUp) hitVoice('a2', kit.look(e.s).char, 0.8, 0);
           break;
         case 'wipe':
           kit.shake(0.2);
@@ -475,20 +554,23 @@ export function createTilePainterView(): ClientMiniGame {
 
     /** Real HUD: faces, three-digit scores, clock. */
     ps1Hud(w, ctx) {
-      return scoreHud(ctx.seats, (s) => w.data.score?.[s] ?? 0, (getGame('tilePainter')?.maxTime ?? 90) - w.time, w.time);
+      return scoreHud(ctx.seats, s => (w.data.shown ?? w.data.score)?.[s] ?? 0, arenaClockSprites('tilePainter', w));
     },
 
     hud(w, slot) {
-      return pad3(w.data.score?.[slot] ?? 0);
+      return pad3((w.data.shown ?? w.data.score)?.[slot] ?? 0);
     },
 
     dispose() {
       for (const o of objs.values()) kit.root.remove(o.obj);
       for (const t of icons.values()) if (t.obj) kit.root.remove(t.obj);
-      objs.clear(); icons.clear(); pogoSprings.clear(); stunT.clear();
-      for (const m of [...mats, ...paintMats]) m.dispose();
+      objs.clear(); icons.clear(); pogoSprings.clear();
+      board?.dispose(); board = null;
+      boardTexture.dispose();
       for (const b of beams) b.dispose();
       beams = [];
+      missileTrail?.dispose();
+      result = null;
       kit.dispose();
     },
   };

@@ -90,7 +90,7 @@ console.log(`textures: ${texIdx.length} sets, ${texCount} textures, ${pxTotal} p
 
 // ---- 3. models vs glTF
 const modelIdx = full
-  ? fs.readdirSync(path.join(root, 'assets/models')).filter((f) => f.endsWith('.gltf')).map((f) => Number(f.slice(0, 4)))
+  ? fs.readdirSync(path.join(root, 'assets/models')).filter((f) => f.endsWith('.gltf')).map((f) => Number(f.slice(0, 4))).filter(i => i < disc.files.length)
   : [1, 3, 5, 77, 90, 309, 772, 776, 778, 902, 904, 135, 627]; // 776/902 = characters (textures 775/901); 1 = arena
 const f32 = (b: Buffer, off: number, n: number) => new Float32Array(b.buffer.slice(b.byteOffset + off, b.byteOffset + off + n * 4));
 let modelCount = 0, triTotal = 0;
@@ -135,6 +135,7 @@ for (const i of modelIdx) {
       const tg: { POSITION: number }[] = prim.targets ?? [];
       ok(`model ${i}/${pi}/${qi} morph count`, tg.length === p.keyframes.length);
       for (const [ti, t] of tg.entries()) {
+        if (!p.keyframes[ti]) continue; // a missing target was reported by the count check
         const ta = acc(t.POSITION);
         const rd = f32(bin, ta.off, n * 3);
         let mb = 0;

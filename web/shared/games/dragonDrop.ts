@@ -1,684 +1,976 @@
 import { DISC_CHARACTER } from '../look';
-import { addBody, emit, rand } from '../physics';
+import { addBody, discRandomInt as ri, discRandomState, emit } from '../physics';
 import { IDLE, MAX_SEATS, type Body, type InputState, type MiniGame, type World } from '../types';
+import { tickVersusTally, VERSUS_CLOCK_END } from './common';
 
 /**
- * DRAGON DROP (Crash Bash level id 27 in the overlay numbering, clock-tower arena). Ported from the decompiled overlay,
- * see re/notes/dragonDrop.md for every constant and the function addresses (FUN_800b....).
+ * DRAGON DROP (Crash Bash level id 28 in the overlay numbering, family 0x103; stage model 0621, meadow pit). Ported from the
+ * decompiled overlay, see re/notes/dragonDrop.md for every constant and the function addresses (FUN_800b....).
  *
- * The simulation runs in PS1 integer units (30 Hz, one tick = one game frame step) and is mirrored into world bodies:
- *   body.x = x * S, body.z = -z * S (PS1 +z points away from the camera), body.y = height above the floor * S, S = 3.4 / 1024.
- * PS1 angles are 4096 per turn; a point at angle a, radius r is (x, z) = r * (-cos a, sin a).
+ * The simulation runs in PS1 integer units at 30 Hz (one tick = one game frame step) and is mirrored into world bodies:
+ *   body.x = x * S, body.z = -z * S (PS1 +z points away from the camera), body.y = -y * S (PS1 y is down), S = 3.4 / 1024.
+ * Angles are 4096 per turn; an entity at yaw h moves along (-sin h, -cos h); body.face = -h * 2pi / 4096.
  *
- * Rules: 90 s; jump into balloons of your colour (+1), a wrong colour hurts you (37 tick stun); square = spin attack (hits rivals,
- * opens crates); black balloons: recolour all balloons / pop the others' balloons / reverse the ring; crates give hover boots
- * (240 ticks, the ring does not carry you) or the balloon magnet (300 ticks). The ring (radius 896..2560) carries everyone on
- * the ground; balloons are airborne and not carried. Highest score wins.
+ * Rules: 90 s. Ride over a jewel to carry it, square throws it (hold it a moment for a higher arc) at the TARGET that swings
+ * round the outside of the pit; a hit scores the multiplier of the floor zone you stood in when you threw (x5 / x3 / x2 / x1).
+ * Without a jewel square is a barge (charge): it knocks a rival's jewel loose and sends them spinning. Highest score wins.
  *
- * world.data (DragonDropData): see the interface. Bodies: 'player' (slot), 'balloon' (slot = display colour, -1 black),
- * 'crate' (m = grow 0..1), 'item' (flying power-up; cd 1 hover / 2 magnet).
- * Events: 'pop' (s popper or -1, o display colour or -1 black, v height), 'score' (s), 'hurt' (s), 'black' (s, v 0 pop others / 1 reverse /
- * 2 recolour), 'reverse', 'flash', 'cratehit', 'crate' (s, v 1 hover / 2 magnet), 'punch' (v 1 swing / 2 hit), 'jump', 'spawn'.
+ * world.data (DragonDropData): see the interface. Bodies: 'player' (slot), 'jewel' (slot = index 0..2, m = state, cd = owner or -1).
+ * Events: 'throw' (s), 'barge' (s), 'bump' (s, o, v sample 0..3), 'wallbump' (s, v), 'recoil' (s), 'step' (s, v 0/1),
+ * 'jpick' (s), 'jthrow' (s, v mult), 'jbounce' (v), 'jwall', 'jclash' (v), 'jdrop' (v), 'jspawn', 'score' (s, v mult), 'gong'.
  */
-export const DD_S = 3.4 / 1024;
-export const DD_IN = 838 * DD_S; // hub radius (the ring starts at 896)
-export const DD_OUT = 2559 * DD_S; // outer rim of the ring
-export const DD_TICKS = 2700; // 1:30 at 30 Hz
+export const RD_S = 3.4 / 1024;
+export const RD_TICKS = VERSUS_CLOCK_END;
+export const RD_R = 0xb00; // floor radius (ps1 units); the wall pushes back to 0xafc / 0xafe
+export const RD_TARGET_R = 2816; // target orbit radius
+export const RD_TARGET_Y = -1061;
 
-const FLOOR_R2_MIN = 0xc3fff; // ring carry: radius^2 in (0xc4000, 0x640001)
-const FLOOR_R2_MAX = 0x640001;
-const LIMIT = 0x980; // outer limit (FUN_800b8f48)
-const TYPES = [11, 8, 9, 10]; // colour rotation: player index -> balloon type (0x800bb88c)
-const OWNER: Record<number, number> = { 8: 1, 9: 2, 10: 3, 11: 0 };
-const WEIGHT = [...Array(8).fill(16), 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]; // 0x800bb848 (0 beyond)
-const SKILL = 20;
-const HIT_TICKS = 37;
-const PU_HOVER = 0x13;
-const PU_MAGNET = 0x17;
+const SKILLS = [8, 16, 20]; // FUN_80086918 selects the versus row at 0x800bd970.
+const BOT_SPEED = [48, 50, 52, 54, 56, 58, 60, 62, 64, 78, 82, 86, 90, 94, 98, 102]; // 0x800bdc1c, index skill >> 1
+const WALK = 84; // human walk target speed (0x800bdc14)
+const CARRY = 106; // target speed while carrying (0x800bdc18)
+const STARTS: [number, number][] = [[-1280, -1740], [-1280, 1740], [972, 1740], [972, -1740]];
+const JEWEL0: [number, number, number][] = [[1024, -64, 0], [-1024, -64, 0], [0, -64, 512]];
+const EVADE = [0, 1024, 2048, 3072, 1536, 2560, 3584, 512]; // 0x800bdb58
+const RAY = 1624; // 0x800bdb50
+const RIVAL_R = 250; // 0x800bdb78
 
 /** look.ts CHARACTERS index -> game character id 1..8 (1 crash, 2 coco, 3 cortex, 4 brio, 5 tiny, 6 rilla, 7 dingodile, 8 koala). */
-const LOOK_TO_ID = DISC_CHARACTER;
-const SPIN_TICKS = [0, 16, 16, 19, 19, 18, 18, 14, 14]; // by character id (tiny/rilla: unmeasured, estimated)
+export const RD_CHAR_ID = DISC_CHARACTER;
 
-const SIN: number[] = [];
-for (let i = 0; i < 4096; i++) SIN.push(Math.round(4096 * Math.sin((i * Math.PI * 2) / 4096)));
-const sin = (a: number) => SIN[a & 4095];
-/** PS1 angle whose (-cos a, sin a) points along (dx, dz). */
-const ang = (dx: number, dz: number) => Math.round((Math.atan2(dz, -dx) * 4096) / (Math.PI * 2)) & 4095;
-const ri = (w: World, n: number) => Math.floor(rand(w) * n);
+export const ST_IDLE = 99, ST_RUN = 100, ST_THROW = 101, ST_BARGE = 102, ST_RECOIL = 103;
+const ST_RESULT = 104;
 
-export interface DDPlayer {
+// ---------------------------------------------------------------- exe math replicas
+const COS = new Int16Array(4096);
+for (let i = 0; i < 4096; i++) COS[i] = Math.round(4096 * Math.cos((i * 2 * Math.PI) / 4096));
+const AT = new Int16Array(2049);
+for (let i = 0; i <= 2048; i++) AT[i] = Math.round((Math.atan(i / 2048) * 4096) / (2 * Math.PI));
+export const T = (a: number) => COS[a & 0xfff];
+export const SIN = (a: number) => COS[(a - 0x400) & 0xfff];
+const q = (n: number, m: number) => Math.trunc(n / m);
+/** FUN_8001463c: angle of (x, z), 0 = +z, 0x400 = +x */
+export function at2(a: number, b: number): number {
+  if (a === 0 && b === 0) return 0;
+  if (a < 0) {
+    const n = -a;
+    if (b >= 0) return n < b ? 0x1000 - AT[q(n * 0x800, b)] : AT[q(b * 0x800, n)] + 0xc00;
+    const m = -b;
+    return n < m ? AT[q(n * 0x800, m)] + 0x800 : 0xc00 - AT[q(m * 0x800, n)];
+  }
+  if (b < 0) {
+    const m = -b;
+    return a < m ? 0x800 - AT[q(a * 0x800, m)] : AT[q(m * 0x800, a)] + 0x400;
+  }
+  return b <= a ? 0x400 - AT[q(b * 0x800, a)] : AT[q(a * 0x800, b)];
+}
+/** FUN_800154a0: signed shortest turn from a to b */
+const adiff = (a: number, b: number) => { const v = (b - a) & 0xfff; return v > 0x800 ? v - 0x1000 : v; };
+/** FUN_8003233c: hyperbolic CORDIC square root of a value normalised to ~2^8..2^10 (as written by the original, bit exact) */
+function cordicSqrt(x: number): number {
+  const A = new Int32Array(7), B = new Int32Array(7);
+  A[0] = x + 0x5d50ad; B[0] = x - 0x5d50ad;
+  for (let i = 1; i < 7; i++) {
+    const a = A[i - 1], b = B[i - 1];
+    if (i === 4) {
+      let a3 = a, b3 = b;
+      if (b >= 0) { a3 = a - (b >> 4); b3 = b - (a >> 4); } else { a3 = a + (b >> 4); b3 = b + (a >> 4); }
+      A[3] = a3; B[3] = b3;
+      if (b3 < 0) { A[4] = a3 + (b3 >> 4); B[4] = b3 + (a3 >> 4); } else { A[4] = a3 - (b3 >> 4); B[4] = b3 - (a3 >> 4); }
+    } else if (b >= 0) { A[i] = a - (b >> i); B[i] = b - (a >> i); } else { A[i] = a + (b >> i); B[i] = b + (a >> i); }
+  }
+  return A[6];
+}
+/** FUN_80032490: the original's table-free sqrt in 6-bit fixed point. */
+export function ps1SqrtFixed(n: number): number {
+  n |= 0;
+  if (n === 0) return 0;
+  const v = 8 - (n > 0 ? Math.clz32(n) : 0);
+  let s: number, a: number;
+  if (v < 0) { s = (v >> 1) + 1; a = n << (-(s * 2) & 31); } else { s = v >> 1; a = n >> (s * 2); }
+  s -= 6;
+  const r = cordicSqrt(a);
+  return s < 0 ? r >> -s : r << s;
+}
+const sq = (n: number) => ps1SqrtFixed(n) >> 6;
+const sh12 = (a: number, b: number) => Math.floor((a * b) / 4096);
+const i32 = (n: number) => n | 0;
+
+/**
+ * Scoring zones (FUN_8008c4c8): intersections of half planes (x0, z0, angle) per group; group 0 = the whole floor, 1 = x5, 2 = x3, 3 = x2.
+ * A point is inside when ((x - x0) * T(-a) >> 12) - ((z - z0) * T(-a - 0x400) >> 12) >= 0 for every plane.
+ */
+const ZONES: number[][] = [
+  [-169, -2760, 879, -1131, -2545, 683, -1595, -2279, 536, -2194, -1725, 400, -2654, -1076, 156, -2834, -342, 4071, -2804, 482, 3879, -2515, 1322, 3627, -1976, 1938, 3543, -1387, 2458, 3348, -930, 2664, 3168, -382, 2746, 3100, 350, 2778, 2912, 1068, 2599, 2754, 1561, 2338, 2592, 2265, 1701, 2374, 2604, 1083, 2199, 2762, 417, 2083, 2804, -348, 1866, 2605, -1048, 1794, 2454, -1418, 1572, 2023, -1902, 1553, 1516, -2440, 1251, 785, -2707, 1059],
+  [-2480, -6742, 3870, -1411, -3782, 3916, -1068, -2568, 3982, -1000, -2182, 3608, -704, -1864, 3275, 0, -1636, 2862, 681, -1864, 2431, 909, -2205, 2281, 1045, -2568, 2262, 1321, -3373, 2292, 1523, -3887, 2290, 2639, -6742, 1022],
+  [-2912, -4719, 3923, -2139, -1872, 3648, -1386, -954, 3380, -363, -431, 3042, 343, -463, 2803, 1363, -909, 2574, 1886, -1409, 2619, 2296, -1750, 2207, 3071, -4856, 1008],
+  [-3503, -3685, 3956, -2775, -338, 3610, -2296, 181, 3459, -1454, 750, 3203, -454, 954, 3041, 522, 909, 2916, 1454, 681, 2707, 2321, 138, 2556, 2818, -363, 2226, 3776, -3776, 1014],
+];
+export function rdInside(g: number, x: number, z: number): boolean {
+  const Z = ZONES[g];
+  for (let i = 0; i < Z.length; i += 3) {
+    const a = Z[i + 2];
+    if (sh12(x - Z[i], T(-a)) - sh12(z - Z[i + 1], T(-a - 0x400)) < 0) return false;
+  }
+  return true;
+}
+/** Zone index 1..3 (smallest group containing the point) or -1 (FUN_800bcce8) */
+export function rdZone(x: number, z: number): number {
+  let r = -1;
+  for (let g = 3; g > 0; g--) if (rdInside(g, x, z)) r = g;
+  return r;
+}
+export const rdMult = (x: number, z: number) => { const g = rdZone(x, z); return g === 1 ? 5 : g === 2 ? 3 : g === 3 ? 2 : 1; };
+
+
+// ---------------------------------------------------------------- data
+export interface RDAi {
+  /** handler: 0 idle, 1 jewel hunt (b3a38), 2 chase carrier (b3c1c), 3 direct throw (b3d90), 4 to the x5 spot (b4b14), 5 in zone (b3fdc), 6 evade (b4d6c) */
+  h: number;
+  jw: number; n30: number; mode: number; ang: number; t40: number; rv: number;
+  /** pad angle computed by the AI (comp +0x2a) */
+  pa: number;
+  /** pad accumulator (comp +0x2c) and the current / target point (comp +0x10.. / +0x1c..) */
+  acc: number; cx: number; cz: number; tx: number; tz: number;
+}
+export interface RDPlayer {
+  bid: number; id: number; bot: boolean; skill: number;
+  x: number; z: number; yaw: number; hd: number;
+  vx: number; vz: number; tvx: number; tvz: number; ac: number; dc: number;
+  st: number; rt: number; tt: number; cd: number;
+  /** carried jewel index or -1 */
+  carry: number;
+  /** run animation counter (footsteps), control lock (ticks) */
+  sc: number; lock: number;
+  /** pad word (0x10 up(+z) 0x20 right 0x40 down 0x80 left, 0x8000 square held) and the pad angle word */
+  pad: number; ang: number;
+  face: number;
+  ai: RDAi;
+}
+export interface RDJewel {
   bid: number;
-  x: number; z: number; h: number; vv: number;
-  /** 0 ground, 1 rising, 2 falling */
-  ph: number;
-  /** 0 free, 1 spin attack, 2 hit, 3 round over */
+  /** 0 rest, 1 carried, 2 throw init, 3 flight, 4 knocked loose, 5 knock init, 6 hidden, 7 appear */
   st: number;
+  x: number; y: number; z: number; vx: number; vy: number; vz: number; yaw: number;
+  g: number; fl: number; b: number; hold: number; mult: number; owner: number; cd: number;
+}
+export interface DragonTarget {
+  /** target: phase (0xc / tick), swing angle th (-0x300..0x300), placed yaw / roll / position, gong cooldown */
+  phase: number; th: number; tyaw: number; troll: number; tx: number; tz: number; gcd: number;
+}
+export interface DragonDropData extends DragonTarget {
+  random?: [number, number];
+  shown?: number[];
   t: number;
-  id: number; // game character id 1..8
-  bot: boolean;
-  v0: number; gd: number; gu: number; spd: number;
-  pu: number; put: number;
-  kx: number; kz: number; kn: number;
-  hits: number[];
-  pA: boolean; pB: boolean;
-  face: number; // radians, 0 = +z (body space)
-}
-export interface DDBalloon {
-  bid: number; ty: number; ow: number;
-  x: number; z: number; hy: number;
-  dr: number; da: number; po: number; pa: number;
-  st: number; tf: boolean; tc: number; ot: number;
-}
-export interface DDCrate {
-  bid: number; x: number; z: number;
-  /** 3 spawned, 0 init, 6 growing, 1 idle, 9 hit, 12 opening, 13 flying */
-  st: number; g: number; tf: boolean; tc: number; item: number;
-}
-export interface DragonDropData {
-  t: number;
-  /** ring angular speed (4096/turn per tick) and target direction */
-  rs: number; dir: number;
-  /** accumulated ring angle (radians, three.js rotation.y) */
-  ang: number;
   score: number[];
-  /** ticks left: hit stun, hover, magnet */
-  stun: number[]; hover: number[]; magnet: number[];
-  /** per slot: 0 free, 1 spinning, 2 hit, 3 over (mirror of P[].st) and 0 ground / 1 rising / 2 falling */
-  st: number[]; ph: number[];
-  /** recolour effect: ticks left and owner */
-  rc: number; rcO: number;
-  tc: number; tk: number; tb: number; col: number; cur: number;
-  slots: number[][];
-  P: (DDPlayer | null)[];
-  B: DDBalloon[]; C: DDCrate[];
+  /** per slot mirrors for the client: state, carried jewel (-1 none), barge cooldown */
+  st: number[]; carry: number[]; cd: number[];
+  P: (RDPlayer | null)[]; J: RDJewel[];
   winner: number; draw: boolean;
+  /** 16 shuffled player update orders (FUN_80085650); one is picked per tick (FUN_80015590(16)) */
+  ord: number[][];
 }
 
-const players = (d: DragonDropData) => d.P.filter((p): p is DDPlayer => !!p);
+const players = (d: DragonDropData) => d.P.filter((p): p is RDPlayer => !!p);
+const E = (w: World, k: string, px: number, pz: number, s = -1, v = 1, o = -1) => emit(w, k, px * RD_S, -pz * RD_S, s, v, o);
 
+/** pad bits -> pad angle (FUN_800b3538) */
+export function rdPadAngle(b: number): number {
+  let a = 0;
+  if (b & 0x80) a = 0xc00;
+  if (b & 0x20) a = 0x400;
+  if (b & 0x10) a = 0;
+  if (b & 0x40) a = 0x800;
+  if ((b & 0x90) === 0x90) a = 0xe00;
+  if ((b & 0xc0) === 0xc0) a = 0xa00;
+  if ((b & 0x30) === 0x30) a = 0x200;
+  if ((b & 0x60) === 0x60) a = 0x600;
+  return a;
+}
+function padOf(inp: InputState): number {
+  let b = 0;
+  if (inp.y < -0.4) b |= 0x10;
+  if (inp.y > 0.4) b |= 0x40;
+  if (inp.x < -0.4) b |= 0x80;
+  if (inp.x > 0.4) b |= 0x20;
+  if (inp.a || inp.b) b |= 0x8000;
+  return b;
+}
+
+// ---------------------------------------------------------------- target (FUN_800b7aa0) and its collision box (FUN_800b8a40)
+/** local -> world matrix for angles (0, b, c) (FUN_8003278c with a = 0), row major */
+function matFwd(b: number, c: number): number[] {
+  const sB = SIN(b), cB = T(b), sC = SIN(c), cC = T(c);
+  const t = sh12(cC, -sB), u = sh12(sC, -sB);
+  return [sh12(cC, cB), -sh12(sC, cB), sB, sC, cC, 0, t, -u, cB];
+}
+const mulv = (M: number[], x: number, y: number, z: number): [number, number, number] => [
+  Math.floor((M[0] * x + M[1] * y + M[2] * z) / 4096),
+  Math.floor((M[3] * x + M[4] * y + M[5] * z) / 4096),
+  Math.floor((M[6] * x + M[7] * y + M[8] * z) / 4096),
+];
+/** box from the stage collision data (RAM 0x801c2088): x -886..900, z -3..196, y top -893 (all in the target's local frame) */
+const BOX = { x0: -886, x1: 900, z0: -3, z1: 196, ymax: -893 };
+/** Point vs the target box inflated by 384; pushes the point out of it and returns true on contact. */
+function targetBox(d: DragonDropData, p: { x: number; y: number; z: number }): boolean {
+  const dx = p.x - d.tx, ly = p.y - RD_TARGET_Y, dz = p.z - d.tz;
+  const C = T(d.tyaw), S = SIN(d.tyaw);
+  // local = Ry(-th) * (p - target): rows (cos, 0, -sin), (0, 1, 0), (sin, 0, cos)
+  const x = Math.floor((C * dx - S * dz) / 4096), z = Math.floor((S * dx + C * dz) / 4096);
+  let f = 0;
+  if (x < BOX.x0) f |= 2;
+  if (ly < BOX.ymax) f |= 0x10;
+  if (z < BOX.z0) f |= 4;
+  if (BOX.x1 < x) f |= 1;
+  if (BOX.z1 < z) f |= 8;
+  let dist = 0x7ffffff, nx = 0, ny = 0, nz = 0;
+  switch (f) {
+    case 1: dist = Math.abs(x - BOX.x1); nx = 4096; break;
+    case 2: dist = Math.abs(x - BOX.x0); nx = -4096; break;
+    case 4: dist = Math.abs(z - BOX.z0); nz = -4096; break;
+    case 8: dist = Math.abs(z - BOX.z1); nz = 4096; break;
+    case 5: dist = sq((x - BOX.x1) ** 2 + (z - BOX.z0) ** 2); nx = 4096; nz = -4096; break;
+    case 6: dist = sq((x - BOX.x0) ** 2 + (z - BOX.z0) ** 2); nx = -4096; nz = -4096; break;
+    case 9: dist = sq((x - BOX.x1) ** 2 + (z - BOX.z1) ** 2); nx = 4096; nz = 4096; break;
+    case 10: dist = sq((x - BOX.x0) ** 2 + (z - BOX.z1) ** 2); nx = -4096; nz = 4096; break;
+    case 0x10: case 0x14: case 0x15: case 0x16: case 0x18: case 0x19: case 0x1a: dist = Math.abs(ly - BOX.ymax); ny = -4096; break;
+    default: break;
+  }
+  const R = 0x180;
+  if (dist >= R) return false;
+  const k = Math.abs(R - dist) + 8;
+  const [wx, wy, wz] = mulv(matFwd(d.tyaw, d.troll), nx, ny, nz);
+  p.x += Math.floor((k * wx) / 4096);
+  p.y += Math.floor((k * wy) / 4096);
+  p.z += Math.floor((k * wz) / 4096);
+  return true;
+}
+
+/** reflect a jewel's heading (its yaw) at a plane with unit normal n = (nx, nz) (4096 scale); sets yaw and velocity like FUN_800b7aa0 / FUN_800bb3ec */
+function reflect(j: RDJewel, nx: number, nz: number) {
+  const v = sq(j.vx * j.vx + j.vz * j.vz);
+  const dx = -SIN(j.yaw), dz = -T(j.yaw);
+  const dot = sh12(dx, nx) + sh12(dz, nz);
+  const rx = dx - Math.floor((dot * nx) / 2048), rz = dz - Math.floor((dot * nz) / 2048);
+  const a = at2(rx, rz);
+  j.yaw = (a + 0x800) & 0xfff;
+  j.vx = -Math.floor((v * T(a + 0x400)) / 4096);
+  j.vz = -Math.floor((v * T(a + 0x800)) / 4096);
+}
+
+function swingTarget(d: DragonTarget) {
+  // gong cooldown (0, -1, 0, -1 ... at rest, exactly like the original compare-then-decrement)
+  const neg = d.gcd < 0;
+  d.gcd--;
+  if (neg) d.gcd = 0;
+  const th = d.th;
+  d.tx = Math.floor((SIN(th) * 11) / 16);
+  d.tz = Math.floor((T(th) * 11) / 16);
+  d.tyaw = th;
+  d.troll = th << 1;
+  d.th = Math.floor((SIN(d.phase) * 3) / 16) & 0xfff;
+  const gong = d.gcd === 0 && ((d.th > 0x2f7 && d.th < 0x401) || (d.th < 0xd09 && d.th > 0x3ff));
+  if (gong) d.gcd = 0x5a;
+  d.phase = (d.phase + 0xc) & 0xfff;
+  return gong;
+}
+
+// The target already swings for 99 level updates when the riders gain control.
+export const RD_INTRO_TARGETS: ReadonlyArray<Readonly<DragonTarget>> = (() => {
+  const target = { phase: 0, th: 0, tyaw: 0, troll: 0, tx: 0, tz: RD_TARGET_R, gcd: 0 };
+  const poses = [{ ...target }];
+  for (let tick = 1; tick <= 99; tick++) { swingTarget(target); poses.push({ ...target }); }
+  return poses;
+})();
+export const RD_INTRO_GONG = RD_INTRO_TARGETS.findIndex(pose => pose.gcd === 0x5a);
+
+function targetTick(w: World, d: DragonDropData) {
+  if (swingTarget(d)) E(w, 'gong', d.tx, d.tz);
+  for (const j of d.J) {
+    if (j.st !== 3 || j.b >= 2 || j.cd >= 1) continue;
+    if (!targetBox(d, j)) continue;
+    j.cd = 0x14;
+    // reflect about the target's inward normal (sin(yaw + 0x800), cos(yaw + 0x800))
+    const a0 = (d.tyaw + 0x800) & 0xfff;
+    reflect(j, SIN(a0), T(a0));
+    j.x += j.vx; j.z += j.vz; // the target code moves the jewel once more (the jewel update then moves it again)
+    const o = d.P[j.owner];
+    if (o) {
+      d.score[j.owner] = Math.min(999, d.score[j.owner] + j.mult);
+      E(w, 'score', d.tx, d.tz, j.owner, j.mult);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- bot AI (FUN_800b5424 and its handlers)
+const H_IDLE = 0, H_JEWEL = 1, H_CHASE = 2, H_DIRECT = 3, H_TOX5 = 4, H_INZONE = 5, H_EVADE = 6;
+
+/** FUN_800b4268: forward ray (rx, rz) against a circle (cx, cz, r) in 12 bit fixed point (int32 wrap like the MIPS code) */
+function rayCircle(rx: number, rz: number, cx: number, cz: number, r: number): boolean {
+  const a = (i32(Math.imul(rx, rx) + Math.imul(rz, rz))) >> 12;
+  const b = (i32(Math.imul(rx, cx) + Math.imul(rz, cz)) * 2) >> 12;
+  const c = (i32(Math.imul(cx, cx) + Math.imul(cz, cz) - r * r)) >> 12;
+  const disc = i32(Math.imul(b, b) + Math.imul(Math.imul(a, c), -4));
+  if (disc < 0) return false;
+  const s = sq(disc);
+  const t1 = q((-b + s) * 256, a * 2), t2 = q((-b - s) * 256, a * 2);
+  if (t1 < 0 && t2 < 0) return false;
+  if (t1 < t2) { if (t1 > -1) return t1 < 0x100; } else if (t2 < 1) return t1 < 0x100;
+  if (t2 < 0x100) return true;
+  return t1 < 0x100;
+}
+/** FUN_800b4474: the same test with 8 bit scaling and no length limit (a ray, not a segment) */
+function rayHits(rx: number, rz: number, cx: number, cz: number, r: number): boolean {
+  const a = (i32(Math.imul(rx, rx) + Math.imul(rz, rz))) >> 8;
+  const b = (i32(Math.imul(rx, cx) + Math.imul(rz, cz)) * 2) >> 8;
+  const c = (i32(Math.imul(cx, cx) + Math.imul(cz, cz) - r * r)) >> 8;
+  const disc = i32(Math.imul(b, b) + Math.imul(Math.imul(a, c), -4));
+  if (disc < 0) return false;
+  const s = sq(disc);
+  const t1 = q((-b + s) * 256, a * 2), t2 = q((-b - s) * 256, a * 2);
+  return !(t1 < 0 && t2 < 0);
+}
+
+/** FUN_800b33d8: weighted random pick of the rival to go for (all weights equal here) */
+function pickVictim(w: World, d: DragonDropData, me: number): number {
+  const r1 = ri(w, 4), r2 = ri(w, 0x1000);
+  for (let k = r1; k < r1 + 4; k++) {
+    const u = k & 3;
+    if (u === me) continue;
+    let sc = 0;
+    if (d.P[u]) {
+      let sum = 0;
+      for (let v = 0; v < 4; v++) if (v !== me && d.P[v]) sum += d.P[v]!.skill * 0x80;
+      if (sum !== 0) sc = q(d.P[u]!.skill << 19, sum);
+    } else sc = -1;
+    if (r2 < sc) return u;
+  }
+  return -1;
+}
+/** FUN_800b49ac: is a barge at the picked nearest rival worth it right now */
+function bargeChance(w: World, d: DragonDropData, me: number): boolean {
+  const p = d.P[me]!;
+  let best = 0x7ffffff, bi = -1;
+  for (let i = 0; i < 4; i++) {
+    const o = d.P[i];
+    if (i === me || !o) continue;
+    const dd = (o.x - p.x) ** 2 + (o.z - p.z) ** 2;
+    if (dd < best) { best = dd; bi = i; }
+  }
+  if (bi === -1) return false;
+  if (pickVictim(w, d, me) !== bi) return false;
+  if (best < 0x100000) {
+    const o = d.P[bi]!;
+    const rx = Math.floor((RAY * SIN(p.yaw)) / 4096), rz = Math.floor((RAY * T(p.yaw)) / 4096);
+    return rayCircle(rx, rz, o.x - p.x, o.z - p.z, 200);
+  }
+  return false;
+}
+/** FUN_800b3538: move the stick towards the target point (strict comparisons) */
+function aiPad(p: RDPlayer) {
+  const a = p.ai;
+  let b = 0;
+  if (a.tx < a.cx) b |= 0x80;
+  if (a.cx < a.tx) b |= 0x20;
+  if (a.tz < a.cz) b |= 0x40;
+  if (a.cz < a.tz) b |= 0x10;
+  a.acc |= b;
+  if (p.lock === 0) p.pad = a.acc;
+  a.pa = rdPadAngle(a.acc);
+  if (p.lock === 0) p.ang = a.pa;
+}
+const jfree = (j: RDJewel) => j.st === 0 || j.st === 3 || j.st === 4;
+function nearestFree(w: World, d: DragonDropData, p: RDPlayer): number {
+  let best = 0x7fffffff, bi = -1;
+  const s = ri(w, 3);
+  for (let k = s; k < s + 3; k++) {
+    const i = k > 2 ? k - 3 : k, j = d.J[i];
+    if (j && jfree(j)) {
+      const dd = (j.x - p.x) ** 2 + (j.z - p.z) ** 2;
+      if (dd < best) { best = dd; bi = i; }
+    }
+  }
+  return bi;
+}
+function nearestCarried(w: World, d: DragonDropData, me: number): number {
+  const p = d.P[me]!;
+  let best = 0x7fffffff, bi = -1;
+  const s = ri(w, 3);
+  for (let k = s; k < s + 3; k++) {
+    const i = k > 2 ? k - 3 : k, j = d.J[i];
+    if (j && j.st === 1 && pickVictim(w, d, me) === j.owner) {
+      const dd = (j.x - p.x) ** 2 + (j.z - p.z) ** 2;
+      if (dd < best) { best = dd; bi = i; }
+    }
+  }
+  return bi;
+}
+const aimsAtTarget = (d: DragonDropData, p: RDPlayer) => {
+  const rx = Math.floor((RAY * 4 * SIN(p.yaw)) / 4096), rz = Math.floor((RAY * 4 * T(p.yaw)) / 4096);
+  return rayCircle(rx, rz, d.tx - p.x, d.tz - p.z, 0x300);
+};
+
+function aiTick(w: World, d: DragonDropData, p: RDPlayer, me: number) {
+  const a = p.ai;
+  a.acc = 0;
+  if (a.h !== H_DIRECT) {
+    if (p.carry >= 0) {
+      if (a.mode === 0) {
+        let m = 2;
+        if (ri(w, 0x1000) > 0x7ff) { a.t40 = 0x3c; m = 4; }
+        a.mode = m;
+      }
+      if (a.mode === 2) a.h = H_TOX5;
+      if (a.mode === 1) a.h = H_DIRECT;
+      if (a.mode === 4) a.h = H_EVADE;
+      if (a.mode === 3) a.h = H_INZONE;
+    }
+  }
+  if (a.h === H_IDLE) {
+    a.mode = 0;
+    let j = nearestFree(w, d, p);
+    if (j !== -1) { a.jw = j; a.h = H_JEWEL; }
+    j = nearestCarried(w, d, me);
+    if (j !== -1) { a.jw = j; a.h = H_CHASE; }
+  }
+  const toIdle = () => { a.jw = -1; a.h = H_IDLE; };
+  const setMe = () => { a.cx = p.x; a.cz = p.z; };
+  switch (a.h) {
+    case H_JEWEL: {
+      const j = nearestFree(w, d, p);
+      if (j !== -1) a.jw = j;
+      if (!(a.jw >= 0 && jfree(d.J[a.jw]))) {
+        const k = nearestFree(w, d, p);
+        if (k === -1) { toIdle(); break; }
+        a.jw = k;
+      }
+      if (bargeChance(w, d, me)) a.acc |= 0x8000;
+      setMe(); a.tx = d.J[a.jw].x; a.tz = d.J[a.jw].z;
+      aiPad(p);
+      break;
+    }
+    case H_CHASE: {
+      const j = a.jw >= 0 ? d.J[a.jw] : null;
+      if (j && j.st === 1) {
+        setMe(); a.tx = j.x; a.tz = j.z;
+        if (bargeChance(w, d, me)) a.acc |= 0x8000;
+        p.pad = a.acc;
+        aiPad(p);
+      } else toIdle();
+      break;
+    }
+    case H_DIRECT: {
+      if (p.carry < 0) { toIdle(); break; }
+      if (!bargeChance(w, d, me)) {
+        setMe(); a.tx = d.tx; a.tz = d.tz;
+        aiPad(p);
+        if (aimsAtTarget(d, p)) { a.acc |= 0x8000; p.pad = a.acc; a.jw = -1; a.n30 = 8; a.h = H_IDLE; a.mode = 0; }
+      } else { a.t40 = ri(w, 15) + 0x3c; a.mode = 4; }
+      break;
+    }
+    case H_TOX5: {
+      if (!bargeChance(w, d, me)) {
+        if (p.carry < 0) { toIdle(); break; }
+        setMe(); a.tx = 0; a.tz = -0xb00;
+        aiPad(p);
+        const dx = a.cx - a.tx, dz = a.cz - a.tz;
+        if (dx * dx + dz * dz > 0x3ffff) break;
+        a.mode = 3;
+      } else { a.t40 = 0x5a; a.mode = 4; }
+      break;
+    }
+    case H_INZONE: {
+      if (p.carry < 0) { toIdle(); break; }
+      if (rdZone(p.x, p.z) === 1) {
+        setMe(); a.tx = d.tx; a.tz = d.tz;
+        const c = a.n30;
+        a.n30 = c - 1;
+        if (c > 0) aiPad(p);
+        if (a.n30 < -2) a.n30 = 8;
+        if (aimsAtTarget(d, p)) { a.acc |= 0x8000; p.pad = a.acc; a.jw = -1; a.n30 = 8; a.h = H_IDLE; a.mode = 0; }
+      } else { a.t40 = 0x3c; a.mode = 4; a.h = H_EVADE; }
+      break;
+    }
+    case H_EVADE: {
+      if (p.carry < 0) { toIdle(); break; }
+      a.t40--;
+      let rv = 0, best = 0x7fffffff;
+      for (let i = 0; i < 4; i++) {
+        const o = d.P[i];
+        if (i === me || !o) continue;
+        const dd = (o.x - p.x) ** 2 + (o.z - p.z) ** 2;
+        if (dd < best) { best = dd; rv = i; }
+      }
+      a.rv = rv;
+      const R = d.P[rv]!;
+      p.hd = at2(p.x - R.x, p.z - R.z) & 0xfff;
+      const cx = R.x - p.x, cz = R.z - p.z;
+      if ((R.x - p.x) ** 2 + (R.z - p.z) ** 2 < 0x283e40) {
+        const r8 = ri(w, 8);
+        const ray = (ang: number): [number, number] => [Math.floor((RAY * SIN(ang)) / 4096), Math.floor((RAY * T(ang)) / 4096)];
+        let found = false;
+        const [rx, rz] = ray(a.ang);
+        if (!rayHits(rx, rz, cx, cz, RIVAL_R)) {
+          let other = false;
+          for (let i = 0; i < 4; i++) {
+            const o = d.P[i];
+            if (i === me || i === rv || !o) continue;
+            if (rayHits(rx, rz, o.x - p.x, o.z - p.z, RIVAL_R)) other = true;
+          }
+          if (!other && rdInside(0, p.x - rx, p.z - rz)) { found = true; setMe(); a.tx = p.x - rx; a.tz = p.z - rz; aiPad(p); }
+        }
+        if (!found) {
+          for (let u = r8; u < r8 + 8; u++) {
+            const ang = EVADE[u & 7];
+            const [ex, ez] = ray(ang);
+            if (rayHits(ex, ez, cx, cz, RIVAL_R)) continue;
+            let bad = false;
+            for (let i = 0; i < 4; i++) {
+              const o = d.P[i];
+              if (i === me || i === rv || !o) continue;
+              if (rayHits(ex, ez, o.x - p.x, o.z - p.z, RIVAL_R)) bad = true;
+            }
+            if (!bad && rdInside(0, p.x - ex, p.z - ez)) { setMe(); a.tx = p.x - ex; a.tz = p.z - ez; aiPad(p); a.ang = ang; break; }
+          }
+        }
+        if (a.t40 > 0) return;
+      }
+      a.h = H_DIRECT; a.mode = 1;
+      break;
+    }
+    default: break;
+  }
+}
+
+// ---------------------------------------------------------------- players
+function setState(w: World, d: DragonDropData, p: RDPlayer, s: number, st: number) {
+  p.st = st;
+  switch (st) {
+    case ST_IDLE: p.ac = p.dc = 9; break;
+    case ST_THROW: p.tt = 0; E(w, 'throw', p.x, p.z, s); break;
+    case ST_BARGE:
+      p.tt = 0;
+      p.ac = 10; p.dc = 6;
+      p.hd = p.yaw;
+      p.vx = p.tvx = Math.floor((T(p.yaw + 0x400) * 0x59) / 2048);
+      p.vz = p.tvz = Math.floor((T(p.yaw + 0x800) * 0x59) / 2048);
+      E(w, 'barge', p.x, p.z, s);
+      break;
+    case ST_RECOIL:
+      p.tvx = p.tvz = 0; p.ac = p.dc = 9; p.rt = 7; p.carry = -1;
+      E(w, 'recoil', p.x, p.z, s, d.random ? ri(w, 4) : -1);
+      break;
+    default: break;
+  }
+}
+
+/** FUN_800ba960: bump against the other riders; barges send the victim spinning */
+function collide(w: World, d: DragonDropData, p: RDPlayer, s: number) {
+  for (let u = 0; u < 4; u++) {
+    const o = d.P[u];
+    if (u === s || !o) continue;
+    const dx = o.x - p.x, dz = o.z - p.z;
+    const dist = sq(dx * dx + dz * dz);
+    if (dist >= 0x19c) continue;
+    if (p.vx * p.vx + p.vz * p.vz > 0x1000) E(w, 'bump', p.x, p.z, s, ri(w, 4), u);
+    ri(w, 4);
+    const a = at2(dx, dz);
+    [p.vx, o.vx] = [o.vx, p.vx];
+    [p.vz, o.vz] = [o.vz, p.vz];
+    let os = o.st;
+    if (p.st !== ST_RECOIL) {
+      if (os === ST_BARGE) {
+        if (p.carry >= 0 && d.J[p.carry].st === 1) d.J[p.carry].st = 5;
+        setState(w, d, p, s, ST_RECOIL);
+        setState(w, d, o, u, ST_IDLE);
+        E(w, 'bargehit', p.x, p.z, s, 1, u);
+        os = o.st;
+      }
+    }
+    if (os !== ST_RECOIL && p.st === ST_BARGE) {
+      if (o.carry >= 0 && d.J[o.carry].st === 1) d.J[o.carry].st = 5;
+      setState(w, d, o, u, ST_RECOIL);
+      setState(w, d, p, s, ST_IDLE);
+      E(w, 'bargehit', o.x, o.z, u, 1, s);
+    }
+    const k = 0x19e - dist;
+    p.x -= Math.floor((k * T((a & 0xfff) - 0x400)) / 4096);
+    p.z -= Math.floor((k * T(a & 0xfff)) / 4096);
+  }
+}
+
+/** FUN_800ba810: square pressed: throw the carried jewel, or barge */
+function press(w: World, d: DragonDropData, p: RDPlayer, s: number) {
+  if (p.carry < 0) {
+    if (p.cd > 0) return;
+    if (p.pad & 0x8000) { p.cd = 0x1e; setState(w, d, p, s, ST_BARGE); }
+  } else {
+    const j = d.J[p.carry];
+    if (!j || j.owner !== s) return;
+    if (p.pad & 0x8000) { setState(w, d, p, s, ST_THROW); j.st = 2; p.carry = -1; }
+  }
+}
+
+/** Test hook: when `pads` is set the step uses these pad words (and no AI) so recorded real-game traces can be replayed. */
+export const rdTest: { pads: number[] | null; order: number[] | null } = { pads: null, order: null };
+
+function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?: 'draw' | 'win') {
+  if (p.lock > 0) p.lock--;
+  if (result) p.pad = 0;
+  else if (rdTest.pads) { p.pad = rdTest.pads[s]; p.ang = rdPadAngle(p.pad); } else if (p.bot) aiTick(w, d, p, s);
+  // FUN_800b9930: pad -> heading and target velocity
+  if (p.lock !== 0) p.pad = 0;
+  p.tvx = 0; p.tvz = 0;
+  if (result === 'win') p.vx = p.vz = 0; // FUN_800b9930 clears winner velocity before the state handler.
+  if (p.st !== ST_BARGE && (p.pad & 0xf0) !== 0) {
+    p.hd = (p.ang + 0x800) & 0xfff;
+    const spd = p.carry >= 0 ? CARRY : p.bot ? BOT_SPEED[p.skill >> 1] : WALK;
+    p.tvx = Math.floor((spd * T(p.hd + 0x400)) / 4096);
+    p.tvz = Math.floor((spd * T(p.hd + 0x800)) / 4096);
+  }
+  if (p.st === ST_THROW) { p.tvx = 0; p.tvz = 0; }
+  // state handler
+  switch (p.st) {
+    case ST_IDLE:
+      collide(w, d, p, s);
+      if (p.pad & 0xf0) p.st = ST_RUN;
+      press(w, d, p, s);
+      break;
+    case ST_RUN:
+      p.sc++;
+      if (p.sc === 6) E(w, 'step', p.x, p.z, s, 0);
+      if (p.sc === 0x13) E(w, 'step', p.x, p.z, s, 1);
+      if (p.sc > 0x19) p.sc = 0;
+      collide(w, d, p, s);
+      if (!(p.pad & 0xf0)) setState(w, d, p, s, ST_IDLE);
+      press(w, d, p, s);
+      break;
+    case ST_THROW:
+      collide(w, d, p, s);
+      if (++p.tt >= 15) setState(w, d, p, s, ST_IDLE);
+      break;
+    case ST_BARGE:
+      p.tt++;
+      if (p.tt === 2) E(w, 'bargesmoke', p.x, p.z, s);
+      if (p.tt === 14 && (p.vx || p.vz)) E(w, 'bargesound', p.x, p.z, s);
+      collide(w, d, p, s);
+      if (sq(p.vx * p.vx + p.vz * p.vz) < 0x20 && (p.st as number) !== ST_IDLE) setState(w, d, p, s, ST_IDLE);
+      break;
+    case ST_RECOIL: {
+      p.yaw = (p.yaw + 0x80) & 0xfff;
+      collide(w, d, p, s);
+      p.lock = 2; p.pad = 0;
+      const old = p.rt--;
+      if (old < 0) setState(w, d, p, s, ST_IDLE);
+      break;
+    }
+    default: break;
+  }
+  // FUN_800b9778: turn, accelerate, move, wall
+  if (result === 'win') {
+    if (p.st === ST_RESULT) p.yaw = (p.yaw + (adiff(p.yaw, 0) >> 2)) & 0xfff;
+    p.st = ST_RESULT;
+  } else if (p.lock === 0) p.yaw = (p.yaw + (adiff(p.yaw, p.hd) >> 2)) & 0xfff;
+  if (p.vx !== p.tvx) {
+    const k = p.tvx === 0 ? p.dc : p.ac;
+    if (p.vx < p.tvx) { p.vx += k; if (p.tvx < p.vx) p.vx = p.tvx; } else { p.vx -= k; if (p.vx < p.tvx) p.vx = p.tvx; }
+  }
+  if (p.vz !== p.tvz) {
+    const k = p.tvz === 0 ? p.dc : p.ac;
+    if (p.vz < p.tvz) { p.vz += k; if (p.tvz < p.vz) p.vz = p.tvz; } else { p.vz -= k; if (p.vz < p.tvz) p.vz = p.tvz; }
+  }
+  p.x += p.vx; p.z += p.vz;
+  const r = sq(p.x * p.x + p.z * p.z);
+  if (r > 0xb00) {
+    const a = at2(p.x, p.z) & 0xfff;
+    const k = r - 0xafe;
+    p.x -= Math.floor((k * T(a - 0x400)) / 4096);
+    p.z -= Math.floor((k * T(a)) / 4096);
+    if (p.vx * p.vx + p.vz * p.vz > 0x1000 && p.st === ST_BARGE) E(w, 'wallbump', p.x, p.z, s, ri(w, 4));
+    if (a !== 0 && p.st === ST_BARGE) { p.vx = p.vz = p.tvx = p.tvz = 0; }
+  }
+}
+
+/** Continue rider updates on a render-owned copy after the authority has ranked the round. */
+export function createDragonDropResult(source: World, winner: number | undefined) {
+  const snapshot = source.data as DragonDropData;
+  // The native timeout holds the prior heading until the result handlers take over turning.
+  const d: DragonDropData = { ...snapshot, P: snapshot.P.map(p => p && { ...p, carry: -1, lock: 99 }), J: [] };
+  if (snapshot.random) d.random = [...snapshot.random];
+  const local: World = { ...source, data: d, ev: [] };
+  let tick = 0;
+  return {
+    players: d.P,
+    advance(frame: number) {
+      while (tick < frame) {
+        tick++;
+        if (winner === undefined) {
+          for (const slot of d.ord[ri(local, 16)]) {
+            const p = d.P[slot];
+            if (p) playerTick(local, d, p, slot, 'draw');
+          }
+        } else {
+          const p = d.P[winner];
+          if (p) playerTick(local, d, p, winner, 'win');
+        }
+        local.ev.length = 0;
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------- jewels (FUN_800bb3ec)
+function tryPickup(w: World, d: DragonDropData, j: RDJewel, jj: number): boolean {
+  if (j.st === 1) return false;
+  for (let i = 0; i < 4; i++) {
+    const p = d.P[i];
+    if (!p || p.carry >= 0 || p.st === ST_THROW) continue;
+    if (Math.abs(j.y) > 0x200 || !jfree(j)) continue;
+    const dx = p.x - j.x, dz = p.z - j.z;
+    if (dx * dx + dz * dz >= 0x40000) continue;
+    j.owner = i; p.carry = jj;
+    return true;
+  }
+  void w;
+  return false;
+}
+function jewelBounce(w: World, j: RDJewel): boolean {
+  // floor at j.fl (0): clamp, halve everything, 5th bounce settles
+  if (j.fl < j.y) {
+    j.y -= Math.abs(j.y - j.fl);
+    j.vy = -j.vy >> 1;
+    j.vx >>= 1; j.vz >>= 1;
+    j.b++;
+    E(w, 'jbounce', j.x, j.z, -1, ri(w, 4));
+    if (j.b > 4) { j.b = 0; j.st = 0; j.vx = 0; j.vz = 0; j.owner = 5; return true; }
+  }
+  return false;
+}
+function jewelTick(w: World, d: DragonDropData, j: RDJewel, jj: number) {
+  if (j.cd > 0) j.cd--;
+  let skipWall = false;
+  const pick = () => {
+    if (tryPickup(w, d, j, jj)) {
+      j.st = 1;
+      E(w, 'jpick', j.x, j.z, j.owner);
+      return true;
+    }
+    return false;
+  };
+  switch (j.st) {
+    case 0: {
+      j.yaw = (j.yaw + 0x20) & 0xfff;
+      for (let u = 0; u < 3; u++) {
+        const o = d.J[u];
+        if (o === j || o.st === 6 || (j.st as number) === 6) continue;
+        if (Math.abs(j.y - o.y) >= 0x200) continue;
+        const dx = j.x - o.x, dz = j.z - o.z;
+        const dist = sq(dx * dx + dz * dz);
+        if (dist >= 0x200) continue;
+        const a = at2(dx, dz);
+        const k = 0x208 - dist;
+        j.x += Math.floor((k * T((a & 0xfff) - 0x400)) / 4096);
+        j.z += Math.floor((k * T(a & 0xfff)) / 4096);
+        E(w, 'jclash', j.x, j.z, -1, ri(w, 4));
+        [j.vx, o.vx] = [o.vx, j.vx];
+        [j.vz, o.vz] = [o.vz, j.vz];
+      }
+      j.x += j.vx; j.z += j.vz;
+      if (j.vx < 0) { j.vx = Math.min(j.vx + 2, 0); } else if (j.vx > 0) j.vx = Math.max(j.vx - 2, 0);
+      if (j.vz < 0) { j.vz = Math.min(j.vz + 2, 0); } else if (j.vz > 0) j.vz = Math.max(j.vz - 2, 0);
+      if (pick()) return;
+      break;
+    }
+    case 1: {
+      j.yaw = (j.yaw + 0x40) & 0xfff;
+      const o = d.P[j.owner];
+      if (o) { j.x = o.x; j.z = o.z; j.y = -0x400; }
+      break;
+    }
+    case 2: {
+      const o = d.P[j.owner]!;
+      j.x = o.x; j.z = o.z; j.y = -0x200;
+      j.g = 0x800; j.vy = 0; j.fl = 0; j.b = 0; j.hold = 4;
+      j.vx = Math.floor((SIN(o.yaw) * -0xd2) / 4096);
+      j.vz = Math.floor((T(o.yaw) * -0xd2) / 4096);
+      j.mult = rdMult(o.x, o.z);
+      j.yaw = o.yaw;
+      j.st = 3;
+      E(w, 'jthrow', o.x, o.z, j.owner, j.mult);
+      break;
+    }
+    case 3: {
+      const o = d.P[j.owner];
+      const old = j.hold--;
+      if (old > 0 && o && ((o.bot) || (o.pad & 0x8000))) {
+        j.vy -= 0x1800;
+        if (j.vy < -0x6000) j.vy = -0x6000;
+      }
+      j.x += j.vx; j.z += j.vz;
+      j.y += j.vy >> 8;
+      j.vy += j.g;
+      if (jewelBounce(w, j)) return;
+      if (pick()) return;
+      break;
+    }
+    case 4: {
+      j.x += j.vx; j.z += j.vz;
+      j.y += j.vy;
+      j.vy += j.g;
+      if (jewelBounce(w, j)) return;
+      if (pick()) return;
+      break;
+    }
+    case 5: {
+      const r = ri(w, 0x1000);
+      j.vy = -0x60; j.g = 8; j.fl = 0; j.b = 0;
+      j.vx = SIN(r) >> 6; j.vz = T(r) >> 6;
+      j.st = 4;
+      E(w, 'jdrop', j.x, j.z, -1, ri(w, 4));
+      break;
+    }
+    case 7: {
+      j.st = 0;
+      E(w, 'jspawn', j.x, j.z);
+      break;
+    }
+    default: skipWall = true; break;
+  }
+  if (j.st !== 1 && !skipWall) {
+    const r = sq(j.x * j.x + j.z * j.z);
+    if (r > 0xb00) {
+      const a = at2(j.x, j.z) & 0xfff;
+      const k = r - 0xafc;
+      j.x -= Math.floor((k * T(a - 0x400)) / 4096);
+      j.z -= Math.floor((k * T(a)) / 4096);
+      E(w, 'jwall', j.x, j.z);
+      const a0 = (a + 0x800) & 0xfff;
+      reflect(j, SIN(a0), T(a0));
+    }
+  }
+}
+
+// ---------------------------------------------------------------- mirror to bodies
 function sync(w: World, d: DragonDropData) {
   const map = new Map<number, Body>();
   for (const b of w.bodies) map.set(b.id, b);
-  const place = (b: Body | undefined, x: number, h: number, z: number) => { if (b) { b.x = x * DD_S; b.z = -z * DD_S; b.y = h * DD_S; } };
   d.P.forEach((p, s) => {
     if (!p) return;
     const b = map.get(p.bid);
     if (!b) return;
     const ox = b.x, oz = b.z;
-    place(b, p.x, p.h, p.z);
-    b.vx = (b.x - ox) * 30; b.vz = (b.z - oz) * 30; b.vy = p.ph === 1 ? p.vv * DD_S * 30 : p.ph === 2 ? -p.vv * DD_S * 30 : 0;
+    b.x = p.x * RD_S; b.z = -p.z * RD_S; b.y = 0;
+    b.vx = (b.x - ox) * 30; b.vz = (b.z - oz) * 30; b.vy = 0;
+    p.face = (-p.yaw * Math.PI * 2) / 4096;
     b.face = p.face;
-    b.dash = p.st === 1 ? 0.1 : 0;
+    b.dash = p.st === ST_BARGE ? 0.1 : 0;
+    b.cd = p.cd / 30;
     b.fall = false;
+    void s;
   });
-  for (const o of d.B) {
-    const b = map.get(o.bid);
-    if (!b) continue;
-    const ox = b.x, oz = b.z;
-    place(b, o.x, o.hy, o.z);
-    b.vx = (b.x - ox) * 30; b.vz = (b.z - oz) * 30;
-    b.slot = dispSlot(d, o);
-    b.cd = o.st === 9 ? 1 : 0;
-  }
-  for (const c of d.C) {
-    const b = map.get(c.bid);
-    if (!b) continue;
-    place(b, c.x, c.item && c.st === 13 ? c.g : 0, c.z);
-    b.m = c.st === 13 ? 1 : Math.min(1, c.g / 4096);
-    b.kind = c.st === 13 ? 'item' : 'crate';
-    b.cd = c.item === PU_HOVER ? 1 : 2;
-  }
-}
-
-function dispSlot(d: DragonDropData, o: DDBalloon): number {
-  if (o.ty === 12) return -1;
-  if (d.rc > 0) return d.rc < 30 && (d.rc & 2) ? o.ow : d.rcO;
-  return o.ow;
-}
-
-/** Ring carry of a ground point: rotates by the ring speed and rounds the radius like FUN_800b3a3c. */
-export function ddCarry(x: number, z: number, rs: number): [number, number] | null {
-  const r2 = x * x + z * z;
-  if (!(r2 < FLOOR_R2_MAX && r2 > FLOOR_R2_MIN)) return null;
-  const r = (Math.floor(Math.sqrt(r2) * 64) + 0x20) >> 6;
-  const a = (ang(x, z) + rs) & 4095;
-  return [(r * sin(a - 1024)) >> 12, (r * sin(a)) >> 12];
-}
-
-/** Outer limit (FUN_800b8f48): clamp to radius 0x980, returns true when clamped. */
-function limit(o: { x: number; z: number }): boolean {
-  if (o.x * o.x + o.z * o.z < LIMIT * LIMIT) return false;
-  const a = ang(o.x, o.z);
-  o.x = (LIMIT * sin(a - 1024)) >> 12;
-  o.z = (LIMIT * sin(a)) >> 12;
-  return true;
-}
-
-// ---------- spawn slots (FUN_800b382c / FUN_800b4f7c) ----------
-
-function makeSlots(w: World): number[][] {
-  const s: number[][] = [];
-  for (let r = 0; r < 4; r++) for (let k = 0; k < 16; k++) s.push([k << 8, 0x500 + 0x140 * r]);
-  for (let i = 0; i < 300; i++) {
-    const a = ri(w, 4) * 16 + ri(w, 16), b = ri(w, 4) * 16 + ri(w, 16);
-    const t = s[a]; s[a] = s[b]; s[b] = t;
-  }
-  return s;
-}
-
-function occupancy(d: DragonDropData): Uint8Array {
-  const g = new Uint8Array(400);
-  const mark = (c: number, r: number) => { if (c >= 0 && c < 20 && r >= 0 && r < 20) g[r * 20 + c] = 1; };
-  const obj = (x: number, z: number) => {
-    for (const c of [(x - 128 >> 8) + 10, (x + 128 >> 8) + 10]) for (const r of [9 - (z - 128 >> 8), 9 - (z + 128 >> 8)]) mark(c, r);
-  };
-  for (const b of d.B) obj(b.x, b.z);
-  for (const c of d.C) obj(c.x, c.z);
-  for (const p of players(d)) {
-    const c = (p.x >> 8) + 10, r = 9 - (p.z >> 8);
-    if (c < 0 || c >= 20 || r < 0 || r >= 20) continue;
-    for (const cc of [c > 0 ? c - 1 : c, c, c < 19 ? c + 1 : c]) for (const rr of [r > 0 ? r - 1 : r, r, r < 19 ? r + 1 : r]) mark(cc, rr);
-  }
-  return g;
-}
-
-/** Slot picker: walks the shuffled table from the cursor and takes a slot with an empty 6x6 neighbourhood (else the least crowded of 10). */
-function pick(d: DragonDropData, g: Uint8Array): number[] | null {
-  const cell = (p: number[]): [number, number] => [(p[0] >> 8) + 10, 9 - (p[1] >> 8)];
-  const at = (c: number, r: number) => (r * 20 + c >= 0 && r * 20 + c < 400 ? g[r * 20 + c] : 0);
-  let nx = d.cur;
-  let p = d.slots[nx];
-  let best = p, bestIdx = nx, bestCnt = 27, tries = 9;
-  for (;;) {
-    let [c, r] = cell(p);
-    nx = (nx + 1) & 63;
-    if (at(c, r)) {
-      do {
-        if (nx === d.cur) return null;
-        p = d.slots[nx];
-        [c, r] = cell(p);
-        nx = (nx + 1) & 63;
-      } while (at(c, r));
-    }
-    let cnt = 0;
-    for (let cc = c - 3; cc < c + 3; cc++) for (let rr = r - 3; rr < r + 3; rr++) if (cc >= 0 && cc < 20 && rr >= 0 && rr < 20 && at(cc, rr)) cnt++;
-    if (cnt === 0) { d.cur = nx; return p; }
-    if (cnt < bestCnt) { best = p; bestIdx = nx; bestCnt = cnt; }
-    if (nx === d.cur) return null;
-    p = d.slots[nx];
-    if (--tries === -1) { d.cur = bestIdx; return best; }
-  }
-}
-
-function spawnBalloon(w: World, d: DragonDropData, slot: number[], ty: number) {
-  const [a, r] = slot;
-  const x = (r * sin(a - 1024)) >> 12, z = (r * sin(a)) >> 12;
-  const body = addBody(w, 'balloon', -1, x * DD_S, -z * DD_S, 0.45, 1);
-  const o: DDBalloon = {
-    bid: body.id, ty, ow: ty === 12 ? -1 : OWNER[ty], x, z, hy: 1536 + ri(w, 128),
-    dr: 0, da: 0, po: 4, pa: 0, st: 3, tf: false, tc: -1, ot: 0,
-  };
-  if (ty === 12) o.ot = 4 + ri(w, 3);
-  o.dr = ri(w, 8) + 4;
-  o.da = (a + 0x800 + d.dir * -0x200) & 4095;
-  d.B.push(o);
-  emit(w, 'spawn', x * DD_S, -z * DD_S, o.ow, 1);
-}
-
-function spawnCrate(w: World, d: DragonDropData, slot: number[]) {
-  const [a, r] = slot;
-  const x = (r * sin(a - 1024)) >> 12, z = (r * sin(a)) >> 12;
-  const body = addBody(w, 'crate', -1, x * DD_S, -z * DD_S, 0.7, 1);
-  d.C.push({ bid: body.id, x, z, st: 3, g: 0x40, tf: false, tc: -1, item: [PU_MAGNET, PU_HOVER][ri(w, 2)] });
-}
-
-const countOf = (d: DragonDropData, ty: number) => d.B.filter((b) => b.ty === ty && [0, 1, 3].includes(b.st)).length;
-
-// ---------- timers (FUN_800b4970) ----------
-
-function timers(w: World, d: DragonDropData) {
-  const g = occupancy(d);
-  if (d.rc > 0) d.rc--;
-  let mag = -1, max = 8;
-  for (const p of players(d)) if (p.pu === PU_MAGNET) { mag = d.P.indexOf(p); max = 10; if (d.tb > 30) d.tb = 30; }
-  const crates = d.C.filter((c) => [0, 1, 3, 6].includes(c.st)).length;
-  if (!crates && mag === -1) {
-    let t = d.tc - 1;
-    if (d.tc === 0) {
-      const s = pick(d, g);
-      if (s) spawnCrate(w, d, s);
-      t = ri(w, 60) + 90;
-    }
-    d.tc = t;
-  }
-  if (!d.B.some((b) => b.ty === 12 && [0, 1, 3].includes(b.st))) {
-    if (d.tk === 0) {
-      const s = pick(d, g);
-      if (s) spawnBalloon(w, d, s, 12);
-      d.tc = ri(w, 60) + 90;
-    } else d.tk--;
-  }
-  const count = TYPES.reduce((n, ty) => n + countOf(d, ty), 0);
-  if (d.tb === 0) {
-    if (count < max) {
-      let n = 4;
-      if (max - count < 4) { n = ri(w, max - count) + 1; d.tb = ri(w, 20) + 30; } else d.tb = ri(w, 10) + 20;
-      if (w.params.spawnRate !== 1) d.tb = Math.max(1, Math.round(d.tb / w.params.spawnRate));
-      if (mag === -1) {
-        for (let i = 0; i < n; i++) {
-          const s = pick(d, g);
-          if (s) {
-            d.col = (d.col + 1) & 3;
-            const ty = TYPES[d.col];
-            const cnt = countOf(d, ty);
-            if (cnt < 2) {
-              const human = !d.P[d.col]?.bot;
-              if (human && d.t > 300) {
-                const r = ri(w, SKILL + 1);
-                if (!(cnt === 0 ? r < 9 : r < 7)) return;
-              }
-              spawnBalloon(w, d, s, ty);
-            }
-          }
-        }
-      } else {
-        const s = pick(d, g);
-        if (s) spawnBalloon(w, d, s, TYPES[mag]);
-      }
-    } else d.tb = ri(w, 30) + 60;
-  } else d.tb--;
-}
-
-// ---------- ring (FUN_800b3a3c) ----------
-
-function ring(d: DragonDropData) {
-  const target = d.dir * -13;
-  if (d.rs !== target) d.rs += d.rs < target ? 1 : -1;
-  d.ang += (-d.rs * Math.PI * 2) / 4096;
-  for (const p of players(d)) {
-    if (p.st === 3 || p.ph !== 0 || p.pu === PU_HOVER) continue;
-    const c = ddCarry(p.x, p.z, d.rs);
-    if (c) { p.x = c[0]; p.z = c[1]; p.face += (-d.rs * Math.PI * 2) / 4096; }
-  }
-  for (const c of d.C) {
-    if (c.st === 13) continue;
-    const q = ddCarry(c.x, c.z, d.rs);
-    if (q) { c.x = q[0]; c.z = q[1]; }
-  }
-}
-
-// ---------- players ----------
-
-function hurt(w: World, d: DragonDropData, q: DDPlayer, fromX: number | null, fromZ: number | null, by: number) {
-  if (q.st >= 2) return;
-  q.st = 2; q.t = HIT_TICKS; q.hits = [];
-  q.kn = 0;
-  if (fromX !== null && fromZ !== null) {
-    const dx = q.x - fromX, dz = q.z - fromZ, l = Math.hypot(dx, dz) || 1;
-    q.kx = dx / l; q.kz = dz / l; q.kn = 52;
-  }
-  emit(w, 'punch', q.x * DD_S, -q.z * DD_S, d.P.indexOf(q), 2, by);
-}
-
-function stepPlayer(w: World, d: DragonDropData, p: DDPlayer, slot: number, inp: InputState) {
-  if (p.put > 0 && --p.put === 0) p.pu = 0;
-  const pressA = inp.a && !p.pA, pressB = inp.b && !p.pB;
-  p.pA = inp.a; p.pB = inp.b;
-  if (p.st === 3) return;
-  const free = p.st === 0;
-  // jump
-  if (free && p.ph === 0 && pressA) { p.ph = 1; p.vv = p.v0; emit(w, 'jump', p.x * DD_S, -p.z * DD_S, slot); }
-  // spin attack
-  if (free && p.ph === 0 && pressB) {
-    p.st = 1; p.t = SPIN_TICKS[p.id]; p.hits = [];
-    emit(w, 'punch', p.x * DD_S, -p.z * DD_S, slot, 1);
-  }
-  // run (full air control, instant velocity, d-pad style: fixed speed in the stick direction)
-  if (p.st === 0) {
-    const l = Math.hypot(inp.x, inp.y);
-    if (l > 0.25) {
-      const sp = p.spd * w.params.speed;
-      p.x += Math.round((inp.x / l) * sp);
-      p.z += Math.round((-inp.y / l) * sp);
-      p.face = Math.atan2(inp.x, inp.y);
-    }
-  } else if (p.st === 1) {
-    p.face += (0x155 * Math.PI * 2) / 4096;
-    p.t--;
-    // hits (hitbox mask 0x400): rivals within reach are hurt once per spin, crates open
-    for (const q of players(d)) {
-      if (q === p || q.st >= 2 || p.hits.includes(d.P.indexOf(q))) continue;
-      if (Math.hypot(q.x - p.x, q.z - p.z) < 300) { p.hits.push(d.P.indexOf(q)); hurt(w, d, q, p.x, p.z, slot); }
-    }
-    for (const c of d.C) if ((c.st === 1 || c.st === 0) && Math.hypot(c.x - p.x, c.z - p.z) < 330) { c.tf = true; c.tc = slot; }
-    if (p.t <= 0) p.st = 0;
-  } else if (p.st === 2) {
-    if (p.kn > 0) { p.x += Math.round(p.kx * p.kn); p.z += Math.round(p.kz * p.kn); p.kn = Math.max(0, p.kn - 4.3); }
-    if (--p.t <= 0) p.st = 0;
-  }
-  // vertical (jump: rise v -= gu while v > 0, then fall with v += gd)
-  if (p.ph === 1) {
-    p.vv -= p.gu * w.params.gravity;
-    if (p.vv > 0) p.h += p.vv; else { p.ph = 2; p.vv = 0; }
-  } else if (p.ph === 2) {
-    p.vv += p.gd * w.params.gravity;
-    p.h -= p.vv;
-    if (p.h <= 0) { p.h = 0; p.ph = 0; p.vv = 0; }
-  }
-  limit(p);
-}
-
-function collidePlayers(d: DragonDropData) {
-  const ps = players(d);
-  for (let i = 0; i < ps.length; i++) {
-    for (let j = i + 1; j < ps.length; j++) {
-      const a = ps[i], b = ps[j];
-      if (a.st === 3 || b.st === 3) continue;
-      const dx = b.x - a.x, dz = b.z - a.z, dist = Math.hypot(dx, dz);
-      if (dist >= 240) continue;
-      const nx = dist < 1 ? 1 : dx / dist, nz = dist < 1 ? 0 : dz / dist, push = (240 - dist) / 2;
-      a.x -= Math.round(nx * push); a.z -= Math.round(nz * push);
-      b.x += Math.round(nx * push); b.z += Math.round(nz * push);
-    }
-  }
-}
-
-// ---------- balloons (FUN_800b6044 / FUN_800b6608 / FUN_800b6ec0) ----------
-
-function avoidAndMagnet(d: DragonDropData, o: DDBalloon) {
+  d.J.forEach((j, i) => {
+    const b = map.get(j.bid);
+    if (!b) return;
+    b.x = j.x * RD_S; b.z = -j.z * RD_S; b.y = -j.y * RD_S;
+    b.vx = j.vx * RD_S * 30; b.vz = -j.vz * RD_S * 30; b.vy = -j.vy * RD_S * 30;
+    b.face = (-j.yaw * Math.PI * 2) / 4096;
+    b.m = j.st; b.cd = j.owner; b.slot = i;
+    b.alive = true;
+  });
+  d.score = d.score.slice(0, 4);
   for (let s = 0; s < MAX_SEATS; s++) {
     const p = d.P[s];
-    if (!p || p.pu !== PU_MAGNET || p.st === 3) continue;
-    if (d.rc === 0 || d.rcO !== s ? o.ow === s : d.rc > 29) {
-      const dx = p.x - o.x, dz = p.z - o.z;
-      const d2 = dx * dx + dz * dz;
-      if (d2 < 0x1e40000) {
-        const k = Math.floor(Math.sqrt(d2) * 64) >> 9;
-        const a = ang(dx, dz);
-        o.x += (k * sin(a - 1024)) >> 12;
-        o.z += (k * sin(a)) >> 12;
-      }
-    }
-  }
-  for (const q of d.B) {
-    if (q === o || q.ty > 12 || q.ty < 8 || Math.abs(q.hy - o.hy) >= 256) continue;
-    const dx = q.x - o.x, dz = q.z - o.z;
-    const dist = Math.floor(Math.sqrt(dx * dx + dz * dz));
-    if (dist < 0x100) {
-      const a = ang(dx, dz);
-      o.x -= ((0xff - dist) * sin(a - 1024)) >> 12;
-      o.z -= ((0xff - dist) * sin(a)) >> 12;
-    } else if (dist < 0x400) {
-      o.po = (0x400 - dist) >> 6;
-      o.pa = ang(dx, dz);
-    }
+    d.st[s] = p ? p.st : 0;
+    d.carry[s] = p ? p.carry : -1;
+    d.cd[s] = p ? p.cd : 0;
   }
 }
 
-function moveBalloon(d: DragonDropData, o: DDBalloon) {
-  if (o.tf) { o.st = 9; o.tf = false; }
-  o.pa = (ang(-o.x, -o.z) + d.rs) & 4095;
-  o.po = 4;
-  o.x -= (o.dr * sin(o.da - 1024)) >> 12;
-  o.z -= (o.dr * sin(o.da)) >> 12;
-  if (limit(o)) o.da = (o.da - d.dir * 0x200) & 4095;
-  avoidAndMagnet(d, o);
-  o.x -= (o.po * sin(o.pa - 1024)) >> 12;
-  o.z -= (o.po * sin(o.pa)) >> 12;
-  const diff = 768 - o.hy;
-  if (Math.abs(diff) > 16) o.hy += diff >> 6;
-}
-
-function blackEffect(w: World, d: DragonDropData, o: DDBalloon) {
-  const s = o.tc;
-  if (s !== -1) {
-    const bot = !!d.P[s]?.bot;
-    const k = Math.max(0, Math.min(32, SKILL));
-    const u1 = WEIGHT[k] ?? 0, u2 = WEIGHT[32 - k] ?? 0;
-    let u3 = u1, u4 = u2, iv = (u2 >> 1) + 1;
-    if (bot) { u3 = u2; u4 = u1; iv = (u1 >> 1) + 1; }
-    const r = ri(w, u3 + 1 + u4 + 1 + iv);
-    o.ot = 4;
-    if (r > u4 + 1) o.ot = 5;
-    if (r > u4 + 1 + iv) o.ot = 6;
-  }
-  if (o.ot === 5) {
-    for (const q of d.B) if (q.ty >= 8 && q.ty < 12 && q.ow !== o.tc) { q.tc = -1; q.tf = true; }
-    emit(w, 'black', o.x * DD_S, -o.z * DD_S, o.tc, 0);
-  } else if (o.ot === 6) {
-    d.dir = -d.dir;
-    emit(w, 'black', o.x * DD_S, -o.z * DD_S, o.tc, 1);
-    emit(w, 'reverse', 0, 0, o.tc, d.dir);
-  } else {
-    d.rc = 150; d.rcO = o.tc;
-    emit(w, 'black', o.x * DD_S, -o.z * DD_S, o.tc, 2);
-  }
-}
-
-function popBalloon(w: World, d: DragonDropData, o: DDBalloon) {
-  const ds = dispSlot(d, o);
-  const xw = o.x * DD_S, zw = -o.z * DD_S;
-  emit(w, 'pop', xw, zw, o.tc, o.hy * DD_S, ds);
-  if (o.ty === 12) { blackEffect(w, d, o); return; }
-  const s = o.tc;
-  if (s < 0 || s > 3) return;
-  const owner = d.rc === 0 ? o.ow : d.rcO;
-  if (owner === s) {
-    d.score[s]++;
-    emit(w, 'score', xw, zw, s, 1);
-  } else {
-    const p = d.P[s];
-    if (p) hurt(w, d, p, null, null, -1);
-    emit(w, 'hurt', xw, zw, s, 1);
-  }
-}
-
-function updateBalloon(w: World, d: DragonDropData, o: DDBalloon): boolean {
-  if (o.st === 9) { popBalloon(w, d, o); return false; }
-  if (o.st === 3) o.st = 0;
-  else if (o.st === 0) o.st = 1;
-  else moveBalloon(d, o);
-  return true;
-}
-
-function touchBalloons(d: DragonDropData) {
-  for (let s = 0; s < MAX_SEATS; s++) {
-    const p = d.P[s];
-    if (!p || p.st !== 0 || p.ph === 0) continue;
-    for (const o of d.B) {
-      if (o.st !== 1 && o.st !== 9) continue;
-      const dx = o.x - p.x, dz = o.z - p.z;
-      if (dx * dx + dz * dz >= 248 * 248) continue;
-      const dy = o.hy - p.h;
-      if (dy < 0 || dy > 720) continue;
-      o.tc = s; o.tf = o.st === 1;
-    }
-  }
-}
-
-// ---------- crates (FUN_800b54cc) ----------
-
-function updateCrate(w: World, d: DragonDropData, c: DDCrate): boolean {
-  switch (c.st) {
-    case 3: c.st = 6; break;
-    case 6:
-      c.g += 0x200;
-      if (c.g > 0xfff) { c.g = 0x1000; c.st = 0; }
-      break;
-    case 0: c.st = 1; break;
-    case 1:
-      if (c.tf) { if (c.tc >= 0) c.st = 9; c.tf = false; }
-      break;
-    case 9:
-      c.st = 12;
-      emit(w, 'cratehit', c.x * DD_S, -c.z * DD_S, c.tc, 1);
-      break;
-    case 12: {
-      const s = c.tc;
-      const bot = !!d.P[s]?.bot;
-      const a = bot ? SKILL : 32 - SKILL; // threshold: r <= a gives the magnet, else hover boots (32 values)
-      c.item = ri(w, 32) <= a ? PU_MAGNET : PU_HOVER;
-      c.st = 13; c.g = 0;
-      break;
-    }
-    case 13: {
-      const p = d.P[c.tc];
-      if (!p) return false;
-      const ty = p.h + 0x180;
-      const dx = c.x - p.x, dz = c.z - p.z;
-      c.x -= dx >> 2; c.z -= dz >> 2; c.g -= (c.g - ty) >> 2;
-      if (Math.abs(dx) < 120 && Math.abs(dz) < 120) {
-        p.pu = c.item; p.put = c.item === PU_HOVER ? 240 : 300;
-        emit(w, 'crate', c.x * DD_S, -c.z * DD_S, c.tc, c.item === PU_HOVER ? 1 : 2);
-        return false;
-      }
-      break;
-    }
-  }
-  return true;
-}
-
-// ---------- game ----------
-
+// ---------------------------------------------------------------- game
 export const dragonDrop: MiniGame = {
   id: 'dragonDrop',
   name: 'Dragon Drop',
-  description: 'Jump to burst the balloons in YOUR colour on the spinning clock-tower ring. Black balloons shake things up!',
-  controls: '{move} run. {a} jump (bursts balloons). {b} spin attack (hits rivals, opens crates).',
+  description: 'Hit the swinging target with jewels. Aim from the 5× zone for more points. Highest score wins.',
+  controls: '{move} move. {a} throw or barge if empty-handed. Hold {a} for a higher throw.',
   maxTime: 90,
+  settlesAfterTimeout: true,
 
   setup(w, slots) {
     const chars = w.data?.chars as number[] | undefined; // optional host override: roster index per slot
     const d: DragonDropData = {
-      t: 0, rs: 0, dir: 1, ang: 0, score: [0, 0, 0, 0], stun: [0, 0, 0, 0], hover: [0, 0, 0, 0], magnet: [0, 0, 0, 0],
-      st: [0, 0, 0, 0], ph: [0, 0, 0, 0], rc: 0, rcO: 0, tc: 300, tk: 400, tb: 30, col: 0, cur: 0,
-      slots: [], P: [null, null, null, null], B: [], C: [], winner: -1, draw: false,
+      random: discRandomState(w.rng),
+      shown: [0, 0, 0, 0],
+      t: 0, ...RD_INTRO_TARGETS[RD_INTRO_TARGETS.length - 1],
+      score: [0, 0, 0, 0], st: [0, 0, 0, 0], carry: [-1, -1, -1, -1], cd: [0, 0, 0, 0],
+      P: [null, null, null, null], J: [], winner: -1, draw: false, ord: [],
     };
-    d.slots = makeSlots(w);
     w.data = d;
-    for (const s of slots) {
-      const look = Math.max(0, Math.min(LOOK_TO_ID.length - 1, chars?.[s.slot] ?? s.char ?? s.slot));
-      const id = LOOK_TO_ID[look];
-      const a = (s.slot * Math.PI) / 2 + Math.PI / 4;
-      const x = Math.round(Math.sin(a) * 300), z = Math.round(Math.cos(a) * 300);
-      const heavy = id >= 5;
-      const sc = w.params.playerScale;
-      const b = addBody(w, 'player', s.slot, x * DD_S, -z * DD_S, 120 * DD_S * sc, 3 * sc * sc);
-      b.face = Math.atan2(-x, z);
-      d.P[s.slot] = {
-        bid: b.id, x, z, h: 0, vv: 0, ph: 0, st: 0, t: 0, id, bot: s.bot,
-        v0: s.bot ? 136 : 128, gd: s.bot ? 9 : heavy ? 8 : 6, gu: s.bot ? 11 : heavy ? 13 : 11,
-        spd: s.bot ? 50 + (SKILL >> 2) : 50, pu: 0, put: 0, kx: 0, kz: 0, kn: 0, hits: [], pA: false, pB: false,
-        face: Math.atan2(-x, z),
-      };
+    for (let i = 0; i < 16; i++) {
+      const a = [0, 1, 2, 3];
+      for (let k = 0; k < 4; k++) { const j = ri(w, 4); [a[k], a[j]] = [a[j], a[k]]; }
+      d.ord.push(a);
     }
+    for (const s of slots) {
+      const look = Math.max(0, Math.min(RD_CHAR_ID.length - 1, chars?.[s.slot] ?? s.char ?? s.slot));
+      const [x, z] = STARTS[s.slot];
+      const yaw = at2(x, z) & 0xfff;
+      const b = addBody(w, 'player', s.slot, x * RD_S, -z * RD_S, 206 * RD_S * w.params.playerScale, 1);
+      const skill = SKILLS[Math.max(0, Math.min(2, s.level ?? 1))];
+      d.P[s.slot] = {
+        bid: b.id, id: RD_CHAR_ID[look], bot: s.bot, skill, x, z, yaw, hd: yaw,
+        vx: 0, vz: 0, tvx: 0, tvz: 0, ac: 9, dc: 9, st: ST_IDLE, rt: 0, tt: 0, cd: 0, carry: -1, sc: 0, lock: 0, pad: 0, ang: 0,
+        face: (-yaw * Math.PI * 2) / 4096,
+        ai: { h: H_IDLE, jw: -1, n30: 8, mode: 0, ang: 0, t40: 0, rv: 0, pa: 0, acc: 0, cx: 0, cz: 0, tx: 0, tz: 0 },
+      };
+      b.face = d.P[s.slot]!.face;
+    }
+    JEWEL0.forEach(([x, y, z], i) => {
+      const b = addBody(w, 'jewel', i, x * RD_S, -z * RD_S, 0.4, 1);
+      d.J.push({ bid: b.id, st: i < 2 ? 7 : 6, x, y, z, vx: 0, vy: 0, vz: 0, yaw: 0, g: 0x800, fl: 0, b: 0, hold: 0, mult: 1, owner: 5, cd: 0 });
+    });
     sync(w, d);
   },
 
   step(w, inputs) {
     const d = w.data as DragonDropData;
-    if (d.t >= DD_TICKS) return;
+    if (dragonDrop.isOver(w)) return;
+    targetTick(w, d);
+    for (const p of players(d)) if (p.cd > 0) p.cd--;
     d.t++;
-    timers(w, d);
-    ring(d);
-
+    if (d.t === 0x546) d.J[2].st = 7;
     for (let s = 0; s < MAX_SEATS; s++) {
       const p = d.P[s];
       if (!p) continue;
-      stepPlayer(w, d, p, s, inputs[s] ?? IDLE);
+      if (!p.bot && !rdTest.pads) {
+        p.pad = padOf(inputs[s] ?? IDLE);
+        p.ang = rdPadAngle(p.pad);
+      }
     }
-    collidePlayers(d);
-    touchBalloons(d);
-
-    d.B = d.B.filter((o) => {
-      const keep = updateBalloon(w, d, o);
-      if (!keep) { const b = w.bodies.find((q) => q.id === o.bid); if (b) b.alive = false; }
-      return keep;
-    });
-    d.C = d.C.filter((c) => {
-      const keep = updateCrate(w, d, c);
-      if (!keep) { const b = w.bodies.find((q) => q.id === c.bid); if (b) b.alive = false; }
-      return keep;
-    });
-
-    // mirrors for the client
-    for (let s = 0; s < MAX_SEATS; s++) {
+    const order = rdTest.order ?? d.ord[ri(w, 16)];
+    for (const s of order) {
       const p = d.P[s];
-      d.stun[s] = p && p.st === 2 ? p.t : 0;
-      d.hover[s] = p && p.pu === PU_HOVER ? p.put : 0;
-      d.magnet[s] = p && p.pu === PU_MAGNET ? p.put : 0;
-      d.st[s] = p ? p.st : 0;
-      d.ph[s] = p ? p.ph : 0;
+      if (p) playerTick(w, d, p, s);
     }
-    if (d.t >= DD_TICKS) {
-      const order = dragonDrop.placements(w);
-      d.draw = d.score[order[0]] === d.score[order[1]] && !!d.P[order[1]];
-      d.winner = d.draw ? -1 : order[0];
-      for (const p of players(d)) p.st = 3;
-    }
+    d.J.forEach((j, i) => jewelTick(w, d, j, i));
     sync(w, d);
-    w.bodies = w.bodies.filter((b) => b.alive);
+    if (d.shown ? tickVersusTally(d.score, d.shown, d.t, 1) : d.t >= 2700) {
+      const pl = dragonDrop.placements(w);
+      d.draw = d.score[pl[0]] === d.score[pl[1]] && !!d.P[pl[1]];
+      d.winner = d.draw ? -1 : pl[0];
+    } else if (d.shown && d.t > RD_TICKS) {
+      for (const rider of d.P) if (rider) rider.lock = 100;
+    }
   },
 
   isOver(w) {
-    return (w.data as DragonDropData).t >= DD_TICKS;
+    const d = w.data as DragonDropData;
+    return d.shown ? d.draw || d.winner >= 0 : d.t >= 2700;
   },
+
+  isDraw(w, [a, b]) { return w.data.score[a] === w.data.score[b]; },
 
   placements(w) {
     const d = w.data as DragonDropData;
     return [0, 1, 2, 3].sort((a, b) => d.score[b] - d.score[a] || a - b);
-  },
-
-  bot(w, slot): InputState {
-    const d = w.data as DragonDropData;
-    const me = d.P[slot];
-    const out: InputState = { x: 0, y: 0, a: false, b: false };
-    if (!me || me.st !== 0) return out;
-    const dist = (x: number, z: number) => Math.hypot(x - me.x, z - me.z);
-    // what pops for me: own colour (or any colour while I own the recolour), nothing else; black balloons are always fine
-    const mine = (o: DDBalloon) => o.ty === 12 || (d.rc > 0 ? d.rcO === slot : o.ow === slot);
-    let apex = 0;
-    for (let v = me.v0 - me.gu; v > 0; v -= me.gu) apex += v;
-    const reach = apex + 700; // how high a balloon can be and still be popped by a jump
-    let tgt: { x: number; z: number; kind: number; hy: number } | null = null, bs = -1;
-    for (const o of d.B) {
-      if (o.st !== 1 || !mine(o) || o.hy > reach) continue;
-      const dd = dist(o.x, o.z);
-      const v = (o.ty === 12 ? 2 : 10) / (dd + 400);
-      if (v > bs) { bs = v; tgt = { x: o.x, z: o.z, kind: o.ty === 12 ? 2 : 1, hy: o.hy }; }
-    }
-    if (me.pu === 0) {
-      for (const c of d.C) {
-        if (c.st !== 1) continue;
-        const dd = dist(c.x, c.z);
-        const v = 2 / (dd + 400);
-        if (v > bs) { bs = v; tgt = { x: c.x, z: c.z, kind: 3, hy: 0 }; }
-      }
-    }
-    // a rival right next to me: spin
-    for (const q of players(d)) {
-      if (q === me || q.st >= 2 || d.score[d.P.indexOf(q)] < d.score[slot]) continue;
-      if (dist(q.x, q.z) < 260 && me.ph === 0) out.b = true;
-    }
-    if (!tgt) return out;
-    let tx = tgt.x, tz = tgt.z;
-    if (tgt.kind !== 3) {
-      // lead the drifting balloon a little
-      const o = d.B.find((q) => q.x === tgt!.x && q.z === tgt!.z);
-      if (o) {
-        const t = Math.min(20, dist(o.x, o.z) / me.spd);
-        tx -= ((o.dr * sin(o.da - 1024)) >> 12) * -t;
-        tz -= ((o.dr * sin(o.da)) >> 12) * -t;
-      }
-    }
-    // aim noise like the original (+-(0x21 - skill) * 16 units, re-rolled about once a second)
-    const seed = Math.imul(slot + 1, 0x9e3779b1) ^ Math.imul(Math.floor(d.t / 30) + 1, 0x85ebca6b);
-    const hash = (k: number) => ((Math.imul(seed ^ k, 0xc2b2ae35) >>> 8) & 0xffff) / 0xffff - 0.5;
-    tx += hash(1) * 2 * (0x21 - SKILL) * 16; tz += hash(2) * 2 * (0x21 - SKILL) * 16;
-    const dx = tx - me.x, dz = tz - me.z, l = Math.hypot(dx, dz) || 1;
-    if (l > 40) { out.x = dx / l; out.y = -dz / l; }
-    if (tgt.kind === 3) { if (l < 280) out.b = true; } else if (me.ph === 0 && l < 420) out.a = true;
-    return out;
   },
 };

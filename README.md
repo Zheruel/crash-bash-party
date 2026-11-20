@@ -4,11 +4,11 @@ Crash Bash online with friends, in the browser. Pick a character, make a room, s
 
 **Play:** the GitHub Pages link for this repo (Settings → Pages).
 
-- 10 mini-games on their real stages: Ballistix, Polar Push, Pogo Painter, Tank Wars, Crate Crush, Crash Dash, Ring Ding, Dragon Drop, Mallet Mash, Keg Kaboom
+- 28 competitive stages across 10 mini-game families: Ballistix, Polar Push, Pogo Painter, Tank Wars, Crate Crush, Crash Dash, Ring Ding, Dragon Drop, Mallet Mash, Keg Kaboom
 - Up to 4 players + spectators, peer-to-peer (WebRTC via PeerJS); the host's browser runs the game
-- Points per round (4/3/2/1, double on the last round), trophies, comeback bonus, podium
+- Match settings offer Points Party (4/3/2/1 points per round) or Cup Battle (first to 2–7 cups on one stage, with draws replayed). The host can pick any of the 28 stages.
 
-Controls: WASD / arrows to move, Space (or J) = action, Shift (or K) = secondary, F (or L) = third button, Q / E = Tank Wars turret. Each game's intro card shows its keys. Gamepad and touch supported.
+Move with the arrow keys. Rest your left hand on **Z / X / C / V** for stage actions. Space also performs the main action, and **Q / E** handle turret aim. The rules show each stage’s bindings. Press **Esc** during a round and open **Controls** to see them again. WASD with J / K / L / H and I / O also works. Touchscreens use the on-screen stick and buttons. Hosts can enable custom physics in the lobby with Party Twists.
 
 ## Develop
 
@@ -19,6 +19,8 @@ npm run dev          # http://localhost:5173  (LAN mode: ?lan=1 uses the Node se
 npm run test:loopback
 npm run build        # static site in web/dist (copies ../assets)
 ```
+
+Gameplay uses the disc textures and a 512×240 framebuffer displayed at 4:3. Set `HD_TEXTURES=1` for the optional texture pack during development or build.
 
 Assets in `assets/` were extracted from our own disc with the tools in `tools/` (see `docs/`).
 

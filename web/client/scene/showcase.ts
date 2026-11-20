@@ -1,24 +1,37 @@
-// Title + lobby: characters standing on pads in the real Warp Room, camera slowly orbiting.
+// Character selection, party seats and between-round celebrations.
 import * as THREE from 'three';
-import { colorHex, type Look } from '../../shared/look';
-import { createCharacter, teamRing } from '../characters';
-import type { ModelInstance } from '../crash';
+import { CHARACTERS, type Look } from '../../shared/look';
+import { createCharacter } from '../characters';
+import { ModelInstance } from '../crash';
 import type { Mode, Stage } from '../view';
-import { warpTex } from './tex';
-import { canvasTex } from './util';
 
 interface Slot { root: THREE.Group; body: THREE.Group; mi: ModelInstance; key: string; bounce: number }
 
-let padTex: THREE.Texture | null = null;
-function padMaterials(hex: string) {
-  if (!padTex) {
-    const real = warpTex('029');
-    padTex = canvasTex(64, 64, (g, w, h) => {
-      g.imageSmoothingEnabled = false;
-      if (real) g.drawImage(real, 0, 0, w, h); else { g.fillStyle = '#8a8478'; g.fillRect(0, 0, w, h); }
-    }, true);
+// Title pack 0131: four steel pads with baked yellow, pink, green and red rims.
+const padParts = ['part1', 'part2', 'part3', 'part4'];
+const pedestals: THREE.Group[] = [];
+function characterPedestal(slot: number) {
+  if (!pedestals.length) {
+    const model = new ModelInstance({ model: 131, parts: padParts, scale: 3 });
+    if (model.build()) for (const name of padParts) {
+      const group = new THREE.Group();
+      const part = model.root.getObjectByName(name);
+      if (part) group.attach(part);
+      pedestals.push(group);
+    }
   }
-  return [new THREE.MeshLambertMaterial({ color: 0x6f7b88 }), new THREE.MeshLambertMaterial({ map: padTex, color: new THREE.Color(0x9fb4d0) }), new THREE.MeshLambertMaterial({ color: 0x39424d })];
+  return pedestals[slot]?.clone() ?? new THREE.Group();
+}
+
+// Groups 4–11 in the same pack are the eight character-select idle animations.
+const selectPart: Record<string, number> = { coco: 14, crash: 15, cortex: 16, brio: 17, dingodile: 18, koala: 19, tiny: 20, rilla: 21 };
+function showcaseCharacter(look: Look, selecting: boolean) {
+  const part = selectPart[CHARACTERS[look.char].id];
+  if (selecting && part) {
+    const model = new ModelInstance({ model: 131, parts: [`part${part}`], scale: 3, anims: { idle: part - 10 } });
+    if (model.build()) return model;
+  }
+  return createCharacter(look, { ring: false });
 }
 
 export class ShowcaseScene implements Mode {
@@ -27,12 +40,14 @@ export class ShowcaseScene implements Mode {
   readonly background = null;
   private lit = false;
   private slots: (Slot | null)[] = [];
+  private looks: (Look | null)[] = [];
   private layout: 'title' | 'lobby' | 'between' | 'champ' = 'lobby';
   /** round winner shown alone in the 'champ' layout */
   private champ = -1;
   private viewX = 0.5;
   private viewY = 0.5;
   private az = 0;
+  private reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
   private ensureBackdrop() {
     if (this.lit) return;
@@ -43,29 +58,28 @@ export class ShowcaseScene implements Mode {
     this.root.add(sun);
   }
 
-  setLayout(l: 'title' | 'lobby' | 'between', fx = 0.5, fy = 0.5) { this.layout = l; this.viewX = fx; this.viewY = fy; this.place(); }
+  setLayout(l: 'title' | 'lobby' | 'between', fx = 0.5, fy = 0.5) { this.layout = l; this.viewX = fx; this.viewY = fy; this.setLooks(this.looks); }
   /** Round results on a wide screen: the winner alone, big, cheering on the left of the leaderboard. */
-  setChamp(slot: number) { this.layout = 'champ'; this.champ = slot; this.place(); this.react(slot); }
+  setChamp(slot: number) { this.layout = 'champ'; this.champ = slot; this.setLooks(this.looks); this.react(slot); }
   setSpin(_on: boolean) { /* the camera orbits instead */ }
 
   /** null entries leave the seat empty. */
-  setLooks(looks: (Look | null)[]) {
+  setLooks(looks: (Look | null)[], refresh = false) {
     this.ensureBackdrop();
+    this.looks = looks;
+    const selecting = this.layout === 'title' || this.layout === 'lobby';
     looks.forEach((l, i) => {
-      const key = l ? `${l.char}.${l.color}` : '';
+      const key = l ? `${l.char}.${l.color}.${selecting}` : '';
       const cur = this.slots[i];
-      if (cur && cur.key === key) return;
+      if (!refresh && cur && cur.key === key) return;
       if (cur) { this.root.remove(cur.root); this.slots[i] = null; }
       if (!l) return;
       const holder = new THREE.Group();
       const body = new THREE.Group();
-      const mi = createCharacter(l, { ring: false });
+      const mi = showcaseCharacter(l, selecting);
       mi.play('idle');
       body.add(mi.root);
-      const hex = colorHex(l);
-      const pad = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.25, 0.3, 24), padMaterials(hex));
-      pad.position.y = -0.15;
-      holder.add(pad, body);
+      holder.add(characterPedestal(i), body);
       this.root.add(holder);
       this.slots[i] = { root: holder, body, mi, key, bounce: 0 };
     });
@@ -88,23 +102,15 @@ export class ShowcaseScene implements Mode {
     this.slots.forEach((s, i) => s && s.root.position.set((i - 1.5) * 2.6, 0, i % 2 ? -0.3 : 0.3));
   }
 
-  /** World position under a seat (for DOM name tags). */
-  footPos(slot: number, out = new THREE.Vector3()) {
-    const s = this.slots[slot];
-    if (!s) return out.set(0, 0, 0);
-    // a point in front of the pad (towards the camera) so the tag sits just below the character
-    const dx = Math.sin(this.az), dz = Math.cos(this.az);
-    return out.set(s.root.position.x + dx * 1.5, -0.45, s.root.position.z + dz * 1.5);
-  }
-
   enter(stage: Stage) { this.place(); this.frame(stage, 0); }
 
   frame(stage: Stage, t: number) {
+    if (this.reducedMotion.matches) t = 0;
     const cam = stage.camera;
     cam.fov = 36;
     const fov = (cam.fov * Math.PI) / 360;
     if (this.layout === 'title') {
-      this.az = t * 0.16;
+      this.az = Math.sin(t * 0.16) * 0.35;
       const dist = Math.max(6, 2.5 / Math.tan(fov) * (cam.aspect < 1 ? 1.95 : 1));
       cam.position.set(Math.sin(this.az) * dist, 2.0, Math.cos(this.az) * dist);
       cam.lookAt(0, 1.1, 0);
@@ -120,7 +126,7 @@ export class ShowcaseScene implements Mode {
       const w = innerWidth, h = innerHeight;
       cam.setViewOffset(w, h, (0.5 - 0.24) * w, (0.5 - 0.52) * h, w, h);
     } else {
-      this.az = Math.sin(t * 0.18) * 0.5;
+      this.az = Math.sin(t * 0.18) * 0.08;
       const between = this.layout === 'between';
       const halfW = between ? 6.6 : 5.8;
       const dist = Math.max(9, halfW / (Math.tan(fov) * cam.aspect));
@@ -128,7 +134,7 @@ export class ShowcaseScene implements Mode {
       cam.lookAt(0, 1.0, 0);
       cam.updateProjectionMatrix();
       const w = innerWidth, h = innerHeight;
-      cam.setViewOffset(w, h, 0, (0.5 - (between ? 0.84 : h < 600 ? 0.4 : innerWidth < 700 ? 0.33 : 0.38)) * h, w, h);
+      cam.setViewOffset(w, h, 0, (0.5 - (between ? 0.84 : h < 600 ? 0.4 : innerWidth < 700 ? 0.49 : 0.38)) * h, w, h);
     }
   }
 

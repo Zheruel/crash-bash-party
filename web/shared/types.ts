@@ -17,8 +17,10 @@ export interface InputState {
   a: boolean;
   /** secondary button: dash / bump */
   b: boolean;
-  /** third button (keyboard F, Triangle): taunt in Tank Wars, jump in Crate Crush */
+  /** Third action, used to taunt in Tank Wars and jump in Crate Crush. */
   c?: boolean;
+  /** Fourth face button, used for the Swamp Fox shield. */
+  d?: boolean;
   /** shoulder buttons (keyboard Q / E, L1 / R1): turn the turret in Tank Wars */
   l?: boolean;
   r?: boolean;
@@ -73,6 +75,8 @@ export interface Params {
  * s = affected slot (-1 none), o = other slot (e.g. attacker), v = magnitude 0..~1+.
  */
 export interface GameEvent {
+  y?: number; // world-space height, measured upwards from the arena floor
+  yaw?: number; // world-space orientation for a directed effect
   id: number;
   t: number; // tick
   k: string;
@@ -84,6 +88,8 @@ export interface GameEvent {
 }
 
 export interface World {
+  /** The authority has stopped simulating this round, including a configured time cap. */
+  finished?: true;
   tick: number;
   time: number;
   rng: number;
@@ -126,18 +132,25 @@ export interface Modifier extends ModifierInfo {
 export interface MiniGame {
   id: string;
   name: string;
+  /** Versus objective shown on the intro card. */
   description: string;
-  /** One-line control hint shown on the intro card. */
+  variantDescriptions?: Record<string, string>;
+  /** Short control hints with key tokens, shown on the intro card. */
   controls: string;
+  variantControls?: Record<string, string>;
   /** Level variants of the real game (e.g. CRASHBALL / BEACH BALL ...). setup() picks one from world.rng and stores its id in world.data.variant. */
   variants?: { id: string; name: string }[];
   /** Hard time limit in seconds; at the limit placements() is taken from current state. */
   maxTime: number;
+  /** The native finish handler may wait for the displayed scores after the clock reaches zero. */
+  settlesAfterTimeout?: boolean;
   setup(world: World, players: SlotInfo[], modifiers: Modifier[]): void;
   step(world: World, inputs: (InputState | null | undefined)[], dt: number): void;
   isOver(world: World): boolean;
   /** Slot indices, best first. Must be valid at any moment (used on timeout). */
   placements(world: World): number[];
-  /** Optional AI for empty slots (host-side only). Plays at "hard"; shared/bots.ts degrades it for lower levels. */
+  /** Original individual-versus tie rule. The order is the result of placements(). */
+  isDraw?(world: World, order: number[]): boolean;
+  /** Optional AI for empty slots (host-side only). */
   bot?(world: World, slot: number): InputState;
 }

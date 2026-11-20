@@ -29,8 +29,8 @@ function assetsPlugin(): Plugin {
           return;
         }
         let file = path.resolve(ASSETS, '.' + path.posix.normalize('/' + rel));
-        // prefer the HD remaster (same layout) like the production build does
-        if (rel.startsWith('/textures/') && process.env.NO_HD !== '1') { const hd = path.resolve(ASSETS, 'hd', '.' + path.posix.normalize(rel.slice('/textures'.length))); if (fs.existsSync(hd)) file = hd; }
+        // The HD asset pack is an explicit build option in both modes.
+        if (rel.startsWith('/textures/') && process.env.HD_TEXTURES === '1') { const hd = path.resolve(ASSETS, 'hd', '.' + path.posix.normalize(rel.slice('/textures'.length))); if (fs.existsSync(hd)) file = hd; }
         if (!file.startsWith(ASSETS + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
           res.statusCode = 404;
           res.end('not found');

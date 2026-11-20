@@ -1,5 +1,10 @@
 import * as THREE from 'three';
-import { TA_HP, TA_K, TA_MAPS } from '../../shared/games/tankArena';
+import { BOAT_IDLE_SPIN, BOAT_ROTOR_AT_GO, TA_HP, TA_K, TA_MAPS, TANK_INTRO_TICKS, TANK_HIT_TICKS, TANK_WRECK_TICKS, tankArena, swampShieldFrame, taWorld } from '../../shared/games/tankArena';
+import { JungleStatueView } from './tankJungleStatues';
+import { initialMetalWalls } from '../../shared/games/tankArenaMetalWalls';
+import { TANK_STOCK_WEAPON, tankGunIdle } from '../../shared/games/tankWeaponPose';
+import { CHARACTERS, DISC_CHARACTER } from '../../shared/look';
+import { poseTicks } from './playerPose';
 import { createCharacter } from '../characters';
 import type { ActorParts } from './kit';
 import { canvasTexture, catalogInstance, disposeTree, hasProp, Kit, makeCrate, preloadCatalogFor, propObject } from './kit';
@@ -9,13 +14,47 @@ import { sfx, sfxRate } from '../shell/sound';
 import { TANK_SFX } from './tankArenaSfx';
 /** level sfx bank per variant (the id -> tone table and its pitches are per level) */
 const TANK_BANK: Record<string, string> = { swamp: '0159', desert: '0162', jungle: '0160', metal: '0161' };
-import { barRow, bigClock, faceSprite, FRUIT_ICON, SLOT_X, type HudSprite } from '../ui/ps1hud';
-import { getGame } from '../../shared/registry';
-import type { ClientMiniGame } from './types';
-import { applyPose, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type Placements } from './ps1cam';
+import { arenaClockSprites, barRow, faceSprite, FRUIT_ICON, SLOT_X, type HudSprite } from '../ui/ps1hud';
+import { cloneWorld, stepWorld } from '../../shared/sim';
+import type { ClientMiniGame, RenderWorld } from './types';
+import { applyPose, FitCam, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type Placements } from './ps1cam';
 import type { ModelRef } from '../crash';
-import { preloadFx } from './realFx';
-import { charVoice } from '../shell/voice';
+import { fxPartTemplate, pickupShadow, preloadFx } from './realFx';
+import { TankSupplyPickup } from './tankSupplies';
+import { createTankShell } from './tankShell';
+import { charVoice, hitVoice, winnerVoice } from '../shell/voice';
+import { knockoutGhostRef, makeKnockoutGhost } from './knockoutGhost';
+import { MetalWallView } from './tankArenaMetalWalls';
+
+type TankPaint = {
+  color: readonly [number, number, number];
+  materials: WeakMap<THREE.MeshBasicMaterial, THREE.MeshBasicMaterial>;
+};
+// Measured seven- or eight-update waits for the victory animation bank.
+const CHEER_LOAD_TICKS = [7, 8, 7, 8, 7, 8, 7, 8];
+const TANK_ARMOR = new Set(['tex0', 'tex1', 'tex4', 'tex14', 'tex16', 'tex17', 'tex18']);
+const TANK_PAINT: Partial<Record<string, TankPaint>> = {
+  'top-g': { color: [1, 0.77, 0.59], materials: new WeakMap() },
+  'big-stein': { color: [0.64, 0.68, 1.32], materials: new WeakMap() },
+};
+
+function paintTank(root: THREE.Object3D, paint: TankPaint) {
+  const coat = (source: THREE.MeshBasicMaterial) => {
+    if (!TANK_ARMOR.has(source.name)) return source;
+    let material = paint.materials.get(source);
+    if (!material) {
+      material = source.clone();
+      material.color.setRGB(...paint.color);
+      paint.materials.set(source, material);
+    }
+    return material;
+  };
+  root.traverse(o => {
+    const mesh = o as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial | THREE.MeshBasicMaterial[]>;
+    if (!mesh.isMesh || !mesh.visible) return;
+    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(coat) : coat(mesh.material);
+  });
+}
 
 /**
  * Real effects (re/notes/tankWars.md "Effects"): object pack 0786's effect scripts, by weapon id (8, 9, 10, 11 = the
@@ -23,10 +62,6 @@ import { charVoice } from '../shell/voice';
  * (FUN_800b77e8 / FUN_800baffc); pack 0784 parts 24-32 = the smoke puff (object 0x1306) left where a shell ends on levels 6-8.
  */
 const PACK = 786, SMOKE = 784, U = TA_K / 1024;
-const MUZZLE: Record<number, number> = { 11: 7, 8: 8, 9: 15, 10: 6 };
-const SHELL_END: Record<number, number> = { 11: 10, 8: 12, 9: 13, 10: 11 };
-/** [script, every n ticks] */
-const SHELL_TRAIL: Record<number, [number, number]> = { 8: [2, 8], 2: [17, 2] };
 const SMOKE_FRAMES = Array.from({ length: 9 }, (_, i) => 24 + i);
 
 /**
@@ -56,7 +91,7 @@ const LOOKS: Record<string, Look> = {
   metal: { bg: 0x0a0d18, tank: 0x6aa63a, tint: [0.62, 1, 0.5] },
 };
 
-interface TankVis { group: THREE.Group; treads: ReturnType<typeof catalogInstance> }
+interface TankVis { group: THREE.Group; treads: ReturnType<typeof catalogInstance>; gun: ReturnType<typeof catalogInstance>; rotor: ReturnType<typeof catalogInstance> }
 
 function plankTexture(base: string, dark: string): THREE.CanvasTexture {
   return canvasTexture(64, (g, s) => {
@@ -165,8 +200,6 @@ function makeMine(hex: string): THREE.Group {
 /** lit-fuse bomb flip-book (0786 parts 11-18) and the mine-blast fire flip-book (0784 parts 24-32) */
 const BOMB_FRAMES = Array.from({ length: 8 }, (_, i) => `taBomb${i}`);
 const FLAME_FRAMES = Array.from({ length: 9 }, (_, i) => `taFlame${i}`);
-/** the 0736 wumpa flip-book (render ids 0x2018-0x2025) */
-const TA_FRUIT = Array.from({ length: 14 }, (_, i) => `taFruit${i}`);
 function flipBook(names: string[]): THREE.Group | null {
   const fr = names.map((n) => catalogInstance(getCatalog().props[n])?.root ?? null);
   if (!fr.every((f) => f)) return null;
@@ -253,12 +286,43 @@ function makeTank(hex: number, boat: boolean): THREE.Group {
   return g;
 }
 
+/** The L5 shield draws pack 0774 part 14 at the origin of each pulse. */
+function boatShield() {
+  const root = fxPartTemplate(774, 14, TA_K)?.clone();
+  if (!root) return null;
+  const materials: THREE.MeshBasicMaterial[] = [];
+  const own = (source: THREE.MeshBasicMaterial) => {
+    const mat = source.clone();
+    mat.depthWrite = false;
+    materials.push(mat);
+    return mat;
+  };
+  root.traverse(node => {
+    const mesh = node as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial | THREE.MeshBasicMaterial[]>;
+    if (!mesh.isMesh) return;
+    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(own) : own(mesh.material);
+    mesh.renderOrder = 6;
+  });
+  root.name = 'swampShield';
+  return { root, materials };
+}
+
 export function createTankArenaView(): ClientMiniGame {
   let kit: Kit;
   let loaded = false;
+  let replay: RenderWorld | undefined;
+  let replaySource = -1;
+  let voiceAge: number | undefined;
+  let winnerCam: FitCam | undefined;
+  let camAge = -1;
   let variant = 'swamp';
+  let metalWalls: MetalWallView | null = null;
+  let statues: JungleStatueView | undefined;
+  const ghosts = new Map<number, NonNullable<ReturnType<typeof makeKnockoutGhost>>>();
+  const missileSounds = new Map<number, () => void>();
+  const shields = new Map<number, NonNullable<ReturnType<typeof boatShield>>>();
   const tanks = new Map<number, TankVis>();
-  const shells = new Map<number, { obj: THREE.Group; slot: number; wpn: number; t: number }>();
+  const shells = new Map<number, { art: ReturnType<typeof createTankShell>; born: number }>();
   const lastHp: number[] = [3, 3, 3, 3];
   const objs = new Map<number, THREE.Object3D>();
 
@@ -285,27 +349,38 @@ export function createTankArenaView(): ClientMiniGame {
     }
   }
 
-  /** turret part by the character's own weapon (engine char 1,2 -> 9; 3,4 -> 11; 5,6 -> 10; 7,8 -> 8) */
-  const TURRET: Record<number, number> = { 1: 9, 2: 9, 3: 11, 4: 11, 5: 10, 6: 10, 7: 8, 8: 8 };
   function makeParts(slot: number, char: number): ActorParts {
     const L = LOOKS[variant] ?? LOOKS.metal;
+    const look = kit.look(slot);
     // pilot: the character's in-tank model, drawn at the stage's raw scale (same 2.6 units as the level)
-    const inst = createCharacter(kit.look(slot), { variant: 'tank', ring: false });
-    inst.root.rotation.y = Math.PI; // the tank set (pilot, treads, turret) faces PS1 +z like every 0784 part
+    const inst = createCharacter(look, { variant: 'tank', ring: false });
+    // The extracted tank models already face the muzzle direction. Use the native pilot socket.
+    if (inst.root.userData.variantUsed) inst.root.position.y = -(inst.ref?.offset?.[1] ?? 0) - (variant === 'swamp' ? 72 * U : 0);
     const vis = new THREE.Group(); // hull (counter-rotated to the hull yaw below)
     const cat = getCatalog().props;
     let treads: ReturnType<typeof catalogInstance> = null;
-    if (variant === 'swamp') treads = catalogInstance(cat.taHover);
+    if (variant === 'swamp') treads = cat.taHover && catalogInstance({
+      ...cat.taHover, parts: ['part0', 'part1', 'part2', 'part3'],
+    });
     else treads = catalogInstance(cat.taTreads);
-    if (treads) { treads.root.rotation.y = Math.PI; vis.add(treads.root); treads.play('idle'); }
+    if (treads) vis.add(treads.root);
     else vis.add(makeTank(L.tank, variant === 'swamp'));
     const holder = new THREE.Group();
     holder.add(vis);
-    if (variant !== 'swamp') {
-      const tur = catalogInstance(cat[`taTurret${TURRET[char] ?? 9}`]);
-      if (tur) { tur.root.rotation.y = Math.PI; holder.add(tur.root); }
+    // Pack 0774 combines the boat and its gun. Pack 0784 has a separate turret node.
+    const gun = variant === 'swamp' ? treads : cat.taTurret8 && catalogInstance({
+      ...cat.taTurret8, parts: [7, 8, 9, 10, 11, 15, 16, 17].map(part => `part${part}`),
+    });
+    if (gun && gun !== treads) holder.add(gun.root);
+    const rotor = variant === 'swamp' && cat.taHover ? catalogInstance({ ...cat.taHover, parts: ['part4', 'part5'] }) : null;
+    if (rotor) {
+      rotor.root.position.y = 256 * U;
+      vis.add(rotor.root);
     }
-    tanks.set(slot, { group: vis, treads });
+    const paint = TANK_PAINT[CHARACTERS[look.char]?.id];
+    if (paint) paintTank(holder, paint);
+    gun?.nativePose(tankGunIdle(LEVEL[variant], TANK_STOCK_WEAPON[char - 1]));
+    tanks.set(slot, { group: vis, treads, gun, rotor });
     return { inst, extra: holder, steady: true, shadow: 0.9, headY: 1.3, scale: 1 };
   }
 
@@ -314,51 +389,43 @@ export function createTankArenaView(): ClientMiniGame {
     const g = new THREE.Group();
     const inst = catalogInstance(getCatalog().props.taDropper);
     const body = new THREE.Group();
-    if (inst) { inst.root.rotation.y = Math.PI; body.add(inst.root); inst.play('idle'); g.userData.inst = inst; }
-    g.add(body);
+    if (inst) { body.add(inst.root); g.userData.inst = inst; }
+    const shadow = pickupShadow(784, 14, TA_K);
+    g.add(body, shadow);
+    g.userData.shadow = shadow;
     g.userData.body = body;
-    const sh = catalogInstance(getCatalog().props.taDropperShadow);
-    if (sh) { // node flags 0x40000041: the shadow is drawn subtractive on the floor
-      sh.root.traverse((o) => { const m = o as THREE.Mesh; if (!m.isMesh) return; const q = (m.material as THREE.MeshBasicMaterial).clone(); q.blending = THREE.SubtractiveBlending; q.transparent = true; q.depthWrite = false; m.material = q; m.renderOrder = 2; });
-      sh.root.position.y = 0.02;
-      g.add(sh.root);
+    return g;
+  }
+  function mineModel(slot: number) {
+    if (variant === 'swamp') {
+      if (slot < 0) return new THREE.Group(); // The neutral mine's model bank is unloaded on L5.
+      const mine = fxPartTemplate(695, 0, TA_K)?.clone() ?? makeMine(kit.hex(slot));
+      mine.name = 'floatingMine';
+      return mine;
     }
-    return g;
+    const ref = getCatalog().props.taMine0;
+    const inst = ref && catalogInstance({ ...ref, parts: ['part1', 'part2', 'part3', 'part4'] });
+    if (!inst) return makeMine(kit.hex(slot));
+    inst.root.userData.inst = inst;
+    return inst.root;
   }
-  /** a pickup: the descending crate (0786 part42) and the landed item by type: 2 double 0784 part6, 3 bomb 0736 part11, 4 +20 hp
-   *  0736 wumpa flip-book (parts 23-36, blended), else (mine / bad crate) 0784 part18 */
-  function tankPickup(kind: number): THREE.Group {
-    const g = new THREE.Group();
-    const fall = realProp('taDrop');
-    if (fall) { g.add(fall); g.userData.fall = fall; }
-    const item = kind === 4 ? flipBook(TA_FRUIT) : realProp(kind === 2 ? 'taDouble' : kind === 3 ? 'taBombPick' : 'taMinePick');
-    const it = item ?? makePickup(kind);
-    g.add(it); g.userData.item = it;
-    return g;
-  }
-  function realProp(name: string): THREE.Group | null {
-    const inst = catalogInstance(getCatalog().props[name]);
-    if (!inst) return null;
-    const g = new THREE.Group();
-    inst.root.rotation.y = Math.PI;
-    g.add(inst.root);
-    return g;
-  }
-
-  /** shell: the game's missile mesh (0784 part6), nose along the flight direction */
-  function makeShell(slot: number): THREE.Group {
-    const real = realProp('taMissile');
-    if (real) return real;
-    const g = new THREE.Group();
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(kit.hex(slot)) }));
-    g.add(core);
-    return g;
-  }
-
-  function aim(ctx: { camera: THREE.PerspectiveCamera }) {
+  function aim(ctx: { camera: THREE.PerspectiveCamera }, w?: RenderWorld) {
     const lc = LEVEL_CAMS[LEVEL[variant]];
     const ref = stageRef(variant);
-    if (lc && ref && placements.get(variant)) { applyPose(ctx.camera, ps1Pose(lc, ref)); return; }
+    if (lc && ref && placements.get(variant)) {
+      const result = w?.data.result;
+      if (w && result?.poseAt !== undefined) {
+        const age = w.data.f - result.poseAt;
+        const tank = w.data.tk[result.winner];
+        if (!winnerCam || age < camAge) { winnerCam = new FitCam(lc); camAge = -1; }
+        while (camAge < age) {
+          winnerCam.update([{ x: tank.x, y: 0, z: tank.z, xl: 256, xr: 256, zn: 0, zf: 0, h: 960 }], false, false);
+          camAge++;
+        }
+        applyPose(ctx.camera, ps1Pose(winnerCam.c, ref));
+      } else applyPose(ctx.camera, ps1Pose(lc, ref));
+      return;
+    }
     const c = CAMS[variant] ?? CAMS.metal;
     const cam = ctx.camera;
     const pr = (c.pitch * Math.PI) / 180;
@@ -370,7 +437,7 @@ export function createTankArenaView(): ClientMiniGame {
   return {
     id: 'tankArena',
     async preload() {
-      await Promise.all([preloadCatalogFor('tankArena', ['taTreads', 'taHover', 'taTurret8', 'taMine0', 'taCrate', 'taMissile', 'taDropper', 'taDropperShadow', 'taDrop', 'taDouble', 'taBombPick', 'taMinePick', ...TA_FRUIT, 'tank', ...BOMB_FRAMES, ...FLAME_FRAMES]), preloadFx([PACK, SMOKE]), ...Object.entries(LEVEL).map(async ([v, l]) => placements.set(v, await loadPlacements('L' + l)))]);
+      await Promise.all([preloadCatalogFor('tankArena', ['taTreads', 'taHover', 'taTurret8', 'taMine0', 'taCrate', 'taDropper', 'tank', ...BOMB_FRAMES, ...FLAME_FRAMES], [knockoutGhostRef(TA_K)]), preloadFx([PACK, SMOKE, 695, 736, 776]), ...Object.entries(LEVEL).map(async ([v, l]) => placements.set(v, await loadPlacements('L' + l)))]);
       loaded = true;
     },
 
@@ -379,40 +446,160 @@ export function createTankArenaView(): ClientMiniGame {
       const L = LOOKS[variant] ?? LOOKS.metal;
       kit = new Kit(ctx, 'tankArena', { bg: L.bg, hemi: [0xffffff, 0xffffff, 1.2] });
       kit.realFx(TA_K);
+      for (const n of [23, 24]) sfx.preloadFile('sfx/0154/' + n + '.mp3');
+      for (const file of new Set(Object.values(TANK_SFX[variant] ?? {}))) sfx.preloadFile(file);
       tanks.clear(); shells.clear(); objs.clear(); lastHp.fill(TA_HP);
       build(world);
+      statues = variant === 'jungle' ? new JungleStatueView(kit.root, {
+        sound: id => {
+          const file = TANK_SFX.jungle[id];
+          if (file) sfx.playFile(file, 0.4, false, sfxRate(TANK_BANK.jungle, id));
+        },
+        slam: (x, z) => {
+          const [wx, wz] = taWorld('jungle', x, z);
+          kit.real.play(776, 0, wx, -300 * U, wz);
+        },
+        crushPickup: () => {},
+      }) : undefined;
+      metalWalls = variant === 'metal' ? new MetalWallView(kit.root) : null;
       aim(ctx);
       if (!loaded) this.preload!().then(() => { tanks.clear(); kit?.reset(); });
     },
 
     render(ctx, w, dt) {
-      aim(ctx);
-      kit.checkOver(w);
+      let nativeResult = w.data.result;
+      kit.checkOver(w, !nativeResult, 120 * 1000 / 30);
+      const betweenSnaps = Math.max(0, Math.floor(w.time * 30 + 1e-6) - w.tick);
+      if (nativeResult && (kit.over.done || betweenSnaps > 0)) {
+        const elapsed = kit.over.done
+          ? Math.max(kit.over.frame, Math.floor((ctx.time - (ctx.resultReplayAt ?? ctx.time)) * 30))
+          : betweenSnaps;
+        const target = w.tick + Math.min(123, elapsed);
+        if (!replay || replaySource !== w.tick || target < replay.tick) {
+          const { predicted, ...terminal } = w;
+          replay = cloneWorld(terminal);
+          replaySource = w.tick;
+        }
+        const audible = kit.over.done && target - replay.tick < 5;
+        while (replay.tick < target) {
+          const nextEvent = replay.evId;
+          stepWorld(replay, tankArena, []);
+          if (audible) for (const e of replay.ev) if (e.id >= nextEvent) this.onEvent?.(ctx, e);
+        }
+        kit.world = w = replay;
+        nativeResult = w.data.result;
+      }
+      if (nativeResult?.poseAt !== undefined) {
+        const age = w.data.f - nativeResult.poseAt;
+        // Joining partway through a celebration should only play cues still ahead.
+        if (voiceAge === undefined) {
+          voiceAge = age <= 5 ? -1 : age - 1;
+          if (voiceAge >= 0) sfx.enterRoundResult('winner');
+        }
+        if (age > voiceAge) {
+          winnerVoice('tankArena', kit.look(nativeResult.winner).char, voiceAge, age);
+          voiceAge = age;
+        }
+      }
+      aim(ctx, w);
       const d = w.data;
+      if (statues && d.jungleStatues) {
+        const frame = nativeResult && kit.over.done ? 0 : kit.over.done
+          ? Math.max(kit.over.frame, Math.floor((ctx.time - (ctx.resultReplayAt ?? ctx.time)) * 30))
+          : Math.max(0, Math.floor(w.time * 30 + 1e-6) - w.tick);
+        statues.render(d.jungleStatues, d.tk, w.tick, frame, !!d.over || kit.over.done, kit.over.done);
+      }
+      if (metalWalls && d.metalWalls) {
+        const tick = w.tick === 0 ? -(ctx.countdownTicksLeft ?? 0) : w.tick;
+        metalWalls.render(tick < 0 ? initialMetalWalls(d.tk, tick) : d.metalWalls, tick, stageRef('metal'));
+      }
       const seen = new Set<number>();
       const seenShell = new Set<number>();
       const seenObj = new Set<number>();
       for (const b of w.bodies) {
         if (b.kind === 'tank') {
+          const d = nativeResult ? w.data : kit.playerWorld(b.slot).data;
           seen.add(b.id);
-          const a = kit.actor(b, () => makeParts(b.slot, d.tk?.[b.slot]?.char ?? b.slot + 1));
+          const a = kit.actor(b, () => makeParts(b.slot, d.tk?.[b.slot]?.char ?? DISC_CHARACTER[kit.look(b.slot).char]));
           const tk = d.tk?.[b.slot];
           const st = tk?.st ?? 0x6e;
-          const inv = (tk?.inv ?? 0) > 0;
-          a.update(b, dt, { hidden: st === 0x6b, blink: inv, role: kit.over.done ? undefined : st === 0x69 || st === 0x6a ? 'hit' : 'idle', freeze: true });
+          const tick = nativeResult ? w.tick : kit.playerWorld(b.slot).tick;
+          const age = tick - (tk?.animAt ?? 0);
+          const action = tk?.anim && age < poseTicks(tk.anim, tk.char) ? tk.anim : 0x59;
+          // FUN_800babcc / FUN_800bacd4: the winner spins the pilot and turret;
+          // on the tracked tanks the hull counter-rotates to keep its bearing.
+          const win = nativeResult ? nativeResult.winner === b.slot && nativeResult.poseAt !== undefined
+            : kit.over.done && kit.over.winners.has(b.slot);
+          const endFrame = !nativeResult && kit.over.done ? kit.over.frame : 0;
+          const winAge = nativeResult && win ? d.f - nativeResult.poseAt : endFrame;
+          const loadTicks = CHEER_LOAD_TICKS[(tk?.char ?? 1) - 1];
+          const leadScript = nativeResult?.recovered ? 0x59 : 0x5a;
+          const face = nativeResult && tk ? -tk.yaw * Math.PI / 2048 : b.face;
+          const spin = win ? endFrame * 0x15 * Math.PI / 2048 : 0;
+          let damageState = st, damageFrame = tk?.stT ?? 0;
+          if (endFrame && !win && tk?.hp <= 0) {
+            damageFrame += endFrame;
+            if (damageState === 0x69 && damageFrame >= TANK_HIT_TICKS[tk.char - 1]) { damageState = 0x6a; damageFrame -= TANK_HIT_TICKS[tk.char - 1]; }
+            if (damageState === 0x6a && damageFrame >= TANK_WRECK_TICKS[tk.char - 1]) damageState = 0x6b;
+          }
+          let ghost = ghosts.get(b.slot);
+          if (damageState === 0x6b && tk.ghostAt !== undefined) {
+            const age = d.f + endFrame - tk.ghostAt;
+            if (!ghost && age <= 110) {
+              ghost = makeKnockoutGhost(TA_K, tk.ghostAt * 4 + b.slot, variant === 'swamp' ? 72 : 0, 0);
+              if (ghost) { ghosts.set(b.slot, ghost); kit.root.add(ghost.root); }
+            }
+            ghost?.pose(b.x, b.y, b.z, age, ctx.camera);
+          } else if (ghost) ghost.root.visible = false;
+          const pulse = tk?.shield;
+          const frame = pulse ? swampShieldFrame(d.f + endFrame - pulse.start) : -1;
+          let shield = shields.get(b.slot);
+          if (!shield && frame > 0) {
+            shield = boatShield() ?? undefined;
+            if (shield) { shields.set(b.slot, shield); kit.root.add(shield.root); }
+          }
+          if (shield) {
+            shield.root.visible = frame > 0;
+            if (frame > 0) {
+              const [x, z] = taWorld(variant, pulse.x, pulse.z);
+              shield.root.position.set(x, (88 - 22 * frame - pulse.y) * U, z);
+              shield.root.scale.y = (2238 + Math.trunc(1858 * frame / 4)) / 4096;
+              for (const mat of shield.materials) mat.color.setScalar(frame / 4);
+            }
+          }
+          const hit = damageState === 0x69 || damageState === 0x6a;
+          a.update(b, dt, { hidden: damageState === 0x6b, role: hit ? 'hit' : 'idle', freeze: true, keepYaw: win,
+            script: win ? (winAge < loadTicks ? leadScript : 0x5c) : damageState === 0x69 ? 0x57 : damageState === 0x6a ? 0x58 : action,
+            scriptFrame: win ? (winAge < loadTicks ? winAge : winAge - loadTicks) : hit ? damageFrame : action !== 0x59 ? age : undefined });
+          if (win) { a.yaw.rotation.y = face - spin; a.holder.position.y = 0; }
+          if (variant === 'swamp') a.pivot.rotation.z = -(tk?.bank ?? 0) * 2 * Math.PI / 4096;
           const t = tanks.get(b.slot);
-          if (t) {
-            if (tk) t.group.rotation.y = Math.PI - (tk.hull * Math.PI * 2) / 4096 - b.face;
-            const sp = Math.hypot(b.vx, b.vz);
-            t.treads?.play(sp > 0.3 ? 'run' : 'idle');
-            if (sp > 0.3) t.treads?.update(dt);
+          if (t && tk) {
+            const remaining = tick === 0 ? Math.min(TANK_INTRO_TICKS, Math.max(0, ctx.countdownTicksLeft ?? 0)) : 0;
+            if (variant !== 'swamp') {
+              // Jungle stores the tread yaw relative to the turret. The grid arenas store it in world space.
+              t.group.position.y = Math.trunc((tk.hy ?? 0) / 2) * U;
+              const hullAngle = tk.hull * Math.PI / 2048;
+              t.group.rotation.y = (variant === 'jungle' ? -hullAngle : Math.PI - hullAngle - face) + spin;
+              const treadFrame = ((4 + tick + endFrame - remaining) % 6 + 6) % 6;
+              t.treads?.nativePose(0x4300 + treadFrame);
+            }
+            if (t.rotor) {
+              const angle = ((tk.rotor ?? BOAT_ROTOR_AT_GO) + (remaining - endFrame) * BOAT_IDLE_SPIN) & 0xfff;
+              t.rotor.root.rotation.z = -angle * Math.PI / 2048;
+              t.rotor.nativePose(!remaining && !endFrame && (tk.pad & 0xa00) ? 0x2006 : 0x2005);
+            }
+            const gunPose = variant === 'swamp' && remaining
+              ? tankGunIdle(5, tk.wpn, (TANK_INTRO_TICKS - remaining) % 6)
+              : tk.gunPose ?? tankGunIdle(LEVEL[variant], tk.wpn);
+            t.gun?.nativePose(gunPose);
           }
           a.holder.scale.setScalar(1);
         } else if (b.kind === 'mine' || b.kind === 'pickup' || b.kind === 'bomb' || b.kind === 'flame' || b.kind === 'dropper') {
           seenObj.add(b.id);
           let o = objs.get(b.id);
           if (!o) {
-            o = b.kind === 'mine' ? realProp(`taMine${b.slot & 3}`) ?? makeMine(kit.hex(b.slot)) : b.kind === 'bomb' ? makeBomb() : b.kind === 'flame' ? makeFlame() : b.kind === 'dropper' ? dropper() : tankPickup(Math.round(b.cd));
+            o = b.kind === 'mine' ? mineModel(b.slot) : b.kind === 'bomb' ? makeBomb() : b.kind === 'flame' ? makeFlame() : b.kind === 'dropper' ? dropper() : new TankSupplyPickup(Math.round(b.cd), variant === 'metal', () => makePickup(Math.round(b.cd)));
             kit.root.add(o);
             objs.set(b.id, o);
             if (b.kind === 'bomb') o.userData.sh = kit.fx.shadow(0.4, 0.45);
@@ -422,7 +609,8 @@ export function createTankArenaView(): ClientMiniGame {
             if (!stepFlipBook(o, ctx.time + b.id, 15)) o.rotation.x += dt * 6;
             (o.userData.sh as BlobShadow).set(b.x, b.z, b.y);
           } else if (b.kind === 'mine') {
-            o.position.set(b.x, 0, b.z);
+            o.position.set(b.x, b.y, b.z);
+            o.userData.inst?.nativePose(0x2002 + Math.min(3, Math.floor(Math.max(b.cd, 0) / 30)));
             const light = o.getObjectByName('light') as THREE.Mesh | undefined;
             const urgent = b.cd <= 30;
             if (light) (light.material as THREE.MeshBasicMaterial).color.set(Math.sin(ctx.time * (urgent ? 22 : 9)) > 0 ? 0xff3a2a : 0x661810);
@@ -431,52 +619,39 @@ export function createTankArenaView(): ClientMiniGame {
             o.position.set(b.x, 0.3, b.z);
             if (stepFlipBook(o, ctx.time + b.id * 0.13, 20)) o.quaternion.copy(ctx.camera.quaternion);
             else o.scale.setScalar(0.8 + Math.sin(ctx.time * 30 + b.id) * 0.2);
-          } else if (b.kind === 'dropper') { // faces its travel (yaw 0x400 / 0xc00), rotor clip loops; shadow node 0x200f on the floor
+          } else if (b.kind === 'dropper' && d.dropper) {
+            const q = d.dropper;
+            const age = q.born === undefined ? Math.abs((q.vx < 0 ? 6144 : -2048) - q.x) / 64 : d.f - q.born;
             o.position.set(b.x, 0, b.z);
-            const prev = o.userData.px as number | undefined;
-            if (prev != null && Math.abs(b.x - prev) > 1e-4) o.rotation.y = b.x > prev ? Math.PI / 2 : -Math.PI / 2;
-            o.userData.px = b.x;
-            const body = o.userData.body as THREE.Object3D | undefined;
-            if (body) body.position.y = b.y;
-            (o.userData.inst as { update(dt: number): void } | undefined)?.update(dt);
-          } else { // pickup (FUN_800be988): descends as the 0786 part42 crate (dash 5), then shows its item; type 2 spins +0x28 / tick,
-            // type 4 is the 0736 wumpa flip-book (+1 frame / tick)
-            o.position.set(b.x, Math.max(0, b.y), b.z);
-            const fall = o.userData.fall as THREE.Object3D | undefined, item = o.userData.item as THREE.Object3D | undefined;
-            const down = b.dash === 5;
-            if (fall) fall.visible = down;
-            if (item) {
-              item.visible = !down || !fall;
-              if (Math.round(b.cd) === 2) item.rotation.y -= dt * 30 * 0x28 * Math.PI * 2 / 4096;
-              if (Math.round(b.cd) === 4 && stepFlipBook(item, ctx.time, 30)) item.quaternion.copy(ctx.camera.quaternion);
-            }
+            const yaw = q.vx > 0 ? Math.PI / 2 : -Math.PI / 2;
+            o.userData.body.rotation.y = yaw;
+            o.userData.shadow.rotation.y = age > 0 ? yaw : 0;
+            o.userData.body.position.y = b.y;
+            o.userData.inst?.nativePose(0x4080 + (-age & 7));
+          } else if (o instanceof TankSupplyPickup) {
+            const k = d.pickups.find((pickup: { id: number }) => pickup.id === b.id);
+            if (k) { o.position.set(b.x, 0, b.z); o.pose(k, d.f, b.y, ctx.camera); }
           }
         } else if (b.kind === 'bullet') {
           seenShell.add(b.id);
           let s = shells.get(b.id);
-          const yaw = Math.atan2(b.vx, b.vz);
+          const shot = w.data.shells?.find((q: { id: number }) => q.id === b.id);
+          const yaw = shot?.yaw === undefined ? Math.atan2(b.vx, b.vz) : -shot.yaw * Math.PI / 2048;
           if (!s) {
-            const g = makeShell(b.slot); kit.root.add(g);
             const wpn = Math.round(b.dash);
-            s = { obj: g, slot: b.slot, wpn, t: 0 }; shells.set(b.id, s);
-            const m = MUZZLE[wpn];
-            if (m !== undefined) kit.real.play(PACK, m, b.x, b.y, b.z, { yaw, add: true }); // muzzle flash where the shell starts
+            const art = createTankShell(wpn, kit.hex(b.slot));
+            kit.root.add(art.root);
+            s = { art, born: shot?.born ?? w.data.f };
+            shells.set(b.id, s);
           }
-          s.obj.position.set(b.x, b.y, b.z);
-          s.obj.rotation.y = yaw;
-          const tr = SHELL_TRAIL[s.wpn];
-          if (tr) { s.t -= dt * 30; if (s.t <= 0) { s.t += tr[1]; kit.real.play(PACK, tr[0], b.x, b.y, b.z); } }
+          s.art.root.position.set(b.x, b.y, b.z);
+          s.art.pose(Math.max(0, w.data.f - s.born), yaw, ctx.camera);
+
         }
       }
       kit.prune(seen);
       for (const [id, s] of shells) if (!seenShell.has(id)) {
-        // FUN_800baffc: the weapon's burst where the shell ends, plus the smoke puff object on levels 6-8
-        const p = s.obj.position, end = SHELL_END[s.wpn];
-        if (!kit.over.done) {
-          if (end !== undefined) kit.real.play(PACK, end, p.x, p.y, p.z);
-          if (s.wpn !== 11 && variant !== 'swamp') kit.real.sprite(SMOKE, SMOKE_FRAMES, p.x, p.y, p.z, { life: 9 / 30, add: true });
-        }
-        kit.root.remove(s.obj); disposeTree(s.obj); shells.delete(id);
+        kit.root.remove(s.art.root); disposeTree(s.art.root); shells.delete(id);
       }
       for (const [id, o] of objs) if (!seenObj.has(id)) { kit.root.remove(o); disposeTree(o); if (o.userData.sh) kit.fx.removeShadow(o.userData.sh); objs.delete(id); }
       kit.real.update(dt, ctx.camera);
@@ -491,7 +666,10 @@ export function createTankArenaView(): ClientMiniGame {
         if (e.v >= 0x4d2 && e.v <= 0x4d7) kit.real.play(PACK, 9, e.x, 160 * U, e.z);
         else if (e.v >= 0x4f7 && e.v <= 0x4fa) kit.real.play(PACK, 18, e.x, 160 * U, e.z);
         const f = TANK_SFX[variant]?.[e.v];
-        if (f) sfx.playFile(f, 0.4, false, sfxRate(TANK_BANK[variant], e.v));
+        if (f && e.v === 0x522 && e.o >= 0) {
+          const sound = sfx.startSample(f, null, 0.4, sfxRate(TANK_BANK[variant], e.v));
+          if (sound) missileSounds.set(e.o, sound.stop);
+        } else if (f) sfx.playFile(f, 0.4, false, sfxRate(TANK_BANK[variant], e.v));
         return;
       }
       switch (e.k) {
@@ -499,34 +677,62 @@ export function createTankArenaView(): ClientMiniGame {
           kit.actorForSlot(e.s)?.squash.kick(0.12);
           kit.shake(e.s === ctx.mySlot ? 0.05 : 0.015);
           break;
+        case 'statueSlam':
+          kit.real.play(776, 0, e.x, e.v, e.z);
+          break;
         case 'lob':
           kit.real.play(PACK, 0, e.x, 0, e.z, { add: true }); // FUN_800b71f8: script 0 at the tank as the bomb leaves
+          break;
+        case 'floatingMineBlast':
+          kit.real.play(PACK, 16, e.x, e.v, e.z);
+          kit.shake(0.35);
           break;
         case 'explode':
           // mine: script 16 (FUN_800bd384); thrown bomb: script 1 (FUN_800bc27c)
           kit.real.play(PACK, e.v > 1.3 ? 1 : 16, e.x, 0, e.z);
           kit.shake(0.35);
           break;
-        case 'pickup':
-          kit.real.play(PACK, 3, e.x, 0, e.z); // FUN_800be988: the crate breaks (script 3)
+        case 'trapCatch':
+          if (variant !== 'swamp') kit.real.sprite(SMOKE, SMOKE_FRAMES, e.x, e.v, e.z, { life: 9 / 30, add: true });
+          kit.real.play(PACK, 3, e.x, e.v, e.z);
           break;
-        case 'land': // FUN_800be988 mode 5 -> 0 on levels 5-7: the crate lands (script 3)
-          kit.real.play(PACK, 3, e.x, 0, e.z);
+        case 'crateBreak':
+        case 'land':
+          kit.real.play(PACK, 3, e.x, e.v, e.z);
           break;
         case 'taunt': // Triangle taunt (clip 0x5a): voice id 0x800c94a8[char-1] = block*0x32 + 2, from the Tank Wars voice banks
           charVoice('tank', ctx.seats[e.s]?.look.char, 2);
           break;
         case 'hit':
+          hitVoice('tank', ctx.seats[e.s]?.look.char);
           kit.actorForSlot(e.s)?.hit(0.8);
           kit.shake(0.25);
           break;
-        case 'pkhit': // FUN_800bf548: a shot pickup goes up in script 16
-          kit.real.play(PACK, 16, e.x, 0, e.z);
+        case 'shellMuzzle':
+          kit.real.play(PACK, e.o, e.x, e.v, e.z, { yaw: e.yaw, add: true });
           break;
-        case 'boom':
+        case 'shellTrail':
+          kit.real.play(PACK, e.o, e.x, e.v, e.z);
+          break;
+        case 'shellImpact':
+          kit.real.play(PACK, e.o, e.x, e.v, e.z);
+          if (e.o !== 10 && variant !== 'swamp') kit.real.sprite(SMOKE, SMOKE_FRAMES, e.x, e.v, e.z, { life: 9 / 30, add: true });
+          break;
+        case 'doubleImpact':
+          missileSounds.get(e.o)?.();
+          missileSounds.delete(e.o);
+          kit.real.sprite(SMOKE, SMOKE_FRAMES, e.x, e.v, e.z, { life: 9 / 30, add: true });
+          break;
+        case 'pkhit': // FUN_800bf548: a shot pickup goes up in script 16
+          kit.real.play(PACK, 16, e.x, e.v, e.z);
+          break;
+        case 'boom': {
+          const take = e.id % 2;
+          sfx.playFile('sfx/0154/' + (23 + take) + '.mp3', 0.65, true, sfxRate(TANK_BANK[variant], 0x1c3 + take));
           kit.real.play(PACK, 14, e.x, 0, e.z); // the wreck blows up when the dying clip ends (script 14, sfx 0x4f0)
           kit.shake(0.7);
           break;
+        }
       }
     },
 
@@ -541,7 +747,7 @@ export function createTankArenaView(): ClientMiniGame {
         const m = Math.max(0, Math.min(3, t.mines ?? 0));
         if (m > 0) out.push({ tex: `${ASSET_BASE}hud/mines${m}.png`, x: SLOT_X[slot] + 8, y: 41, w: m === 3 ? 32 : 11 * m, h: 16 });
       }
-      out.push(...bigClock((getGame('tankArena')?.maxTime ?? 90) - w.time, Math.floor(w.time * 2) % 2 === 1));
+      out.push(...arenaClockSprites('tankArena', w));
       return out;
     },
 
@@ -553,10 +759,17 @@ export function createTankArenaView(): ClientMiniGame {
     },
 
     dispose() {
+      for (const stop of missileSounds.values()) stop();
+      missileSounds.clear();
+      for (const ghost of ghosts.values()) ghost.dispose();
+      ghosts.clear();
+      metalWalls?.dispose();
+      statues = undefined;
+      for (const shield of shields.values()) for (const mat of shield.materials) mat.dispose();
+      shields.clear();
       for (const o of objs.values()) { kit.root.remove(o); if (o.userData.sh) kit.fx.removeShadow(o.userData.sh); }
       objs.clear();
       tanks.clear();
-      for (const s of shells.values()) kit.root.remove(s.obj);
       shells.clear();
       kit.dispose();
     },

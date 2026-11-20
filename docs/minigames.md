@@ -1,16 +1,20 @@
 # Mini-games (web/shared/games)
 
-The six party mini-games follow the real Crash Bash (PS1, 2000) games. Game ids are unchanged so clients keep working;
+The ten party mini-game families follow the real Crash Bash (PS1, 2000) games. Game ids are unchanged so clients keep working;
 names, rules, controls and level variants follow the disc (text files 0141-0152, level names from `arenas.md` §3).
 
 | id | Real game | Levels (variant ids) | maxTime |
 |---|---|---|---|
 | `ballDefence` | Ballistix | `crashball` CRASHBALL, `beach` BEACH BALL, `nballism` N.BALLISM, `sky` SKY BALLS | 240 s |
 | `pushOff` | Polar Push | `tilt` TILT PANIC, `polar` POLAR PANIC, `melt` MELT PANIC, `manic` MANIC PANIC | 90 s |
-| `tilePainter` | Pogo Painter | `pogo` POGO PAINTER, `agogo` POGO-A-GOGO, `elpogoloco` EL POGO LOCO, `padlock` POGO PADLOCK | 75 s |
+| `tilePainter` | Pogo Painter | `pogo` POGO PAINTER, `agogo` POGO-A-GOGO, `elpogoloco` EL POGO LOCO, `padlock` POGO PADLOCK | 90 s |
 | `tankArena` | Tank Wars | `swamp` SWAMP FOX, `desert` DESERT FOX, `jungle` JUNGLE FOX, `metal` METAL FOX | 90 s |
-| `crateToss` | Crate Crush | `jungle` JUNGLE BASH, `space` SPACE BASH, `snow` SNOW BASH, `drain` DRAIN BASH | 100 s |
-| `dashRace` | Crash Dash | `dot` DOT DASH, `toxic` TOXIC DASH, `splash` SPLASH DASH, `dante` DANTE'S DASH | 100 s |
+| `crateToss` | Crate Crush | `jungle` JUNGLE BASH, `space` SPACE BASH, `snow` SNOW BASH, `drain` DRAIN BASH | 90 s |
+| `dashRace` | Crash Dash | `dot` DOT DASH, `toxic` TOXIC DASH, `splash` SPLASH DASH, `dante` DANTE'S DASH | 90 s |
+| `ringDing` | Ring Ding | Clock tower, balloons | 90 s |
+| `dragonDrop` | Dragon Drop | Dinosaur riders, jewel target | 90 s |
+| `malletMash` | Mallet Mash | Mallets and mushrooms | 90 s |
+| `kegKaboom` | Keg Kaboom | Gunpowder trails and kegs | 90 s |
 
 (Boss levels BIG BAD FOX, BEARMINATOR and the TIE-BREAKER are not part of the party.)
 
@@ -20,11 +24,10 @@ names, rules, controls and level variants follow the disc (text files 0141-0152,
   For tests/dev pages, set `world.data.variant = '<id>'` before calling `setup()` and it is honoured
   (`pickVariant` in `games/common.ts`). Variant display names are in the exported `*_VARIANTS` arrays
   (`BD_`, `PO_`, `TP_`, `TA_`, `CT_`, `DR_`).
-* Deterministic: only `world.rng` (via `rand`) is used. Bots (`bot()`) are pure functions of the world.
-* Buttons: `a` = Space (or J), `b` = Shift (or K), `c` = F (or L; Crate Crush jump, Tank Wars taunt), `l` / `r` = Q / E
-  (Tank Wars turret). Each game's `controls` string says what they do, with `{move}` `{lr}` `{up}` `{a}` `{b}` `{c}` `{l}`
-  `{r}` tokens that the intro card renders as key caps (`controlsHtml`, touch glyphs on phones). Buttons are used as
-  edge-triggered "presses" by the sims (hold-to-fire only where noted).
+* Deterministic: only `world.rng` (via `rand`) is used. Each CPU runs its game’s decision routine once per simulation tick.
+* On PC, use the arrow keys to move and Z, X, C and V for actions `a` through `d`. Q and E operate `l` and `r`.
+  WASD also works with J, K, L and H for actions and I and O for the shoulders. Space, Shift and F also activate `a`, `b` and `c`.
+  Each stage’s rules and pause menu show its bindings as keycaps. Touch players see the corresponding pad glyphs.
 * Elimination games keep dead players' bodies in `world.bodies` with `alive = false` (and `fall = true` while falling).
 * Events: `GameEvent {k, x, z, s, o, v}`; `s` = affected slot, `o` = other/attacker slot, `v` = magnitude. `hit` with `s,o >= 0`
   and `ko` with `s,o >= 0` feed party stats (damage dealt / knockouts), so only emit those with real attackers.
@@ -36,11 +39,11 @@ Ported from the real code (`re/notes/ballistix.md`), 30 Hz, all constants per fr
 Four ships guard a goal each: slot 0 bottom, 1 top, 2 right, 3 left (`BD_NORMALS`). A ball over your line costs 1 point (start score: CRASHBALL 15,
 BEACH BALL 12, N.BALLISM 20, SKY BALLS 20); at 0 your goal is walled up and your ship dies; last ship with points wins (timeout 240 s: most points).
 Ship slides along its wall (max 0x68/frame, 0xa0 with a shoulder button; accel 0x22, decay 0x12) and is pushed out of the corner bumpers.
-**A** = kick (4-frame sweep, cooldown grows 30 frames per kick up to 90, a hit clears it). **B** = boost; BEACH BALL: **B** = hold to catch, release to fire (0xe0, auto-release 0x96 frames).
+On a QWERTY keyboard, use **← / →** at the top and bottom goals or **↑ / ↓** at either side goal. Hold **E** to boost on all four stages. **Z** kicks (4-frame sweep, cooldown grows 30 frames per kick up to 90, a hit clears it). **C** taunts from idle. In Beach Ball, hold **X** to catch and release it to fire (0xe0, auto-release after 0x96 frames).
 Ships also bat balls: the ball's speed gains the ship's velocity and the heading is the ball-ship normal mixed with the ship's facing.
 Balls: spawn at a corner, fall in, bounce, roll (speed 0x50, target rises 4 per hit up to 0x90); count = 1 + 1 per 10 s (max 5, beach 4).
 
-Variants: **crashball** plain. **beach** catch/release. **nballism** power-up post (shield 8 s that repels balls) and the N.Gin machine spitting balls from the centre. **sky** ships orbit a ring, goals are radial (tilt and platform events are not ported).
+Variants: **crashball** plain. **beach** catch/release and independent shoulder boost. **nballism** power-up post (shield 8 s that repels balls) and the N.Gin machine spitting balls from the centre. **sky** ships orbit a ring, goals are radial, and engine events tilt the platform and bend ball trajectories.
 
 `world.data`: `variant`, `f`, `pl[4]` (`x,z` u, `vel`, `face`, `score`, `kcd`, `kpen`, `st` ship state 0x1c idle/0x1d move/0x1f kick/0x21 catch/0x24 dying/0x25 gone, `shield` frames, `dead` frame), `balls[]` (`st` ball state, `x,y,z,h,spd,tgt,who`), `post`, `mach`, `walls`.
 Bodies: `player` (`dash` > 0 while kicking, `cd` = kick cooldown s), `ball` (`cd` = last toucher + 1, `dash` = 1 held, `face` = ball state, `y` height).
@@ -87,28 +90,27 @@ HUD: banked `score[slot]`, painted `tileCounts(data)[slot]`.
 
 Real-code port (`re/notes/tankWars.md`): game units (1/512 tile, 30 Hz frames), world = (g - pen centre) * `TA_K`/1024, z flipped. Levels: swamp = 5 (hover boats,
 open pen), desert = 6 (4x4 crates, grid driving, mines throw 4 flames), jungle = 7 (free driving, centre pedestal, area mines), metal = 8 (4x3 crates, grid, flames).
-Stick = d-pad (swamp: left/right turn, up thrust), **A** = shell (tap; weapon by character), **B** = mine (start 3). The turret slews to the stick direction
-(the disc uses L1/R1). Pickups from a dropper / spawner: mine, wumpa (+20 hp, max 99), double shot, bomb, bad crate (-30). Hp 99, 90 s clock, on timeout the
-healthiest tank wins. CPU tanks run the original AI inside `step()` (difficulty = `SlotInfo.level`); `bot()` drives a vacated human seat (a disconnected player) with the same AI input (`aiFrame`, stamped `t.bot = f + 1` so `step()` uses it for that frame).
+On PC, arrows drive, Z fires, X drops a mine, and C taunts. Q and E turn the turret on tracked tanks.
+In Swamp Fox, Left and Right steer, Up or E accelerates, and V shields the boat. Each pilot starts with three mines.
+A floating mine arms once every boat has moved clear. Each pilot can have one in the water at a time.
+Desert and Jungle Fox receive supply crates by air. Metal Fox spawns its mines, fruit and bombs on the floor.
+Fruit restores 20 HP. Jungle Fox also offers double shots. Two statues jump from its central pedestal and patrol the arena. Their slams deal 60 base damage. An unopened bad crate leaves a timed mine when it lands.
+Each tank starts at 99 HP. At the 90-second timeout, a sole health leader wins. Tied leaders draw and keep their remaining health. A knockout win follows the surviving pilot as the destroyed tank finishes its wreck animation. CPU tanks run the original AI inside `step()` (difficulty = `SlotInfo.level`); `bot()` drives a vacated human seat (a disconnected player) with the same AI input (`aiFrame`, stamped `t.bot = f + 1` so `step()` uses it for that frame).
 
 `world.data`: `variant`, `lv` (0..3 = level 5..8), `f` (frame), `over`, `hum`, `tk[4]` (x z yaw hull st hp mines wpn ammo cd inv kills elim ... in game units; st 0x69 hit,
 0x6a dying, 0x6b dead), `shells`, `mines`, `flames`, `bombs`, `pickups`, `dropper`. Bodies (world units): `tank` (`face` = turret), `bullet` (`dash` = weapon),
-`mine` (`cd` = frames left), `flame`, `bomb`, `pickup` (`cd` = type 2 double / 3 bomb / 4 fruit / 5 mine / 6 bad crate), `dropper`.
+`mine` (`cd` counts down for timed mines, and `data.mines[].drift` tracks floating mines), `flame`, `bomb`, `pickup` (`cd` = type 2 double / 3 bomb / 4 fruit / 5 mine / 6 bad crate), `dropper`.
 Events: `sfx` (`v` = game sound id, mapped per level by `TANK_SFX`), `shoot`, `mine`, `explode`, `boom`, `hit` (`v` = dmg/`TA_HP`), `ko`, `bounce`, `fizzle`, `pickup` (`v` type),
-`spawn`, `shield`, `taunt`. Not honoured: `params.bounces` (shells live a fixed number of frames); `params.fireRate` shortens the cooldown.
+`spawn`, `shield`, `floatingMineBlast`, `taunt`. Not honoured: `params.bounces` (shells live a fixed number of frames); `params.fireRate` shortens the cooldown.
 
 ## Crate Crush (`crateToss`)
 
-Arena `CT_HALF` 9, health bar `CT_HP` = 10. **A** picks up the nearest crate, press again to throw (small aim assist); **B** kicks a crate in front
-of you, otherwise jumps (jump over thrown crates). Crate kinds rain from the sky: `crate` (wood; 2 dmg, smashes on hit), `tnt` (3 s fuse starts when picked up,
-thrown or kicked; explodes wherever it is, also in your hands; 4 dmg radius 2.6), `nitro` (explodes on impact - hit, wall, landing after a throw/kick, or when dropped by a player
-who gets hurt; 5 dmg radius 3). Explosions chain. Hurt players are stunned 1 s and drop what they carry. Pickups: wumpa fruit (+3 hp), speedy boots (8 s),
-slow-motion potion (drain only, 6 s). Last standing wins; timeout: most health.
+Players start with 20 HP. Circle lifts or throws a crate, Square attacks or kicks, and Cross jumps. Holding Cross gives a higher jump. Pickup, release, and attack timing vary by character. A wooden crate deals 5 damage (3 in Drain Bash). TNT and nitro deal 8 and can trigger nearby crates. Wumpa fruit restores 1 HP. The last player standing wins, or the player with the most health when time runs out.
 
-Variants: **jungle** plain. **space** explosions blow holes in a 9x9 floor (`data.floor`); stand over a hole and you fall out. **snow** slippery floor.
+Variants: **jungle** plain. **space** has permanent holes in an 8×8 floor. Standing over a hole eliminates the player. **snow** slippery floor.
 **drain** slow-motion potions.
 
-`world.data`: `variant`, `hp[4]`, `score[4]` (hits landed), `taken[4]`, `elim[4]`, `stun[4]`, `boots[4]`, `slow[4]`, `floor[]` (space: 81 flags, 1 = floor, 0 = hole; `[]` elsewhere; use `floorAt(data, x, z)`).
+`world.data`: `variant`, `hp[4]`, `score[4]` (hits landed), `taken[4]`, `elim[4]`, `stun[4]`, `boots[4]`, `slow[4]`, `floor[]` (space: 64 flags, 1 = floor, 0 = hole; `[]` elsewhere; use `floorAt(data, x, z)`).
 Bodies: `player` (`fall` in a hole), `crate` / `tnt` / `nitro` (`cd` = holder slot + 1, `dash` > 0 = thrown/kicked and dangerous, `slot` last thrower; tnt: `fall` = fuse lit, `m` = fuse seconds left),
 `fruit`, `boots`, `potion`. **Note**: crates are now three different body kinds.
 Events: `grab`, `throw`, `kick`, `hit` (`s` victim, `o` attacker or -1, `v` = dmg/`CT_HP`), `smash`, `bounce`, `land`, `explode` (`v` radius), `lit`, `pickup` (`v` 1 fruit / 2 boots / 3 potion), `ko`, `hole` (x/z of destroyed floor square), `jump`.
@@ -116,20 +118,21 @@ Events: `grab`, `throw`, `kick`, `hit` (`s` victim, `o` attacker or -1, `v` = dm
 ## Crash Dash (`dashRace`)
 
 Real-code port (`re/notes/crashDash.md`): game units (1024 = 1 model unit, world = units * `DR_K` / 1024, z flipped), 30 Hz, 10 laps (`DR_LAPS`), real start slots.
-**Stick left/right** = steer (yaw target +-S+0x160 per frame, yaw follows by >>2), **up (R1)** = run, **A (Square)** = boost (fuel -0x180/frame), **B (Circle)** = use the held item
-(missile or Toxic shield) / Splash hop. Velocity ramps per axis (accel/decel), clamp 0xc800. Walls deflect (78 % speed, normal +-0x338). A hit (missile, barrel, blob, rock, kart) is state 0x5d:
-60 frames (hop vy -160, spin), no speed cut, no shield immunity. Leaving the ring (Toxic 3072, Dante 3328, Splash est. 2944) = fall: 24 (Splash 32) frames clip, then dropped back in
+**← / →** steer. Hold **↑** or **E** to accelerate and **Z** to boost with fruit. Hold **X** to use a missile or Toxic shield as soon as you collect it. The equipped item spins above your kart. On Splash, tap **X** for each hop. You can hold the accelerator through the rules screen for a running start at GO.
+
+Steering adjusts the target yaw by up to S+0x160 per frame. Velocity ramps per axis (accel/decel), clamp 0xc800. Walls deflect (78 % speed, normal +-0x338). A hit (missile, barrel, blob, rock, kart) is state 0x5d:
+60 frames (hop vy -160, spin), no speed cut, no shield immunity. Leaving the ring (Toxic 3072, Dante 3328, Splash course boundary) = fall: 24 (Splash 32) frames clip, then dropped back in
 512 toward the centre (two bounces), item lost. Shield (Toxic crate) = 15 frames pushing the first other kart within 900 away.
 
 Variants: **dot** plain track (real wall polygons). **toxic** monster at the centre (rise 119 / attack 42 / sink 35 frames, spits 3 blobs that crawl round the track), 11 barrels
-(`DR_BARRELS`, hit = 0x5d, respawn 180-239 frames), shield crates. **splash** 6 spokes (rotating arm pushes, pattern table, kick when rising), Square-hop. **dante** volcano (every 450/300 frames,
+(`DR_BARRELS`, broken barrels stay down for the race), shield crates. **splash** 6 rotating spokes to hop over. **dante** volcano (every 450/300 frames,
 3 rocks bounce out to 600 units, hit = 0x5d).
 
-`world.data`: `variant`, `f`, `gx/gz/gy/vy` (game units, `gy` = height above ground), `yaw`, `tgt`, `vx/vz`, `fuel`, `item` (0 none, 1 missile, 0x20 shield), `shield`, `state` (0x5b drive, 0x5d hit,
+`world.data`: `variant`, `f`, `gx/gz/gy/vy` (game units, `gy` = height above ground), `yaw`, `tgt`, `vx/vz`, `fuel`, `item` (0 none, 1 missile, 2 shield), `shield`, `state` (0x5b drive, 0x5d hit,
 0x5e hop, 0x61 fall), `lap`, `finish`, `mon*`, `blobs`, `bar`, `sp` (spokes), `vs/vt`, `rocks`, `mis` (missiles). Bodies: `player`, `crate`, `fruit`, `missile`, `rock`, `blob`.
 Events: `turbo`, `pickup` (`v` 1 crate / 2 fruit), `missile`, `shield`, `hit` (`s` victim, `o` attacker or -1), `fall`, `wall`, `bump`, `explode`, `lap`, `finish`, `hop`, `barrel`, `monster`, `spoke`.
-CPU karts and `bot()` (vacated seats) run the decoded AI (pickup chase, edge probes, kart/barrel/blob avoidance, missile/shield/hop use); Easy/Normal degrade it via `BotBrain`.
-Estimated: Splash spoke box and fall radius, hub radii (Toxic/Splash/Dante), barrel bounce, monster/rock visuals; not ported: 0x170e volcano variant, option-bit variants.
+CPU karts and `bot()` (vacated seats) run the decoded AI (pickup chase, edge probes, kart/barrel/blob avoidance, missile/shield/hop use); the selected difficulty comes from the level’s skill table.
+Course walls and CPU hub polygons come from the level data. Splash uses the stored perimeter and the animated spoke tip. Barrel bounce and rock heights still need frame comparisons.
 
 ## Modifiers (`shared/modifiers.ts`)
 

@@ -31,4 +31,8 @@ export function emptyWorld(): World {
   return { tick: 0, time: 0, rng: 1, nextId: 1, params: defaultParams(), bodies: [], ev: [], evId: 1, data: {} };
 }
 
+export function roundOver(game: MiniGame, world: World): boolean {
+  return game.isOver(world) || (!game.settlesAfterTimeout && world.time >= game.maxTime);
+}
+
 export const cloneWorld = (w: World): World => structuredClone(w);

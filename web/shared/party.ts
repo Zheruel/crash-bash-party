@@ -2,11 +2,13 @@
 // it only needs "connections" that can send strings. It runs inside a Web Worker in the
 // host's browser (PeerJS mode) or inside the Node ws server (LAN mode).
 import { getGame, GAMES } from './registry';
+import { POLAR_WIN_TALLY_TICKS } from './games/pushOff';
 import { modifiersFor } from './modifiers';
-import { createWorld, stepWorld } from './sim';
-import { BotBrain } from './bots';
-import { COLORS, CHARACTERS, EMOTES, sanitizeLook, type Look } from './look';
-import type { Award, C2S, Phase, ResultsMsg, RoomState, RoundMsg, S2C, Seat, SeatInfo, WheelMsg } from './protocol';
+import { createWorld, roundOver, stepWorld } from './sim';
+import { botInput } from './bots';
+import { COLORS, CHARACTERS, EMOTES, sanitizeLook, winnerCheerFrame, type Look } from './look';
+import { DEFAULT_CUPS_TO_WIN, NUMBERED_COUNTDOWN_TICKS, isCupsToWin } from './protocol';
+import type { Award, C2S, Phase, ResultsMsg, RoomState, RoundMsg, S2C, Seat, SeatInfo, StageOption, WheelMsg, WinCondition } from './protocol';
 import { DT, IDLE, MAX_SEATS, POINTS, type Input, type InputState, type MiniGame, type Modifier, type World } from './types';
 
 export interface Conn {
@@ -26,7 +28,8 @@ export interface Timing {
   /** how long a dropped player's seat is held (ms) */
   grace: number;
 }
-export const NORMAL_TIMING: Timing = { intro: 4200, countdown: 2400, results: 5000, wheel: 4200, final: 40000, playCap: Infinity, grace: 60000 };
+export const STANDINGS_MIN_MS = 1200;
+export const NORMAL_TIMING: Timing = { intro: 4200, countdown: 2800, results: 7500, wheel: 4200, final: 40000, playCap: Infinity, grace: 60000 };
 export const FAST_TIMING: Timing = { intro: 200, countdown: 200, results: 200, wheel: 200, final: 600, playCap: 3, grace: 20000 };
 
 export interface PartyOptions {
@@ -70,13 +73,21 @@ export class Party {
   private byConn = new Map<number, Member>();
   private seats: (number | null)[] = [null, null, null, null]; // member ids
   private pool: MiniGame[];
+  // A room keeps its CPU lineup. Reserve human picks first when seats change.
+  private cpuRoster = shuffle(CHARACTERS.map((_, i) => i));
   private forcedVariants: Record<string, string>;
+  private stages: StageOption[];
+  private stage: StageOption | null = null;
 
   phase: Phase = 'lobby';
+  private phaseStartedAt = 0;
   private phaseEnds = 0;
   private totalRounds: number;
+  private winCondition: WinCondition = 'rounds';
+  private cupsToWin = DEFAULT_CUPS_TO_WIN;
   private round = 0;
   private botLevel = 1;
+  private twists = false;
   private scores = [0, 0, 0, 0];
   private wins = [0, 0, 0, 0];
   private stats: Stats[] = [newStats(), newStats(), newStats(), newStats()];
@@ -86,7 +97,6 @@ export class Party {
   private game: MiniGame | null = null;
   private world: World | null = null;
   private frozen: SeatInfo[] = [];
-  private brain = new BotBrain(1);
   private bag: MiniGame[] = [];
   private lastGame = '';
   private next: { game: MiniGame; mod: Modifier | null; showdown: boolean; variant: { id: string; name: string } | null } | null = null;
@@ -104,6 +114,13 @@ export class Party {
     this.totalRounds = opts.rounds ?? 8;
     this.pool = opts.games ?? GAMES;
     this.forcedVariants = opts.variants ?? {};
+    this.stages = this.pool.flatMap<StageOption>((game) => {
+      const variants = game.variants ?? [];
+      const forced = variants.find((v) => v.id === this.forcedVariants[game.id]);
+      return variants.length
+        ? (forced ? [forced] : variants).map((v) => ({ id: `${game.id}:${v.id}`, gameId: game.id, variantId: v.id, name: v.name }))
+        : [{ id: game.id, gameId: game.id, variantId: null, name: game.name }];
+    });
   }
 
   // ---- connections ----
@@ -149,6 +166,7 @@ export class Party {
     const resumed = !!m;
     if (m) {
       if (m.conn && m.conn.id !== conn.id) this.byConn.delete(m.conn.id);
+      m.queue = []; m.cur = IDLE; m.lastRecv = m.applied; m.idleTicks = 0;
       m.conn = conn;
       m.name = name;
     } else {
@@ -163,11 +181,14 @@ export class Party {
     this.send(m, { t: 'joined', id: m.id, code: this.code, token: m.token, resumed });
     this.send(m, { t: 'room', room: this.state() });
     // catch the newcomer up with whatever is on screen
-    if (this.phase === 'wheel' && this.lastWheel) this.send(m, { ...this.lastWheel, ms: Math.max(0, this.phaseEnds - this.now) });
-    if (this.world && this.lastRound) {
+    if (this.phase === 'wheel' && this.lastWheel) {
+      const ms = Math.max(0, this.phaseEnds - this.now);
+      this.send(m, { ...this.lastWheel, ms });
+      this.send(m, { t: 'phase', phase: 'wheel', ms, elapsedMs: Math.max(0, this.now - this.phaseStartedAt) });
+    } else if (this.world && this.lastRound) {
       this.send(m, this.lastRound);
-      this.send(m, { t: 'phase', phase: this.phase, ms: Math.max(0, this.phaseEnds - this.now) });
-      if (this.lastSnap) this.sendRaw(m, this.snapFor(m), true);
+      this.send(m, { t: 'phase', phase: this.phase, ms: Math.max(0, this.phaseEnds - this.now), elapsedMs: Math.max(0, this.now - this.phaseStartedAt) });
+      if (this.lastSnap) this.sendRaw(m, this.snapFor(m));
       if ((this.phase === 'results' || this.phase === 'final') && this.lastResults) this.send(m, this.lastResults);
     }
     this.broadcastRoom();
@@ -213,11 +234,23 @@ export class Party {
       case 'join': // duplicate join on an existing connection: just refresh the name
         return;
       case 'input': {
-        if (this.phase !== 'play') return;
+        const opening = m.opening === true;
+        if (m.round !== undefined && m.round !== this.round) return;
+        if (opening && (this.game?.id !== 'dashRace' || m.round === undefined)) return;
+        if (this.phase !== (opening ? 'countdown' : 'play')) return;
         const seq = Math.floor(num(m.seq, 0, 1e9));
         if (seq <= c.lastRecv) return;
         c.lastRecv = seq;
-        c.queue.push({ seq, x: num(m.x, -1, 1), y: num(m.y, -1, 1), a: !!m.a, b: !!m.b, ...(m.c ? { c: true } : {}), ...(m.l ? { l: true } : {}), ...(m.r ? { r: true } : {}) });
+        const blockHop = opening && this.world?.data.variant === 'splash';
+        const input = { seq, x: num(m.x, -1, 1), y: num(m.y, -1, 1), a: !!m.a, b: !!m.b && !blockHop, ...(m.c ? { c: true } : {}), ...(m.d ? { d: true } : {}), ...(m.l ? { l: true } : {}), ...(m.r ? { r: true } : {}) };
+        // Seed the held pad for GO. A live packet can still replace it on the first tick.
+        if (opening) {
+          c.cur = input;
+          c.applied = seq;
+          c.idleTicks = 0;
+          return;
+        }
+        c.queue.push(input);
         if (c.queue.length > 8) c.queue.splice(0, c.queue.length - 4);
         return;
       }
@@ -246,8 +279,16 @@ export class Party {
         return;
       case 'config':
         if (this.phase === 'lobby' && c.id === this.hostId) {
-          if (m.rounds != null) this.totalRounds = Math.max(1, Math.min(20, Math.floor(num(m.rounds, 1, 20)) || 1));
-          if (m.botLevel != null) this.botLevel = Math.max(0, Math.min(2, Math.floor(num(m.botLevel, 0, 2))));
+          if (typeof m.rounds === 'number' && Number.isFinite(m.rounds)) this.totalRounds = Math.floor(num(m.rounds, 1, 20));
+          if (m.winCondition === 'rounds' || m.winCondition === 'cups') this.winCondition = m.winCondition;
+          if (isCupsToWin(m.cupsToWin)) this.cupsToWin = m.cupsToWin;
+          if (typeof m.twists === 'boolean') this.twists = m.twists;
+          if (typeof m.botLevel === 'number' && Number.isFinite(m.botLevel)) this.botLevel = Math.floor(num(m.botLevel, 0, 2));
+          if (m.stage === null) this.stage = null;
+          else if (typeof m.stage === 'string') {
+            const stage = this.stages.find((s) => s.id === m.stage);
+            if (stage) this.stage = stage;
+          }
           this.broadcastRoom();
         }
         return;
@@ -284,12 +325,14 @@ export class Party {
       if (m) used.add(m.look.color);
       return m ? m.look : null;
     });
+    const humanChars = new Set(looks.flatMap(l => l ? [l.char] : []));
+    const available = this.cpuRoster.filter(char => !humanChars.has(char));
     return looks.map((l, i) => {
       if (l) return l;
       let c = (i * 3 + 1) % COLORS.length;
       for (let k = 0; k < COLORS.length && used.has(c); k++) c = (c + 1) % COLORS.length;
       used.add(c);
-      return { char: (i * 2 + 1) % CHARACTERS.length, color: c };
+      return { char: available.shift() ?? this.cpuRoster[i], color: c };
     });
   }
 
@@ -299,7 +342,7 @@ export class Party {
       const m = id != null ? this.members.get(id) : undefined;
       return {
         clientId: m ? m.id : null,
-        name: m ? m.name : `Bot ${i + 1}`,
+        name: m ? m.name : CHARACTERS[looks[i].char].name,
         ready: m ? m.ready : true,
         score: this.scores[i],
         look: looks[i],
@@ -307,7 +350,16 @@ export class Party {
       };
     });
     const spectators = [...this.members.values()].filter((m) => !this.seats.includes(m.id) && m.conn).map((m) => ({ id: m.id, name: m.name }));
-    return { code: this.code, phase: this.phase, hostId: this.hostId, totalRounds: this.totalRounds, round: this.round, botLevel: this.botLevel, seats, spectators, rematch: this.rematch.size };
+    return {
+      code: this.code, phase: this.phase, hostId: this.hostId, totalRounds: this.totalRounds, round: this.round,
+      winCondition: this.winCondition, cupsToWin: this.cupsToWin, botLevel: this.botLevel,
+      twists: this.winCondition === 'rounds' && this.twists,
+      stage: this.stage?.id ?? null, stages: this.stages, seats, spectators, rematch: this.rematch.size,
+    };
+  }
+
+  private get cupTarget() {
+    return this.winCondition === 'cups' ? this.cupsToWin : undefined;
   }
 
   private sendRaw(m: Member, s: string, unreliable = false) {
@@ -324,16 +376,17 @@ export class Party {
     this.broadcast({ t: 'room', room: this.state() });
   }
   private snapFor(m: Member) {
-    return `{"t":"snap","tick":${this.world!.tick},"ack":${m.applied},"w":${this.lastSnap}}`;
+    return `{"t":"snap","round":${this.round},"tick":${this.world!.tick},"ack":${m.applied},"w":${this.lastSnap}}`;
   }
-  private broadcastSnap() {
+  private broadcastSnap(reliable = false) {
     if (!this.world) return;
     this.lastSnap = JSON.stringify(this.world, roundJson);
-    for (const m of this.members.values()) if (m.conn) this.sendRaw(m, this.snapFor(m), true);
+    for (const m of this.members.values()) if (m.conn) this.sendRaw(m, this.snapFor(m), !reliable);
   }
 
   private setPhase(p: Phase, ms: number, now: number) {
     this.phase = p;
+    this.phaseStartedAt = now;
     this.phaseEnds = now + ms;
     this.broadcast({ t: 'phase', phase: p, ms });
     this.broadcastRoom();
@@ -366,7 +419,10 @@ export class Party {
         if (now >= this.phaseEnds) this.startRound(now);
         break;
       case 'intro':
-        if (now >= this.phaseEnds) this.setPhase('countdown', T.countdown, now);
+        if (now >= this.phaseEnds) {
+          const ticks = NUMBERED_COUNTDOWN_TICKS + (this.lastRound?.countdownLeadTicks ?? 0);
+          this.setPhase('countdown', T.countdown * ticks / NUMBERED_COUNTDOWN_TICKS, now);
+        }
         break;
       case 'countdown':
         if (now >= this.phaseEnds) {
@@ -403,24 +459,31 @@ export class Party {
     this.queueNext(now);
   }
 
-  /** Pick the next mini-game + modifier and show the wheel. */
+  /** Pick a round for Party, or reuse the opening stage throughout a cups battle. */
   private queueNext(now: number) {
     this.round++;
-    if (!this.bag.length) {
-      this.bag = shuffle([...this.pool]);
-      if (this.bag.length > 1 && this.bag[this.bag.length - 1].id === this.lastGame) this.bag.unshift(this.bag.pop()!);
+    const cupsToWin = this.cupTarget;
+    if (cupsToWin !== undefined && this.round > 1) {
+      this.startRound(now);
+      return;
     }
-    const game = this.bag.pop()!;
+    const stage = this.stage;
+    const game = stage ? this.pool.find((g) => g.id === stage.gameId)! : this.drawGame();
     this.lastGame = game.id;
-    const mods = modifiersFor(game.id);
+    const mods = cupsToWin === undefined && this.twists ? modifiersFor(game.id) : [];
     const mod = mods.length && Math.random() < 0.65 ? mods[Math.floor(Math.random() * mods.length)] : null;
-    const showdown = this.round >= this.totalRounds;
+    const showdown = cupsToWin === undefined && this.round >= this.totalRounds;
     const vs = game.variants ?? [];
-    const forced = this.forcedVariants[game.id];
+    const forced = stage?.variantId ?? this.forcedVariants[game.id];
     const variant = vs.find((v) => v.id === forced) ?? (vs.length ? vs[Math.floor(Math.random() * vs.length)] : null);
     this.next = { game, mod, showdown, variant: variant ? { id: variant.id, name: variant.name } : null };
+    if (stage) {
+      this.lastWheel = null;
+      this.startRound(now);
+      return;
+    }
     this.lastWheel = {
-      t: 'wheel', round: this.round, total: this.totalRounds, showdown,
+      t: 'wheel', round: this.round, total: this.totalRounds, cupsToWin, showdown,
       options: this.pool.map((g) => ({ id: g.id, name: g.name })),
       pick: this.pool.findIndex((g) => g.id === game.id),
       variant: this.next.variant,
@@ -431,21 +494,31 @@ export class Party {
     this.setPhase('wheel', this.timing.wheel, now);
   }
 
+  private drawGame() {
+    if (!this.bag.length) {
+      this.bag = shuffle([...this.pool]);
+      if (this.bag.length > 1 && this.bag[this.bag.length - 1].id === this.lastGame) this.bag.unshift(this.bag.pop()!);
+    }
+    return this.bag.pop()!;
+  }
+
   private startRound(now: number) {
     const { game, mod, showdown, variant } = this.next!;
     const looks = this.seatLooks();
     this.frozen = this.seats.map((id, i) => {
       const m = id != null ? this.members.get(id) : undefined;
-      return { name: m ? m.name : `Bot ${i + 1}`, bot: !m, look: looks[i] };
+      return { name: m ? m.name : CHARACTERS[looks[i].char].name, bot: !m, look: looks[i] };
     });
     this.game = game;
-    this.brain = new BotBrain(this.botLevel);
     this.world = createWorld(game, this.frozen.map((f, slot) => ({ slot, name: f.name, bot: f.bot, char: f.look.char, level: this.botLevel })), mod ? [mod] : [], (Math.random() * 2 ** 32) >>> 0, variant?.id);
     this.lastEv = 0;
     for (const m of this.members.values()) { m.queue = []; m.cur = IDLE; m.lastRecv = 0; m.applied = 0; m.idleTicks = 0; }
     this.lastRound = {
-      t: 'round', round: this.round, total: this.totalRounds, showdown, gameId: game.id, gameName: game.name, desc: game.description,
-      controls: game.controls, modifier: mod ? { id: mod.id, name: mod.name, desc: mod.desc } : null, seats: this.frozen.map((f) => ({ ...f })),
+      t: 'round', round: this.round, total: this.totalRounds, cupsToWin: this.cupTarget, showdown, gameId: game.id, gameName: game.name, variant,
+      // Individual-versus Dash exposes the arena at stage update 4 and draws 3 on update 29.
+      countdownLeadTicks: game.id === 'dashRace' ? 25 : ['ringDing', 'dragonDrop', 'malletMash', 'kegKaboom'].includes(game.id) ? 11 : undefined,
+      desc: game.variantDescriptions?.[variant?.id ?? ''] ?? game.description,
+      controls: game.variantControls?.[variant?.id ?? ''] ?? game.controls, modifier: mod ? { id: mod.id, name: mod.name, desc: mod.desc } : null, seats: this.frozen.map((f) => ({ ...f })),
     };
     this.lastResults = null;
     this.broadcast(this.lastRound);
@@ -466,8 +539,8 @@ export class Party {
         else if (++m.idleTicks > 6) m.cur = IDLE;
         inputs.push(m.cur);
       } else {
-        let b = this.brain.input(game, world, slot);
-        if (world.params.mirror) b = { ...b, x: -b.x, y: -b.y }; // stepWorld flips it back
+        let b = botInput(game, world, slot);
+        if (world.params.mirror) b = { ...b, x: -b.x, y: -b.y, l: b.r, r: b.l }; // stepWorld flips it back
         inputs.push(b);
       }
     }
@@ -475,40 +548,59 @@ export class Party {
     for (const e of world.ev) {
       if (e.id <= this.lastEv) continue;
       this.lastEv = e.id;
-      if (e.k === 'ko' && e.o >= 0 && e.s >= 0) this.stats[e.o].kos++;
-      else if (e.k === 'hit' && e.o >= 0 && e.s >= 0) { this.stats[e.o].dealt++; this.stats[e.s].taken++; }
+      const attacker = this.stats[e.o], target = this.stats[e.s];
+      // Pogo monster shots carry owner 5. Only a contest between seats awards combat stats.
+      if (!attacker || !target) continue;
+      if (e.k === 'ko') attacker.kos++;
+      else if (e.k === 'hit') { attacker.dealt++; target.taken++; }
     }
-    this.broadcastSnap();
-    const limit = Math.min(game.maxTime, this.timing.playCap);
-    if (game.isOver(world) || world.time >= limit) this.finishRound(this.now);
+    const finished = roundOver(game, world) || world.time >= this.timing.playCap;
+    if (finished) world.finished = true;
+    this.broadcastSnap(finished);
+    if (finished) this.finishRound(this.now);
   }
 
   private finishRound(now: number) {
     const game = this.game!, world = this.world!;
     const order = game.placements(world);
+    const winner = order[0];
+    const cupsToWin = this.cupTarget;
     const showdown = this.next?.showdown ?? false;
-    const mult = showdown ? 2 : 1;
     const prev = [...this.scores];
     const gained = [0, 0, 0, 0], bonus = [0, 0, 0, 0];
-    // comeback: whoever is last (not everyone tied) before this round gets +1
-    const lo = Math.min(...prev), hi = Math.max(...prev);
-    if (this.round > 1 && hi > lo) prev.forEach((v, i) => { if (v === lo) { bonus[i] = 1; this.stats[i].comebacks++; } });
-    order.forEach((slot, rank) => { gained[slot] = (POINTS[rank] ?? 0) * mult; this.scores[slot] += gained[slot] + bonus[slot]; });
-    this.stats[order[0]].wins++;
-    this.wins[order[0]]++;
-    const final = this.round >= this.totalRounds;
+    const draw = game.isDraw?.(world, order) ?? false;
+    if (!draw) {
+      if (cupsToWin !== undefined) {
+        gained[winner] = 1;
+        this.scores[winner]++;
+      } else {
+        // Comeback bonus goes to last place when the scores differ.
+        const lo = Math.min(...prev), hi = Math.max(...prev);
+        const mult = showdown ? 2 : 1;
+        if (this.round > 1 && hi > lo) prev.forEach((v, i) => { if (v === lo) { bonus[i] = 1; this.stats[i].comebacks++; } });
+        order.forEach((slot, rank) => { gained[slot] = (POINTS[rank] ?? 0) * mult; this.scores[slot] += gained[slot] + bonus[slot]; });
+      }
+      this.stats[winner].wins++;
+      this.wins[winner]++;
+    }
+    const final = cupsToWin === undefined ? this.round >= this.totalRounds : this.scores[winner] >= cupsToWin;
     const best = Math.max(...this.scores);
     // ties broken by mini-game wins
     const tied = this.scores.map((v, i) => (v === best ? i : -1)).filter((i) => i >= 0);
     const bw = Math.max(...tied.map((i) => this.wins[i]));
     this.lastResults = {
-      t: 'results', round: this.round, total: this.totalRounds, showdown, placements: order, gained, bonus, prev, scores: [...this.scores],
+      t: 'results', round: this.round, total: this.totalRounds, cupsToWin, showdown, draw, placements: order, gained, bonus, prev, scores: [...this.scores],
       stars: [...this.wins], final,
       winners: final ? tied.filter((i) => this.wins[i] === bw) : [],
-      awards: final ? this.awards() : [],
+      awards: final && cupsToWin === undefined ? this.awards() : [],
     };
     this.broadcast(this.lastResults);
-    this.setPhase(final ? 'final' : 'results', final ? this.timing.final : this.timing.results, now);
+    let duration = final ? this.timing.final : this.timing.results;
+    if (!final && !draw && !cupsToWin && game.id === 'pushOff' && duration >= NORMAL_TIMING.results) {
+      const char = this.lastRound?.seats[winner]?.look.char ?? 0;
+      duration = Math.max(duration, (winnerCheerFrame(char) + POLAR_WIN_TALLY_TICKS) * DT * 1000 + STANDINGS_MIN_MS);
+    }
+    this.setPhase(final ? 'final' : 'results', duration, now);
   }
 
   private awards(): Award[] {

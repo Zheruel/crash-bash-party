@@ -1,5 +1,9 @@
 // The real game's 2D HUD: sprites from the disc's HUD atlas (t08 0731, decoded to assets/textures/0731), placed in the
 // PS1's native 512x240 screen space over the centred 4:3 area, so the layout is the original's at any window size.
+import type { World } from '../../shared/types';
+import { KK_CLOCK_START } from '../../shared/games/kegKaboom';
+import { TANK_TIMEOUT_TICK } from '../../shared/games/tankArena';
+import { versusClock } from '../../shared/games/common';
 import { CHARACTERS } from '../../shared/look';
 import { ASSET_BASE } from '../crash';
 
@@ -20,7 +24,7 @@ export const hudTex = (i: number) => `${ASSET_BASE}textures/0731/tex${String(i).
 
 export function hudFace(char: number): string {
   const character = CHARACTERS[char % CHARACTERS.length];
-  return character?.id === 'big-stein' ? ASSET_BASE + 'hud/big-stein.png?v=2' : hudTex(HUD.face[character?.id] ?? 3);
+  return character && 'hud' in character ? ASSET_BASE + character.hud : hudTex(HUD.face[character?.id] ?? 3);
 }
 
 /** the picture starts 8 lines down on screen (see PS1_OFY): HUD sprites move with it */
@@ -32,6 +36,7 @@ export class Ps1Hud {
   private addEl: HTMLDivElement;
   private pool: HTMLImageElement[] = [];
   private addPool: HTMLImageElement[] = [];
+  private textures = new Map<string, HTMLImageElement>();
 
   constructor(parent: HTMLElement) {
     this.el = document.createElement('div');
@@ -42,6 +47,17 @@ export class Ps1Hud {
   }
 
   show(on: boolean) { this.el.classList.toggle('hidden', !on); this.addEl.classList.toggle('hidden', !on); }
+
+  preloadRound(chars: number[]) {
+    const glyphs = [...'0123456789c'].map(c => `${ASSET_BASE}hud/big${c}.png`);
+    for (const url of [...glyphs, ...chars.map(hudFace)]) {
+      if (this.textures.has(url)) continue;
+      const image = new Image();
+      this.textures.set(url, image);
+      image.src = url;
+      void image.decode().catch(() => this.textures.delete(url));
+    }
+  }
 
   /** Draw this frame's sprites (pooled <img>, positions in % of the 512x240 frame). */
   draw(list: HudSprite[]) {
@@ -84,12 +100,12 @@ export const SLOT_X = [32, 128, 320, 416];
  * Match clock as the in-game HUD draws it (M:SS in the big orange glyphs, ~21 lines tall, colon blinking), measured on
  * native Crate Crush frames: glyph lefts at 205 / 226 (colon) / 238 / 261.
  */
-export function bigClock(sec: number, blink: boolean): HudSprite[] {
+export function bigClock(sec: number, hideColon = false): HudSprite[] {
   const s = Math.max(0, Math.ceil(sec));
   const m = Math.min(9, Math.floor(s / 60)), ss = s % 60;
   const g = (c: string, x: number): HudSprite => ({ tex: `${ASSET_BASE}hud/big${c}.png`, x, y: 16, w: 30, h: 27 });
   const out = [g(String(m), 205), g(String(Math.floor(ss / 10)), 238), g(String(ss % 10), 261)];
-  if (!blink) out.push(g('c', 226));
+  if (!hideColon) out.push(g('c', 226));
   return out;
 }
 
@@ -100,18 +116,40 @@ export function faceSprite(seats: ({ look: { char: number } } | null | undefined
   return { tex: hudFace(seat.look.char), x: SLOT_X[slot], y: 10, w: 64, h: 40 };
 }
 
+/** The timer draws its three BCD digits before subtracting two of 60 subframes. */
+export function arenaClock(game: string, world: World) {
+  if (game === 'tankArena') {
+    const tick = Math.min(world.tick, world.data.result?.rankedAt ?? Infinity);
+    return tick >= TANK_TIMEOUT_TICK ? 0 : versusClock(tick + 1);
+  }
+  if (game === 'dashRace' && world.data.openingTicks !== undefined) return versusClock(world.tick);
+  if (game === 'pushOff' || game === 'tilePainter' || game === 'dragonDrop' || game === 'crateToss' || game === 'ringDing') return versusClock(world.tick);
+  if (game !== 'malletMash' && game !== 'kegKaboom') return Math.max(0, Math.ceil(90 - world.time));
+  const ticks = game === 'malletMash' ? world.data.clock ?? 0 : (world.data.g ?? KK_CLOCK_START) - KK_CLOCK_START;
+  return Math.max(0, 90 - Math.ceil(Math.max(0, ticks - 1) / 30));
+}
+
+/** FUN_8007b8d4. Only HUDs initialized with flag 0x10 flash the separator. */
+export function arenaClockSprites(game: string, world: World): HudSprite[] {
+  const left = arenaClock(game, world);
+  const flashes = game === 'crateToss' || game === 'tilePainter' || game === 'ringDing' || game === 'malletMash';
+  const ticks = game === 'malletMash' ? world.data.clock ?? 0 : Math.max(0, world.tick - 27);
+  const subframes = (60 - 2 * (ticks % 30)) % 60;
+  return bigClock(left, flashes && left > 0 && subframes >= 20);
+}
+
 /**
  * The score HUD shared by Pogo Painter, Dragon Drop, Ring Ding, Mallet Mash and Keg Kaboom: face, three big digits under
  * it (orange rows 46-53, glyphs 19 apart from face x + 5) and the clock.
  */
-export function scoreHud(seats: ({ look: { char: number } } | null | undefined)[], score: (slot: number) => number, left: number, time: number): HudSprite[] {
+export function scoreHud(seats: ({ look: { char: number } } | null | undefined)[], score: (slot: number) => number, clock: HudSprite[]): HudSprite[] {
   const out: HudSprite[] = [];
   for (let slot = 0; slot < 4; slot++) {
     const f = faceSprite(seats, slot);
     if (!f) continue;
     out.push(f, ...bigNumber(score(slot), SLOT_X[slot] + 4, 36, 3, 19, 21));
   }
-  out.push(...bigClock(left, Math.floor(time * 2) % 2 === 1));
+  out.push(...clock);
   return out;
 }
 

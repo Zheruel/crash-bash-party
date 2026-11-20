@@ -67,7 +67,7 @@
    "model": 695,
    "scale": 2.6,
    "offset": [
-    -5.2,
+    -5.85,
     0,
     5.2
    ],
@@ -966,7 +966,7 @@
    ]
   },
   "taBombPick": {
-   "model": 736,
+   "model": 786,
    "scale": 2.6,
    "offset": [
     0,

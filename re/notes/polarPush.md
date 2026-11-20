@@ -6,7 +6,7 @@ Setup: `FUN_800b5ac4` (callbacks), `FUN_800bafa0` (init), `FUN_800bb810` (per fr
 
 ## Rules (all levels)
 - 4 players; each one is a character (id 1-8 = CHARACTERS index 0-7). Last one standing wins: round ends (`DAT_800d4dec = 1`) when 3 players are
-  in state 0x50 (out), or a player has flag 0x200. No timer. Order of finishing = order of elimination.
+  in state 0x50 (out), or a player has flag 0x200. At 1:30 the shared clock ranks the remaining riders. Two or more survivors draw. Eliminated riders finish in reverse order of elimination.
 - Buttons: D-pad move, **Square (0x8000) = dash/charge** (needs gauge >= cost), **Circle (0x2000) = throw** (only if holding a bolt, `+0x28`, MANIC),
   Square mash = climb back from the edge. (No jump.)
 - Walk (`FUN_800cccb8`, `FUN_800b5788`): target v = speed * dir(pad) (8 directions, full speed diagonally, not normalised); v approaches the
@@ -34,7 +34,18 @@ Setup: `FUN_800b5ac4` (callbacks), `FUN_800bafa0` (init), `FUN_800bb810` (per fr
   TILT 1 hull, 40 edges (L18 0x801ccaf4, r 2470-2900); POLAR 1 hull, 40 edges (L19 0x801c9a28, r 2500-2970); MELT 4 hulls (L20: 0 = disc, 16 edges,
   r 2580-2740, 0x801d1f00; 1 = inner disc, 16 edges, r 1815-1930, 0x801d22bc; 2, 3 = triangles, 0x801d2678 / 0x801d275c); MANIC 1 hull, 26 edges
   (L21 0x801d12d4, r 2950-3710). The edge test is replay-exact on all four levels (MELT: sector states 1-4 and both triangles).
-- Camera: **unk.** (client PO_CAMS kept).
+- Camera: see the scenery comparison below.
+
+## Tilt Panic scenery (USA L18)
+
+- The four static render nodes in level model 0486 cover the sky, sea, and two platform pieces. Five scenery actors (object `0x1607`) come from
+  the level's actor table at file offset `0x489c` in `0486.t29`. `FUN_800c06d0` selects meshes `0x200d–0x200f` from the shared pack at
+  `0x800546c4` (0403, byte-identical to 0480). These are parts 12–14. Part 13 has a half-turn local yaw.
+- `FUN_800ca850` adds 2, 3, 1, 1, and 2 PS1 units to the five actors' x coordinates per 30 Hz tick. At x ≥ 6901 each resets to -7300.
+  The web countdown starts at scenery tick 28 and reaches GO at tick 112. On USA frame 2502 the actors' X positions are 17, -3961, -4489, 4168, and -7336. The riders first move on frame 2503. WebGL matched all five X positions for 110 consecutive countdown and play ticks and retained the scenery phase after a late join during results.
+- At native tick 2454 the mode-1 camera has H 512, pitch 227, zero target/yaw/roll, and translation (172, -573, 4580) before framebuffer scaling.
+  The same 4:3 projection shows the restored silhouettes on the sea horizon. Disabling the five native render nodes removes the silhouettes.
+  The USA actor tables for Polar, Melt, and Manic Panic have no corresponding scenery records.
 
 ## Levels
 - **TILT PANIC (0x12)**: `FUN_800b3aa0`: tilt angles (4096/turn) `ax` (x) and `az` (z) from players that are not eliminated:
@@ -74,7 +85,7 @@ Setup: `FUN_800b5ac4` (callbacks), `FUN_800bafa0` (init), `FUN_800bb810` (per fr
     per axis toward the target point (sin, cos)(angle) * 0x115 >> 9 (r 2216); within dist^2 <= 0xfff: rand(0x1000), state 1, melt sector
     ((atan2(pos at tick start) + 1) & 0xfff) >> 8, next target = (i+1)*0x100 - 0x40 where i = first sector from the random index whose state != 1
     (all melted -> state 2, flies off). State 1: 61 ticks, back to 0. One rand(4) every tick (start slot of the item loop).
-  - Items: no beam. While +0x64 < 0 (and state != 1, no holder) the first bear from the random slot with dist^2 < 0x19000 gets kind
+  - Items: no timed pickup window. While +0x64 < 0 (and state != 1, no holder) the first bear from the random slot with dist^2 < 0x19000 gets kind
     `0x800d5480[rand(4)]` = **0 shrink, 8 snowball, 2 freeze, 5 bomb** (no grow, no zap, no no-human remap); state 3, 0x4f, 15-tick flourish (+0x70).
     Shrink: mass 0x50, speed 0x40, clock rand(60)+150. Snowball (debug string "snow"): **mass 400, speed 0x10** (this is the "grown 400"), state 0x52
     (`FUN_800d14cc/d17e8`: no dash, yaw turns diff>>5, y -0x14c, starts at 64 u/tick toward the centre, slips = falls), clock rand(60)+300. Freeze: state 0x4c
@@ -130,6 +141,15 @@ Setup: `FUN_800b5ac4` (callbacks), `FUN_800bafa0` (init), `FUN_800bb810` (per fr
   effect object lands in a pool slot that is not updated any more that tick (5 of 31 pickups in one recording; the sim always starts at once).
 - FREEZE (2, state 0x4c) is only in the MELT table (0x800d5480). Table 0x800d5458 = 0,1,6,5 on TILT, POLAR and MANIC (read from each dump). Throw (Circle, state 0x53) = the MANIC bolt.
 
+### Emitter rendering (USA levels 0x12–0x15)
+
+- TILT, POLAR and MANIC use shared pack 0403, render word `0x2013` (part18). The unscaled entity's base Y is −1380, −1246 and −1301 raw units respectively. Each orbit tick adds `sin(phase * 0x10) >> 6` before advancing the phase by 8. The nearest eligible rider is selected before the orbit step. The emitter aims from its updated position and eases over one quarter of the signed 12-bit angular difference. The pitch uses the rider's Y with a 450-unit offset. While beaming, position and bob freeze and pitch eases toward `0x400`. TILT's emitter and effects use the arena's tilted transform.
+- MELT uses level pack 0474, render word `0x200c` (part11), with base Y −1094. It bobs by up to 64 units and rocks on three axes. The tilt targets depend on a phase stepping −64 or +64 with the flight direction. The angles ease toward zero during the sector pause. Object `0x160b` follows the travel point at raw Y +256 and its render word is zero. The visible target is the separate `0x1605` script at raw Y +94.
+- TILT runs 0403 scripts 1 and 2 (part42), a camera-facing halo at Y −64 relative to the emitter and a flat target at +94 absolute. POLAR and MANIC run scripts 4 and 3 (parts 43 and 56) with the halo at Y −96 and the target at +94. MELT uses only script 3 for its persistent target. The scripts pulse in scale and additive brightness over 39 or 40 ticks. The WebGL view applies a depth bias to the target to approximate the PS1 ordering table and keep the glow visible over the ice.
+- The active column uses TILT 0486 script 1 (part9), POLAR 0478 script 0 (part6), and MANIC 0466 script 0 (part0) from the point under the emitter. Its upright plane leans in projection near the sides of the screen. The script starts showing on its first update, flickers through its authored keys, and ends after 120 ticks. Taking an item removes it immediately and starts a separate half-speed pickup script at the emitter's ground point (TILT/POLAR script 3, MANIC script 2). POLAR's script also emits particles. MELT uses 0474 script 0 (part0), a 60-tick column on sector arrival or item award. It has no 120-tick pickup window.
+- Standard beam cues are `0x463` 15 ticks before activation, loop `0x44c` during the window, and `0x44d` on expiry. Pickup and zap use the respective item cues from the level VAB tables. The renderer restores the active visual and loop on snapshot resume. POLAR uses local randomness for the spark positions. The alternate `0x80` rules remain unported.
+- Motion was compared over 639 recorded USA transitions per arena (99 intro plus 540 play). One-step replays matched the integer height and all three rotation words on those frames. USA and WebGL captures cover the three standard columns and MELT's sector column. The native capture setup advanced the standard mask timer and placed a rider beneath the second column to exercise its pickup. WebGL checks exercised countdown, beam expiry, pickup and snapshot resume using the regular view with Big Stein and Top G. The captures are under `/tmp/cb-polar-emitter`.
+
 ## AI (`FUN_800cad60` per CPU inside the player loop) - replay-exact
 - AI struct (obj+0x58): +0xc/+0x14 target x/z, +0x18/+0x20 own x/z, +0x24 counter, +0x28 target, +0x2c evade-from, +0x30 state, +0x34 flags,
   +0x3c pad-angle refresh period, +0x40 evade dir, +0x44 handler, +0x4c, +0x58, +0x5c dash countdown. Pad struct +0x20 on, +0x24 refresh counter, +0x2a angle, +0x2c bits.
@@ -145,8 +165,9 @@ Setup: `FUN_800b5ac4` (callbacks), `FUN_800bafa0` (init), `FUN_800bb810` (per fr
 ## Replay verification (emulator, 2026-11)
 - Recorder `window.PR` (scratchpad `pv/rec3.js`) snapshots per game tick (`DAT_8004e0d8`): players, movement block, anim pc, AI struct words, pad struct,
   rng (`0x800517b8/bc`), order table 0x8009d764 (64 int32), mask struct, pillar flags, every pool object (id, slot, entity, data / motion comp).
-  Harness `pv/replay.ts`: loads row t into the sim, steps one tick with the game's LCG (`FUN_80015590`: a += b; r = a % n; b += a + (a >> 31)), compares
+  Harness `pv/replay.ts`: loads row t into the sim, steps one tick with the game's generator (`FUN_80015590`: a += b; r = a % n; b += a + (a >>> 31), all words unsigned), compares
   with row t+1 (bears, AI, mask, pillars, sectors, bolts, seal, rng state). The frame makes **one extra rand before the player loop** - ported.
+- Online Polar Push uses this generator from arena setup onwards. The executable's starting words are `0x00c587c1` and `0x0573cec9`. Online rounds mix their seed into the first word and keep both words in snapshots. Across the four arenas, three seeds and mixed/all-CPU lineups, 30,475 draws and their simulation states matched replay with the original MIPS routine supplying the draws, including after a snapshot resume. Menu activity on a console can advance its stream before a stage starts.
 - Results, play ticks exact / total (+ intro ticks), final sim:
 
 | level | session | chars | play | intro |
@@ -200,8 +221,10 @@ Setup: `FUN_800b5ac4` (callbacks), `FUN_800bafa0` (init), `FUN_800bb810` (per fr
 | 0x44c | mask appears / sector melt | 0 | 0 | 0 | 0 |
 | 0x44e/0x450/0x451/0x452 | item shrink / freeze / bomb | 2/4/5/6 | 2/4/5/6 | 2/4/5/6 | 2/4/5/6 |
 | 0x454 | bomb passed | 8 | 8 | 8 | 8 |
+| 0x453 / 0x455 | 500 lb weight spawns / hits ice | 7/9 | 7/9 | 7/9 | 7/9 |
 | 0x456-0x45a | skid on entering idle at speed>32 (random of 6) | 10,11,10,11,10 | 12,10,11,12,... | see t0c | see t0c |
 | 0x45c | edge slip | 12 | 13 | 13 | 14 |
+| 0x45d | rider enters the out state | 13 | 14 | 14 | 15 |
 | 0x46a-c | pillar breaks | - | 20,21,22 | - | - |
 | 0x489 / 0x48a / 0x48b | sector melt / snowball / snowball bump | - | - | 20/21/22 | - |
 | 0x3fa / 0x48e / 0x48f / 0x490-3 / 0x494 | bolt appears / taken / lands / hits / splash | - | - | - | 25/21/22/23/24 |
@@ -211,14 +234,13 @@ Char voices: hit voice ids per char (3-6, 0x35-38, 0x67-6a, 0x99-9c, ...), dash 
 Anim clips (`FUN_800854c0`): 0x3a idle, 0x3d edge hang, 0x3e dash (0x45 mode 1); states 0x49 idle, 0x4a walk, 0x4b hit, 0x4c frozen, 0x4d blast, 0x4e slip/fall, 0x4f item, 0x50 out, 0x51 dash, 0x53 throw.
 
 ## Status of POLAR / MELT / MANIC
-Replay-checked like TILT (table above). Client gaps (sim data is there): the knocked-off rider's bear flying away (`world.data` bolts with k = 2 are
-not sent as bodies), snowball / frozen models, half-melted sectors are shown sunk 40% (est. visual).
+The client renders the Manic flying bear from its own body, Melt's per-character snowballs and frozen riders, and the sixteen animated ice wedges from the sector state. The replay coverage above measures the simulation.
 
 ## Unknowns
 Easy / hard skill values, camera, the extra per-frame rand's owner (present on all four levels, replay), the render-node pool (see Replay), which
 resource the failed bolt pickup ran out of (10 objects alive at the time), `FUN_800bcc9c` idle anims, option-flag (0x80) rule sets, team mode
 (`DAT_8005a680`, `FUN_800bcf08` / `FUN_800b7cdc`), what happens at 0:00 on the clock, object 0x1606 (`FUN_800ca890` / 0x800c01c8, one per player, not
-decompiled), the seal's dive animation height (state 7; y is left at 0), the round-reset tick on MANIC (which objects the engine's round init
+decompiled), the round-reset tick on MANIC (which objects the engine's round init
 still sees), POLAR / MANIC / MELT free runs longer than one round.
 
 - Client (2026-11): broken POLAR pillars hide their placed stage holder (matched by PS1 position); a MANIC rider knocked off (data.foot) is drawn as the plain character. Bomb victims now get their `ko` / elimination tick (the 0x2000 flag is set by eliminate() on the S_BLAST enter, same tick).
@@ -227,3 +249,61 @@ still sees), POLAR / MANIC / MELT free runs longer than one round.
 - `FUN_800ca628`: node pack = the level model (0466), flip-book `FUN_80024e30(obj, {0, 0x800d56c4, 0x402})`: script 0x800d569c = anim ids
   0x4000..0x4006 (clip 0 frames 0-6 of the animated part4, the riderless bear) then 0x8001 -> script 0x800d56bc = 0x4006 looped (held).
   The port draws it as the sim's 'flybear' body.
+
+## Tilt Panic seal and fish (USA L18)
+
+Object 0x1610 is the fish the seal follows. Both use pack 0468 and entity scale 8000/4096. The fish uses render word 0x2002 in flight. At tick 27 it lands, then advances through words 0x4180–0x418f while it skids. The two rim fixtures settled at (1063, 0, 913) and (−1122, 0, −967). The seal removes the fish on entering its walk at tick 131. Its dive keeps the origin at y=0 and animates the mesh through 0x4126, visible through state 6. The render transform uses the level tilt matrix for the platform, riders, seal and fish (entity flag 0x200000, FUN_8001daf8). The local fish matrix uses Rx(pitch) × Ry(yaw) in PS1 coordinates.
+
+FUN_800c3e6c and FUN_800c40b8 initialize and update the fish. FUN_800c358c supplies the seal's pose and sound markers. In both cycles sound 0x478 accompanied the fish launch. 0x479 accompanied the landing at tick 27. At 92 the seal jumped with 0x473, then at 119 the landing 0x475 and one bark (0x46f–0x472) played together. Footfalls 0x476/0x477 use the same sample at rates 1 and 1.103. 0x47a played at 161, with 0x474 on diving at 211 or 213 depending on the rim.
+
+Two PCSX traces matched 251 and 253 consecutive simulation states through disappearance. Each trace supplied 17 sound calls. The room RNG selects the bark tone. With the result flag set during the warning, the fish completes its flight and flaps while the seal's warning timer holds. With the result flag set after the seal launches, the seal finishes landing and walking. The client advances these objects on a private terminal world, including when entering the result late. A two-player WebRTC match reproduced the fish's position, rotation, and pose in 132 snapshots. Whole-round rasterization and audio mixing remain unverified.
+
+## Bomb expiry visuals (USA L18–L21)
+
+Both mask handlers spawn object `0x1602` at the carrier's X/Z and raw Y −2200. `FUN_800cab8c` selects shared pack 0403 word `0x2003` (part2, the 500 lb weight) at unit scale with zero rotation. The weight stays in world space when Tilt Panic's ice rotates.
+
+In the USA L18 PCSX traces, age 0 is the spawn tick. The weight holds for one update, then falls with initial raw Y velocity +64 and acceleration +8 per tick. `FUN_800bfa98` clamps it to the carrier's launch Y at age 19 and rebounds with `-vy >> 3` on the first four contacts. The rider holds its last pose and both render entities clear visibility at age 17. The weight hides at age 63. The object keeps ticking during results, and the out flag is set at age 123.
+
+The web view reconstructs the drop from the snapshot origin and expiry tick, then advances it using the result clock. Chromium matched 504 visible positions and 600 visibility samples across the four stages in live and terminal playback, including a view rebuilt mid-result. Big Stein and Top G kept their custom models, including Top G on foot in Manic Panic. Two-client WebRTC matches showed impact and disappearance in Tilt Panic play and Manic Panic results.
+
+### Carried fuse audio
+
+Both the weight and the zap key `0x452` on pickup. This loops sample 6 from PCM sample 28. The zap also keys a separate continuous `0x465` electrical sound. A handoff keys `0x454` and preserves both the fuse timer and its playing voice. Expiry keys `0x453` for a weight or `0x466` for a zap. The weight's first ground contact keys `0x455` 19 ticks after spawn.
+
+The item handler sends `0x1e00 + floor(elapsed * 0xf00 / 300)` to `FUN_800228a4`. The voice driver applies the bend on its next update. All four banks use centre note 95, fine tune 58. `FUN_80042a20` multiplies the truncated coarse and fine tables at `0x8006dfac` and `0x8006dfc4`, then rounds to the SPU pitch register. MELT arms one tick later and sends the bend before decrementing the fuse. In the three other stages, a pickup at tick 0 starts the voice at tick 1, first changes its pitch at tick 15, and expires at tick 313. MELT first changes pitch at tick 17 and expires at tick 314.
+
+Seven controlled USA recordings covered each available item on each stage. Chromium's decoded fuse source reproduced all 2,185 active pitch registers, including consecutive ticks before and after a transfer. Rebuilding the view mid-fuse resumed at the corresponding loop position. These checks cover sample selection, pitch and timing. Positional mixing and the SPU release envelope remain unverified.
+
+In a two-browser WebRTC match, Big Stein passed the weight to Top G. Both browsers reproduced all 299 armed timer values and played the spawn and impact cues. A second match disconnected the guest while Top G held the weight. The resumed guest started at the current loop offset and matched the host's pitch again.
+
+### Ledge recovery and water-entry audio
+
+On all four stages a slow mounted slip keys `0x45c` on entry to state `0x4e`. The normal hang script can reach state `0x50` with the entity's raw Y still at zero. `FUN_800d0470` keys the water sound `0x45d` at that state transition. In the captured fixtures this occurred 42 ticks after the initial slip on TILT (engine character 8) and 40 ticks later on the other three stages (engine character 4). WebGL matched the visible hang poses and exit ticks. After ranking, an eliminated rider's hang or fall can finish on the client's private world and play the cue once.
+
+Five successful recovery presses run `FUN_800cff44` and release the hanging sound. In the controlled TILT recording, presses on alternating updates returned the rider to idle at tick 12 and cleared the voice. Real Chromium Z-key input reproduced that cutoff with Big Stein and Top G on all four stages.
+
+### Individual versus timeout and TIE (USA L18–L21)
+
+An uninterrupted Polar Panic capture reached GO on sample 99. The riders had already taken their first movement step. The BCD timer first decremented on sample 126 and dispatched the result on sample 2797 (simulation update 2699). On all four stages the ranking routine at `80084788` reads the same value, 20, at rider offset `+0x36` for every survivor. It excludes eliminated riders. A hanging rider can still count. Distance from the center and remaining dash charge do not enter the comparison.
+
+In the accelerated Tilt Panic recording, all four counted at the buzzer, including two hanging riders. During TIE the engine suppressed pad input and held the ice inclination. The two remaining mounted riders slid from (−1514, 1222) and (654, 936) to (−1994, 142) and (−66, −744) at tick +120. The hanging riders both fell out. Flat-stage captures with two or four survivors also drew. Across the four fixtures the port matched 3744 samples of position, rider state and elimination flags, including 1920 post-buzzer samples. Chromium WebGL matched all 1274 visible rider pose words during the four TIE sequences, including after rebuilding each view at draw tick 58.
+
+The result camera halves the tracked width, removes forward reach, and uses three quarters of the tracking height (`80078dd4`). Melt Panic's extra tracked entity `160b` follows the moving mask at raw Y 256 and leaves the tracking list one update after the clock dispatches. Replaying the recorded tracking inputs from the pre-buzzer camera matched all 484 sampled camera positions. The client interpolates the fit at display refresh rate. Snapshots include the eased camera translation and its last target. A late join reconstructs the riders and camera from that snapshot.
+
+The TIE mesh begins at +2 and triggers sample `0x1af` at +23. The music duck clears at +120 and the original round resets at +121. Two real WebRTC clients with Big Stein and Top G agreed on the terminal snapshot and zero awards in both Cup and Party play. A Melt Panic guest disconnected during TIE and restored the same snapshot and result without repeating the cue. A lone Top G on Manic Panic received one cup and played his name, “wins,” and character reaction.
+
+### Individual versus victory (USA L18–L21)
+
+On the update before state `0x58`, the remaining rider receives flag `0x200` and all tracked boxes shrink. On entry the other riders and arena hazards leave the camera list. If the surviving rider is hanging outside the hull, the list becomes empty and the camera continues toward its last target. Otherwise it fits the winner. A standing Crash in L18 took the camera from (−438, −266, 9908) at entry to (758, 612, 439) at +67. A hanging Koala on the same arena kept a wide shot, from (206, −665, 10490) to (192, −668, 9931). Tilt continues to update until the character reaction.
+
+`FUN_800d257c` starts idle script 0x3a mounted or 0x42 on foot. The winner turns toward yaw zero by a quarter of the signed difference per tick. The first visible word of the streamed cheer is frame 1 of script 0x46 mounted or 0x47 on foot. In disc character order 1–8, the measured load delays were 13/12/16/14/13/13/13/15 mounted and 12/14/14/12/14/13/15/15 on foot. The implementation uses these measured delays for repeatable online playback. The reset followed the spoken reaction by 123 updates. Cup standings use the common versus tally timing, three updates after the reaction.
+
+Sixteen controlled PCSX runs covered all eight original winners mounted and on foot. Three opponents started outside the rim. The on-foot fixtures set the native mount component before the result. Melt used the recorded opening mask target. Across 3,364 result updates, Chromium matched the native winner pose word, facing, and camera position through the last frame before reset. Every view was rebuilt at +67 from the serialized terminal state. Big Stein mounted and Top G on foot used their own Manic Panic models and matched Cortex's pose words and facing on 424 further updates.
+
+Two production WebRTC matches exercised keyboard input and rim knockouts. In Manic Panic, Top G won a cup and the tally opened at tick 101. A guest disconnected after hearing his name, received the same terminal world when it rejoined, and heard his reaction once. In Polar Panic, both clients played Big Stein's three victory cues and awarded him four Party points. The normal points phase lasted 8.53 seconds, including 1.2 seconds for the standings.
+
+### Ice reflections (USA L18–L20)
+
+The second rider entity at player record offset +12 uses model slot 0x80054654 (DAT 0484, textures 0483). It contains the bear's additive reflection below the ice plane. FUN_800cc3b4 selects an independent pose for idle, walk, dash and victory. It hides the reflection on an edge hang or elimination and skips Manic Panic. Melt Panic swaps in stage word 0x2003 at raw Y +664 for a snowball. The web reuses those meshes and blend modes. For a WebGL depth buffer, it tests the reflection against the tilted ice surface so riders and pillars can occlude it. The mounted model also uses its disc origin, including Crash and Koala.
+
+Three PCSX recordings matched 750 idle and winner reflection words, accounting for the measured load time in each run. Two Polar Panic recordings matched another 440 idle, walk and dash words. On the Tilt Panic comparison image, the screenshot taken at RAM sample 246 most closely matched web sample 244. The WebGL comparison shows the arena pass before the shell HUD. GPU ordering, rasterization and the display buffer can produce pixel and timing differences.
