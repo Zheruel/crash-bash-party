@@ -29,7 +29,7 @@ export interface RenderContext {
 export interface RenderWorld extends World {
   bodies: Body[];
   /** Ballistix marker meshes at the same interpolated tick as the ball positions. */
-  ballistixMarkers?: { lights: number; cool: number[]; tick: number; flashes?: CrashballFlash[] };
+  ballistixMarkers?: { lights: number; cool: number[]; tick: number; flashes?: CrashballFlash[]; shields?: number[] };
   /** Locally replayed inputs, for the local actor and carried objects. */
   predicted?: World;
 }

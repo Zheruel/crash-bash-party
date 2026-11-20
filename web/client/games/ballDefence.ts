@@ -2,7 +2,7 @@
 // seen through the real play and result cameras. Stage pieces come from the disc models listed in assets/stages/ballDefence.json;
 // floors and walls that the disc stores elsewhere are rebuilt here from the same level textures.
 import * as THREE from 'three';
-import { BALLISTIX_OPENING_TICKS, ballistixFloor, BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_POST_AT, BD_U, ballistixOpeningFrame, type BallistixData } from '../../shared/games/ballDefence';
+import { BALLISTIX_OPENING_TICKS, ballistixFloor, ballistixLauncherFrame, BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_POST_AT, BD_U, ballistixOpeningFrame, type BallistixData } from '../../shared/games/ballDefence';
 import type { Body, GameEvent } from '../../shared/types';
 import type { BlobShadow } from '../fx';
 import { ASSET_BASE, getCatalog, type ModelRef } from '../crash';
@@ -440,7 +440,7 @@ function buildStage(variant: string): Stage {
 
 // ------------------------------------------------------------------ view
 
-interface Goal { slot: number; barrier: THREE.Mesh; barrierT: number; shield: THREE.Mesh; zap: THREE.Object3D[][] }
+interface Goal { slot: number; zap: THREE.Object3D[][] }
 interface BallView {
   obj: THREE.Group;
   shadow?: BlobShadow;
@@ -456,8 +456,10 @@ export function createBallDefenceView(): ClientMiniGame {
   const goals: Goal[] = [];
   const balls = new Map<number, BallView>();
   let post: { x: number; y: number; z: number } | null = null;
-  let machine: { idle: THREE.Object3D; spit: THREE.Object3D; g: THREE.Group } | null = null;
+  let machine: ReturnType<typeof catalogInstance> = null;
   let bankIdx: Record<number, { file: string; loop?: number | null }> = {};
+  let motor: ReturnType<typeof sfx.startSample> = null;
+  let shieldMaterial: THREE.MeshBasicMaterial | undefined;
   const catchSounds = new Map<number, () => void>();
   const pendingKnockouts = new Map<number, GameEvent>();
   const flashes: THREE.Object3D[] = [];
@@ -535,19 +537,9 @@ export function createBallDefenceView(): ClientMiniGame {
     const disc = variant === 'sky';
     if (disc) markFar(stage.group);
     for (let s = 0; s < 4; s++) {
-      const col = new THREE.Color(kit.hex(s));
       const [nx, nz] = BD_NORMALS[s];
       const width = disc ? 2 * SKY_R * Math.sin(SKY_ANG) : 2 * GOAL_HALF;
       const edge = disc ? SKY_R : H;
-      const barrier = new THREE.Mesh(new THREE.BoxGeometry(width, 1.8, 1.0), basic({ color: variant === 'beach' ? 0xb8842c : variant === 'sky' ? 0x8fa0b8 : variant === 'nballism' ? 0x7a3fd0 : 0x6a7684 }));
-      barrier.position.set(nx * (edge + 0.2), -1.0, nz * (edge + 0.2));
-      barrier.rotation.y = Math.atan2(nx, nz);
-      barrier.visible = false;
-      const shield = new THREE.Mesh(new THREE.BoxGeometry(width, 2.6, 0.3), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.4, depthWrite: false }));
-      shield.position.set(nx * (edge - 0.3), 1.3, nz * (edge - 0.3));
-      shield.rotation.y = Math.atan2(nx, nz);
-      shield.visible = false;
-      R.add(barrier, shield);
       // knocked-out goal: the game's lightning strip (model 762 meshes 0-7, 514 u long, 8 frames) along the goal line
       const zap: THREE.Object3D[][] = [];
       const zg = new THREE.Group();
@@ -568,8 +560,7 @@ export function createBallDefenceView(): ClientMiniGame {
         zap.push(frames);
       }
       R.add(zg);
-      barrier.visible = false;
-      goals.push({ slot: s, barrier, barrierT: 0, shield, zap });
+      goals.push({ slot: s, zap });
     }
   }
 
@@ -723,6 +714,21 @@ export function createBallDefenceView(): ClientMiniGame {
       const hull = new THREE.Mesh(new THREE.SphereGeometry(1.5, 20, 10).scale(1, 0.4, 1), basic({ color: 0x3a9a7a }));
       extra.add(hull);
     }
+    if (variant === 'nballism') {
+      const field = fxPartTemplate(FX_PACK, 19, FX_SCALE)?.clone();
+      if (field) {
+        field.traverseVisible(o => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          shieldMaterial ??= (mesh.material as THREE.MeshBasicMaterial).clone();
+          mesh.material = shieldMaterial;
+        });
+        field.name = 'nballism-shield';
+        field.visible = false;
+        extra.add(field);
+        extra.userData.field = field;
+      }
+    }
     return { inst, extra, shadow: 1.8, headY: 2.2, scale: 1, steady: true };
   }
 
@@ -745,7 +751,7 @@ export function createBallDefenceView(): ClientMiniGame {
   }
 
   function delaysKnockout() {
-    return variant === 'crashball' || variant === 'nballism';
+    return variant === 'crashball';
   }
 
   function knockout(e: GameEvent) {
@@ -867,6 +873,9 @@ export function createBallDefenceView(): ClientMiniGame {
       const bodies = players === arena ? arena.bodies : [
         ...players.bodies.filter(b => b.kind === 'player'), ...arena.bodies.filter(b => b.kind === 'ball'),
       ];
+      // FUN_800bdd94 uses one global 32-tick phase for shield scale and fade to black.
+      const arenaTick = markers?.tick ?? stageData.f;
+      const pulse = Math.round(4096 * Math.sin((arenaTick & 31) * Math.PI / 16)) >> 2;
       for (const b of bodies) {
         if (b.kind === 'player') {
           seen.add(b.id);
@@ -928,6 +937,19 @@ export function createBallDefenceView(): ClientMiniGame {
             a.shadow.set(shadowFloor.x, shadowFloor.z, (floor - height) / BD_U);
           }
           a.pivot.rotation.z = -(winner?.roll ?? openingShip?.roll ?? pl.roll ?? 0) * Math.PI / 2048;
+          const field = a.extra?.userData.field as THREE.Object3D | undefined;
+          if (field) {
+            const remaining = result ? stageData.pl[b.slot].shield : markers?.shields?.[b.slot] ?? pl.shield;
+            field.visible = remaining > 0 && !dying;
+            if (field.visible) {
+              // The creation callback initializes a neutral transform. The next callback attaches it to its ship.
+              const created = remaining === 241;
+              if (created) field.quaternion.copy(a.yaw.quaternion).multiply(a.pivot.quaternion).invert();
+              else field.quaternion.identity();
+              field.scale.setScalar(created ? 1 : (0x1200 + pulse) / 4096);
+              shieldMaterial?.color.setScalar(created ? 1 : 1 - (0x600 + pulse) / 4096);
+            }
+          }
         } else if (b.kind === 'ball') {
           seenBalls.add(b.id);
           let v = balls.get(b.id);
@@ -970,7 +992,7 @@ export function createBallDefenceView(): ClientMiniGame {
       // N.Ballism power-up post: the level's looping effect script 1 at its marker (FUN_800bd770); it ends with the post
       if (stageData.post) {
         const [cx, cy, cz] = BD_POST_AT[stageData.post.i];
-        if (!post) {
+        if (!post || post.x !== cx / BD_U || post.z !== -cz / BD_U) {
           const at = { x: cx / BD_U, y: -cy / BD_U, z: -cz / BD_U };
           post = at;
           kit.real.play(POST_PACK, 1, at.x, 0, at.z, { loop: true, at: () => (post === at ? at : null) });
@@ -979,35 +1001,40 @@ export function createBallDefenceView(): ClientMiniGame {
       // N.Gin machine in the middle of the arena (FUN_800bbc3c): pops up at the floor (y 0) after the rise puff, spins, and swaps
       // to the open mesh (0x2006) while it spits balls
       const m = stageData.mach;
-      if (m && m.st >= 2) {
-        if (!machine) {
-          const g = new THREE.Group();
-          const idle = catalogInstance(getCatalog().props.bdMachine)?.root ?? new THREE.Group();
-          const spit = catalogInstance(getCatalog().props.bdMachineSpit)?.root ?? new THREE.Group();
-          g.add(idle, spit);
-          kit.root.add(g);
-          machine = { idle, spit, g };
+      const pose = m && ballistixLauncherFrame(m, arenaTick);
+      if (pose && pose.motorAge >= 0) {
+        const spin = bankIdx[EXTRA.nballism[1471]];
+        if (!motor && spin?.loop != null) {
+          const rate = sfxRate(BANK_OF.nballism, 1471);
+          motor = sfx.startSample(spin.file, spin.loop, VOL(1471), rate, pose.motorAge * rate / 30);
         }
-        machine.g.visible = true;
-        machine.idle.visible = m.st !== 4;
-        machine.spit.visible = m.st === 4;
-        machine.g.rotation.y = -(m.yaw * Math.PI * 2) / 4096;
-      } else if (machine) machine.g.visible = false;
+      } else if (motor) {
+        motor.stop();
+        motor = null;
+      }
+      if (pose) {
+        if (!machine) {
+          const ref = getCatalog().props.bdMachine;
+          if (ref) machine = catalogInstance({ ...ref, parts: ['part0', 'part5'] });
+          if (machine) kit.root.add(machine.root);
+        }
+        if (machine) {
+          machine.nativePose(pose.word);
+          machine.root.visible = true;
+          machine.root.rotation.y = -pose.yaw * Math.PI / 2048;
+        }
+      } else if (machine) machine.root.visible = false;
 
       for (const g of goals) {
         const pl = pls[g.slot];
         const closed = !pl || pl.score <= 0;
         const gate = stage.skyGates?.[g.slot];
         if (gate) gate.visible = closed;
-        g.barrierT = THREE.MathUtils.clamp(g.barrierT + (closed ? dt * 2.5 : -dt * 2.5), 0, 1);
         const st = stage.strips?.[g.slot];
         if (st) { if (st[0]) st[0].visible = !closed; if (st[1]) st[1].visible = closed; }
         const barrier = result ? !!(stageData.walls & [1, 2, 8, 4][g.slot]) : closed;
         const fr = result ? stageData.f & 7 : Math.floor(ctx.time * 15) % 8;
         g.zap.forEach((frames, k) => frames.forEach((o, f) => { o.visible = barrier && f === (fr + k * 3) % 8; }));
-        const sh = (pl?.shield ?? 0) > 0;
-        g.shield.visible = sh;
-        if (sh) (g.shield.material as THREE.MeshBasicMaterial).opacity = (pl.shield < 45 && Math.floor(ctx.time * 12) % 2 ? 0.1 : 0.3 + Math.sin(ctx.time * 10) * 0.12);
       }
       kit.real.update(dt, ctx.camera);
       kit.fx.update(dt);
@@ -1018,7 +1045,7 @@ export function createBallDefenceView(): ClientMiniGame {
       if (kit.baseEvent(e)) return;
       switch (e.k) {
         case 'sfx':
-          if (!(delaysKnockout() && result && e.o === 1414)) playSound(e.o);
+          if (e.o !== 1471 && !(delaysKnockout() && result && e.o === 1414)) playSound(e.o);
           break;
         case 'hit': {
           if (result) break;
@@ -1045,8 +1072,7 @@ export function createBallDefenceView(): ClientMiniGame {
           kit.shake(0.15);
           break;
         case 'machine':
-          if (e.v === 1 || e.v === 5) kit.real.play(MACH_PACK, 0, 0, 0, 0); // rise / retract: script 0 at the machine
-          if (e.v === 3) { kit.shake(0.2); }
+          if (e.s === 1 || e.s === 5) kit.real.play(MACH_PACK, 0, 0, 0, 0); // rise / retract: script 0 at the machine
           break;
       }
     },
@@ -1071,6 +1097,10 @@ export function createBallDefenceView(): ClientMiniGame {
     dispose() {
       active = false;
       flashes.length = 0;
+      motor?.stop();
+      motor = null;
+      shieldMaterial?.dispose();
+      shieldMaterial = undefined;
       for (const stop of catchSounds.values()) stop();
       catchSounds.clear();
       for (const v of balls.values()) removeBall(v);

@@ -18,7 +18,7 @@ import { ps1SqrtQ6 } from '../ps1Sqrt';
  *
  * Events: sfx (o = real effect id, s = slot, see re/notes/ballistix.md), goal (s = scored-on slot, o = last toucher),
  *   ko (s), kick (s), hit (o = slot, v = impact), bounce, spawn, pickup (s), shield (s, v 1/0), catch (s), launch (s),
- *   machine (v = state).
+ *   machine (s = state).
  */
 import { addBody, discRandomInt, discRandomState, emit } from '../physics';
 import { DISC_CHARACTER } from '../look';
@@ -173,11 +173,30 @@ interface Ball {
   corner: number;
   trail?: BDTrailPoint[]; // current point followed by the six previous points, in disc units
 }
-type BallistixPoolEffect = { beachPoolSlot: number } & ({ wall: number } | { releaseAt: number });
+type NBallismEffect = { kind: 'post' | 'postMarker' } | { kind: 'shield'; slot: number } | { kind: 'burst'; at: number };
+type BallistixPoolEffect = { beachPoolSlot: number } & ({ wall: number } | { releaseAt: number } | NBallismEffect);
 interface Post { i: number; t: number }
 /** Sky Balls platform event per player (0x800c1e78 + p*0x1c): offset, velocity, velocity clamp, accel up / down, direction, state, timer */
 interface SkyEv { pos: number; vel: number; max: number; ap: number; an: number; dir: number; st: number; tm: number }
-interface Mach { st: number; t: number; c: number; yaw: number; spin: number }
+interface Mach {
+  st: number; t: number; c: number; yaw: number; spin: number;
+  rise?: { tick: number; yaw: number; poseOffset: number };
+}
+
+/** Evaluate the L16 motor and pose at a rendered 30 Hz tick between two snapshots. */
+export function ballistixLauncherFrame(m: Mach, tick: number) {
+  const age = m.rise ? tick - m.rise.tick : m.st === 2 ? 10 - m.t
+    : m.st === 3 ? 101 - m.t : m.st === 4 ? 252 - m.t : m.st === 5 ? 253 : -1;
+  if (age < 0 || age > 253) return null;
+  const accelerating = Math.min(91, Math.max(0, age - 11));
+  // The first eleven turns are 32 units. Spin-up starts at 16 and adds four per tick.
+  const turn = Math.min(age, 11) * 32 + accelerating * (16 + 2 * (accelerating - 1)) + Math.max(0, age - 102) * 455;
+  return {
+    yaw: m.rise ? (m.rise.yaw + turn) & 4095 : m.yaw,
+    word: age === 0 ? 0x2001 : age < 102 ? 0x4080 + ((m.rise?.poseOffset ?? 0) + age - 1) % 60 : 0x2006,
+    motorAge: age - 11,
+  };
+}
 interface Data {
   variant: string; f: number;
   pl: Pl[]; balls: Ball[]; bid: number[]; // bid[ball.id] = body id
@@ -284,7 +303,7 @@ function freePoolSlot(d: Data, slot: number) {
 }
 
 function newBall(w: World, d: Data): Ball {
-  const beachPoolSlot = d.variant === 'beach' || isSky(d) ? allocPoolSlot(d) : undefined;
+  const beachPoolSlot = d.variant !== 'crashball' ? allocPoolSlot(d) : undefined;
   return {
     id: w.nextId++, ...(beachPoolSlot === undefined ? {} : { beachPoolSlot }),
     st: 0, x: 4096, y: -128, z: 4096, h: 0, spd: 0, tgt: 0, acc: 0, dec: 0, who: -1, hcd: 0, tm: 0,
@@ -381,11 +400,12 @@ export const ballDefence: MiniGame = {
     d.random ??= discRandomState(w.rng);
     d.shipOrder ??= ballistixShipOrder(w);
     rnd(w, 2); // FUN_800155fc advances the engine RNG once before the scene update.
-    const usesPool = beach || isSky(d);
+    const usesPool = d.variant !== 'crashball';
     if (usesPool) {
       // Old snapshots have only creation order. Preserve it for their initial slots.
       d.balls.forEach((b, i) => { b.beachPoolSlot ??= i; });
     }
+    if (d.mach) restoreNBallismEffects(d);
     const previousPost = d.post;
     controller(w, d);
     // Newly spawned posts register before the mesh pass. Expiry clears the marker afterward.
@@ -409,13 +429,9 @@ export const ballDefence: MiniGame = {
     // FUN_80084788 detects the last human's elimination after the seat pass.
     if (!humanPlaying || alive === 1) d.beachSpectatorTarget ??= -1;
     if (beach && alive === 1) d.beachDecidedAt ??= d.f;
-    pushShields(w, d);
+    if (d.mach) machine(w, d); // Slot 4 precedes the dynamic entity pool.
     if (callbacks) runPoolCallbacks(w, d, callbacks);
-    else {
-      const balls = d.balls.slice();
-      if (d.mach) machine(w, d);
-      for (const b of balls) ballFrame(w, d, b);
-    }
+    else for (const ball of d.balls.slice()) ballFrame(w, d, ball);
     d.balls = d.balls.filter((b) => b.st !== -1);
     mirror(w, d);
   },
@@ -442,17 +458,54 @@ export const ballDefence: MiniGame = {
   },
 };
 
-function runPoolCallbacks(w: World, d: Data, callbacks: (Ball | BallistixPoolEffect)[]) {
+function addNBallismEffect(d: Data, effect: NBallismEffect) {
+  (d.beachPoolEffects ??= []).push({ ...effect, beachPoolSlot: allocPoolSlot(d) });
+}
+
+// Older snapshots store a post or shield without its callback slot.
+function restoreNBallismEffects(d: Data) {
+  if (d.post && !d.beachPoolEffects?.some(e => 'kind' in e && e.kind === 'post')) {
+    addNBallismEffect(d, { kind: 'post' });
+    addNBallismEffect(d, { kind: 'postMarker' });
+  }
+  for (const [slot, p] of d.pl.entries()) {
+    if (p.shield && !d.beachPoolEffects?.some(e => 'kind' in e && e.kind === 'shield' && e.slot === slot))
+      addNBallismEffect(d, { kind: 'shield', slot });
+  }
+}
+
+function dropPoolEffect(d: Data, e: BallistixPoolEffect) {
+  freePoolSlot(d, e.beachPoolSlot);
+  d.beachPoolEffects = d.beachPoolEffects?.filter(other => other !== e);
+}
+
+function runPoolCallbacks(w: World, d: Data, callbacks: (Ball | BallistixPoolEffect)[], result = false) {
   callbacks.sort((a, b) => a.beachPoolSlot! - b.beachPoolSlot!);
   for (const entity of callbacks) {
     if ('st' in entity) {
-      ballFrame(w, d, entity);
+      if (result && (entity.st === 0 || entity.st === 0x12)) entity.st = -1;
+      else ballFrame(w, d, entity);
       if (entity.st === -1) freePoolSlot(d, entity.beachPoolSlot!);
+    } else if ('kind' in entity) {
+      if (entity.kind === 'shield') {
+        shieldFrame(w, d, entity.slot);
+        if (!d.pl[entity.slot].shield) dropPoolEffect(d, entity);
+      } else if (entity.kind === 'post') {
+        postFrame(w, d);
+        if (!d.post) {
+          const marker = d.beachPoolEffects?.find(e => 'kind' in e && e.kind === 'postMarker');
+          if (marker) dropPoolEffect(d, marker);
+          dropPoolEffect(d, entity);
+        }
+      } else if (entity.kind === 'burst') {
+        const age = d.f - entity.at;
+        launcherParticles(w, age);
+        if (age >= 12) dropPoolEffect(d, entity);
+      }
     } else if ('releaseAt' in entity ? d.f >= entity.releaseAt :
       d.beachDecidedAt !== undefined && d.f - d.beachDecidedAt >= 30) {
       if ('wall' in entity) d.walls &= ~entity.wall;
-      freePoolSlot(d, entity.beachPoolSlot);
-      d.beachPoolEffects = d.beachPoolEffects?.filter(e => e !== entity);
+      dropPoolEffect(d, entity);
     }
   }
 }
@@ -469,13 +522,15 @@ export function stepBallistixResultArena(w: World, age: number, winner?: Pick<Pl
     updateBumperLights(d);
     for (let c = 0; c < d.cool.length; c++) if (d.cool[c] > 0) d.cool[c]--;
     if (age >= 30) d.walls = 0;
+    if (d.mach) {
+      d.balls.forEach((b, i) => { b.beachPoolSlot ??= i; });
+      restoreNBallismEffects(d);
+    }
+    const callbacks = d.mach ? [...d.balls, ...(d.beachPoolEffects ?? [])] : undefined;
     if (d.mach?.st) {
       d.mach.st = 5;
       machine(w, d);
-    }
-    if (d.post && d.post.t-- <= 0) {
-      d.post = null;
-      emit(w, 'sfx', 0, 0, -1, 1, 1496);
+      delete d.mach.rise;
     }
     if (d.sky) skyPlatform(w, d, d.sky, false);
     if (winner) {
@@ -483,11 +538,14 @@ export function stepBallistixResultArena(w: World, age: number, winner?: Pick<Pl
       Object.assign(d.pl[slot], motion, { st: 0x22 });
       shipBalls(w, d, slot, winner.vel);
     }
-    const balls = d.balls.slice();
-    if (isSky(d)) balls.sort((a, b) => (a.beachPoolSlot ?? a.id) - (b.beachPoolSlot ?? b.id));
-    for (const b of balls) {
-      if (b.st === 0 || b.st === 0x12) b.st = -1;
-      else ballFrame(w, d, b);
+    if (callbacks) runPoolCallbacks(w, d, callbacks, true);
+    else {
+      const balls = d.balls.slice();
+      if (isSky(d)) balls.sort((a, b) => (a.beachPoolSlot ?? a.id) - (b.beachPoolSlot ?? b.id));
+      for (const b of balls) {
+        if (b.st === 0 || b.st === 0x12) b.st = -1;
+        else ballFrame(w, d, b);
+      }
     }
     d.balls = d.balls.filter(b => b.st !== -1);
     mirror(w, d);
@@ -546,16 +604,13 @@ function controller(w: World, d: Data) {
   if (d.beachDecidedAt !== undefined) return;
   const alive = living(d);
   const mact = !!d.mach && d.mach.st !== 0;
-  // N.Ballism power-up post
-  if (d.variant === 'nballism') {
-    if (d.post) {
-      d.post.t--;
-      if (mact || d.post.t <= 0) { emit(w, 'sfx', 0, 0, -1, 1, 1496); d.post = null; } // 0x5d8 expiry
-    } else if (!d.pl.some((p) => p.shield > 0)) {
-      if (d.postT === 0) {
-        if (!mact) spawnPost(w, d);
-        d.postT = rnd(w, 90) + 30;
-      } else d.postT--;
+  // The post joins the active item list on its second callback. Its cooldown
+  // counts down again as soon as the player takes it, even while the shield is up.
+  if (d.variant === 'nballism' && (!d.post || d.post.t === 179)) {
+    if (d.postT > 0) d.postT--;
+    else if (!d.pl.some(p => p.shield > 0)) {
+      if (!mact && !d.post) spawnPost(w, d);
+      d.postT = rnd(w, 90) + 30;
     }
   }
   // ball count
@@ -595,7 +650,10 @@ function spawnPost(w: World, d: Data) {
     const i = d.postSeq < POST_SEQ.length ? POST_SEQ[d.postSeq] : -1;
     if (i < 0) { d.postSeq = 0; continue; }
     if (out(pairs[i][0]) && out(pairs[i][1])) continue;
+    rnd(w, 8); // FUN_800bd770 consumes this draw before initializing the post.
     d.post = { i, t: 180 };
+    addNBallismEffect(d, { kind: 'post' });
+    addNBallismEffect(d, { kind: 'postMarker' });
     emit(w, 'post', 0, 0, i, 1);
     return;
   }
@@ -607,7 +665,15 @@ function machine(w: World, d: Data) {
     case 0:
       if (m.t === 0) m.st = 1; else m.t--;
       break;
-    case 1: m.st = 2; m.t = 10; emit(w, 'sfx', 0, 0, -1, 1, 1470); emit(w, 'machine', 0, 0, 1, 1); break; // rise (0x5be)
+    case 1:
+      // The VM advances the closing pose on entry to firing, then resumes there on the next rise.
+      const poseOffset = m.rise ? ((m.rise.poseOffset ?? 0) + 102) % 60 : 0;
+      m.rise = { tick: d.f, yaw: m.yaw, poseOffset };
+      addNBallismEffect(d, { kind: 'burst', at: d.f });
+      m.st = 2; m.t = 10;
+      emit(w, 'sfx', 0, 0, -1, 1, 1470);
+      emit(w, 'machine', 0, 0, 1);
+      break;
     case 2:
       m.yaw = (m.yaw + 0x20) & 4095;
       if (m.t === 0) { m.st = 3; m.t = 0x5a; m.spin = 0x10; emit(w, 'sfx', 0, 0, -1, 1, 1471); emit(w, 'machine', 0, 0, 3, 1); } else m.t--;
@@ -622,10 +688,19 @@ function machine(w: World, d: Data) {
       if (m.t === 0) m.st = 5; else m.t--;
       break;
     case 5:
+      addNBallismEffect(d, { kind: 'burst', at: d.f });
       emit(w, 'sfx', 0, 0, -1, 1, 1472); emit(w, 'machine', 0, 0, 5, 1); // retract (0x5c0)
       m.st = 0; m.t = (rnd(w, 15) + 8) * 30; d.efc = 0x19;
       break;
   }
+}
+
+// Pack 0764 script 0 emits 24 particles in four updates. Its three position
+// draws and the sprite angle use the same generator as the next CPU decision.
+function launcherParticles(w: World, age: number) {
+  if (age < 1 || age > 4) return;
+  const count = age < 4 ? 7 : 3;
+  for (let i = 0; i < count * 4; i++) rnd(w, 4096);
 }
 
 function spit(w: World, d: Data, m: Mach) {
@@ -674,11 +749,11 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
     if (pl.beachSmoke) knockoutSmokeFrame(w, d, pl, pl.beachSmoke);
     return;
   }
-  if (!beach && !sky && pl.score <= 0 && pl.st < 0x24) {
+  if (d.variant === 'crashball' && pl.score <= 0 && pl.st < 0x24) {
     enterDie(w, d, p);
     return;
   }
-  if (!beach && !sky && pl.st === 0x24) {
+  if (d.variant === 'crashball' && pl.st === 0x24) {
     pl.vel = 0;
     if (--pl.dieT <= 0) finishDie(w, d, pl, p);
     return;
@@ -806,7 +881,7 @@ function knockoutSmokeFrame(w: World, d: Data, pl: Pl, puffs: BeachSmoke[]) {
 
 function enterDie(w: World, d: Data, p: number) {
   const pl = d.pl[p];
-  const pooled = d.variant === 'beach' || isSky(d);
+  const pooled = d.variant !== 'crashball';
   if (!pooled) {
     releaseBalls(w, d, p, false);
     pl.vel = 0;
@@ -824,7 +899,7 @@ function finishDie(w: World, d: Data, pl: Pl, p: number) {
   pl.st = 0x25;
   emit(w, 'sfx', pl.x / BD_U, -pl.z / BD_U, p, 1, 1414);
   emit(w, 'gone', pl.x / BD_U, -pl.z / BD_U, p, -(pl.y ?? -128) / BD_U);
-  if (d.variant !== 'beach' && !isSky(d)) return;
+  if (d.variant === 'crashball') return;
   pl.roll = 0;
   // Pack 0762 script 0 returns its entity after 23 updates.
   (d.beachPoolEffects ??= []).push({ beachPoolSlot: allocPoolSlot(d), releaseAt: d.f + 23 });
@@ -1016,37 +1091,49 @@ function discPushOut(b: Ball, cx: number, cz: number, radius: number, h: number)
 }
 
 /** FUN_800bf2bc: a force field repels every rolling ball within 0x859 of its ship */
-function pushShields(w: World, d: Data) {
-  for (let p = 0; p < MAX_SEATS; p++) {
-    const pl = d.pl[p];
-    if (pl.shield <= 0) continue;
-    if (pl.dead) { pl.shield = 0; continue; }
-    pl.shield--;
-    if (pl.shield === 0) { emit(w, 'shield', pl.x / BD_U, -pl.z / BD_U, p, 0); emit(w, 'sfx', 0, 0, p, 1, 1496); continue; }
-    const R = 0x800 + 0x59;
-    for (const b of d.balls) {
-      if (b.st !== 1) continue;
-      const dx = b.x - pl.x, dz = b.z - pl.z;
-      const dd = dx * dx + dz * dz;
-      if (dd < R * R) { b.pshA = atan(-dx, -dz); b.psh = (R - Math.trunc(Math.sqrt(dd))) >> 4; }
+function shieldFrame(w: World, d: Data, p: number) {
+  const pl = d.pl[p];
+  if (!pl.shield) return;
+  if (pl.dead) { pl.shield = 0; return; }
+  const R = 0x800 + BALL_MARKER_RADIUS;
+  const origin = hullPoint(pl, 0, 498, 0);
+  for (const b of d.balls) {
+    if (b.st !== 1) continue;
+    const dx = b.x - origin.x, dz = b.z - origin.z;
+    const dd = dx * dx + dz * dz;
+    if (dd < R * R) {
+      b.pshA = discAngle(-dx, -dz);
+      b.psh = (R - (ps1SqrtQ6(dd) >> 6)) >> 4;
     }
   }
+  if (--pl.shield === 0) {
+    emit(w, 'shield', pl.x / BD_U, -pl.z / BD_U, p, 0);
+    emit(w, 'sfx', 0, 0, p, 1, 1496);
+  }
+}
+
+function postFrame(w: World, d: Data) {
   // power-up pickup (FUN_800bdab8)
   if (d.variant === 'nballism' && d.post) {
     const [cx, cz, cr] = bumpers(d)[d.post.i];
     for (let p = 0; p < MAX_SEATS; p++) {
       const pl = d.pl[p];
-      if (pl.dead) continue;
+      if (d.post.t >= 179 || pl.dead) continue;
       const R = cr + 345 + 0x40; // 800bdab8 reads the ship's flagged body radius.
       const dx = pl.x - cx, dz = pl.z - cz;
       if (dx * dx + dz * dz < R * R) {
-        pl.shield = 0xf0;
+        addNBallismEffect(d, { kind: 'shield', slot: p });
+        pl.shield = 0xf1; // Creation frame plus 240 updates of the field actor.
         emit(w, 'pickup', cx / BD_U, -cz / BD_U, p, 1);
         emit(w, 'shield', pl.x / BD_U, -pl.z / BD_U, p, 1);
         emit(w, 'sfx', 0, 0, p, 1, 1498); // 0x5da
         d.post = null;
         break;
       }
+    }
+    if (d.post && (d.mach?.st || d.post.t-- === 0)) {
+      emit(w, 'sfx', 0, 0, -1, 1, 1496);
+      d.post = null;
     }
   }
 }
@@ -1341,7 +1428,7 @@ function applyPush(d: Data, b: Ball) {
   if (b.psh === 0) return;
   const vx = ((b.spd * sinq(b.h)) >> 12) + ((b.psh * sinq(b.pshA)) >> 12);
   const vz = ((b.spd * cosq(b.h)) >> 12) + ((b.psh * cosq(b.pshA)) >> 12);
-  b.h = d.tilt ? discAngle(vx, vz) : atan(vx, vz);
+  b.h = discAngle(vx, vz);
 }
 
 /** Sky Balls platform: who the event goes to (0x800c19fc, the 4-player table: never player 1) */
@@ -1422,7 +1509,7 @@ function scoreBall(w: World, d: Data, b: Ball) {
   emit(w, 'sfx', pl.x / BD_U, -pl.z / BD_U, p, 1, SIDE_SFX[p]);
   pl.score--;
   if (pl.score === 0) {
-    if (d.variant === 'beach' || isSky(d)) pl.dead = d.f;
+    if (d.variant !== 'crashball') pl.dead = d.f;
     if (d.beachSpectatorTarget === p) d.beachSpectatorTarget = -1;
   }
   emit(w, 'goal', b.x / BD_U, -b.z / BD_U, p, 1, -1);
@@ -1553,8 +1640,8 @@ function ballistixCpuPad(w: World, d: Data, slot: number): InputState {
   // The +x seat also applies its bias on x, the fixed axis of its slide.
   if (slot === 3) tz -= bias;
   else tx += slot === 0 ? bias : -bias;
-  if (d.variant === 'nballism' && d.post) {
-    const [x, , z] = BD_POST_AT[d.post.i];
+  if (d.variant === 'nballism' && d.post && d.post.t <= 178) {
+    const [x, z] = bumpers(d)[d.post.i];
     const offset = Math.max(1, (32 - skill) * 32);
     const distance = (pl.x - x + offset) ** 2 + (pl.z - z + offset) ** 2;
     if (distance < best) { best = distance; tx = x; tz = z; }

@@ -272,7 +272,7 @@ export class GameClient {
       if (this.round?.gameId === 'ballDefence' && t < 1 && (data.variant === 'crashball' || data.variant === 'nballism')) {
         const elapsed = Math.floor(t * (b.tick - a.tick) + 1e-7);
         const ahead = b.tick - a.tick - elapsed;
-        const future = b.w.data;
+        const future = b.w.data as BallistixData;
         const lights = ahead < 8 && future.bumperFrames !== undefined
           ? (future.bumperFrames >>> (4 * ahead)) & 15
           : (data.bumperFrames ?? (data.post ? 1 << data.post.i : 0)) & 15;
@@ -281,7 +281,19 @@ export class GameClient {
           return next > 0 && next + ahead <= 31 ? next + ahead : Math.max(0, timer - elapsed);
         });
         const flashes = ahead <= 8 ? future.flashes : data.flashes;
-        world.ballistixMarkers = { lights, cool, tick: data.f + elapsed, flashes };
+        const tick = data.f + elapsed;
+        const markers: NonNullable<RenderWorld['ballistixMarkers']> = { lights, cool, tick, flashes };
+        world.ballistixMarkers = markers;
+        if (data.variant === 'nballism') {
+          const rise = future.mach?.rise;
+          if (rise && rise.tick > data.f && rise.tick <= tick)
+            world.data = { ...data, mach: { ...data.mach, rise } };
+          markers.shields = future.pl.map((p, i) => {
+            const before = data.pl[i].shield;
+            if (p.shield > 0 && p.shield + ahead <= 241) return p.shield + ahead;
+            return Math.max(0, before - elapsed);
+          });
+        }
       }
     }
     const pw = this.predictor?.pred;

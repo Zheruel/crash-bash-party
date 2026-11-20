@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { ballDefence, ballistixOpeningFrame, stepBallistixResultArena, type BallistixData } from '../shared/games/ballDefence';
+import { ballDefence, ballistixOpeningFrame, ballistixLauncherFrame, stepBallistixResultArena, type BallistixData } from '../shared/games/ballDefence';
 import { cloneWorld, createWorld, stepWorld } from '../shared/sim';
 import { IDLE } from '../shared/types';
 import { GameClient } from '../client/session';
@@ -95,10 +95,56 @@ for (const variant of ['crashball', 'beach', 'nballism', 'sky']) {
   const { w, d } = ready('nballism');
   d.post = { i: 2, t: 1 };
   stepWorld(w, ballDefence, []);
+  assert.equal(d.post.t, 0);
+  stepWorld(w, ballDefence, []);
   assert.equal(d.post, null);
   assert.equal(d.bumperFrames! & 15, 4);
   stepWorld(w, ballDefence, []);
   assert.equal(d.bumperFrames! & 15, 0);
+}
+// L16 seed 17654, one human and three Normal CPUs. Two pickups put the
+// shield callback on opposite sides of a rolling ball in the entity pool.
+{
+  const seats = [2, 4, 7, 6].map((char, slot) => ({ slot, char, name: String(slot), bot: slot > 0, level: 1 }));
+  const w = createWorld(ballDefence, seats, [], 17654, 'nballism');
+  const d = w.data as BallistixData;
+  const tick = () => stepWorld(w, ballDefence, [IDLE, ...[1, 2, 3].map(s => ballDefence.bot!(w, s))]);
+  const until = (target: number) => { while (w.tick < target) tick(); };
+  until(82);
+  assert.deepEqual([d.post?.i, d.post?.t, d.postT], [1, 179, 70]);
+  until(95);
+  assert.equal(d.pl[2].shield, 241);
+  until(117);
+  assert.equal(d.balls[0].h, 3469);
+  tick();
+  assert.equal(d.balls[0].h, 3457);
+  until(290);
+  const beforeRise = cloneWorld(w);
+  until(299);
+  const client = new GameClient(() => { throw Error('offline fixture'); }, { name: 'Guest', look: { char: 8, color: 1 } });
+  client.round = { t: 'round', round: 1, total: 1, showdown: false, gameId: ballDefence.id, gameName: ballDefence.name, desc: '', controls: '', seats: [], modifier: null };
+  client.phase = 'play';
+  client.snaps = [{ w: beforeRise, tick: 290, at: 0 }, { w: cloneWorld(w), tick: 299, at: 300 }];
+  for (const [tick, word, yaw] of [[292, 0, 0], [293, 0x2001, 0], [294, 0x4080, 32], [298, 0x4084, 160]]) {
+    const rendered = client.renderWorld((tick - 290) * 1000 / 30 + 100.001)!;
+    const pose = ballistixLauncherFrame(rendered.data.mach, rendered.ballistixMarkers!.tick);
+    assert.deepEqual([pose?.word ?? 0, pose?.yaw ?? 0], [word, yaw]);
+    assert.equal(rendered.ballistixMarkers!.shields![2], 336 - tick);
+  }
+  until(395);
+  assert.deepEqual(ballistixLauncherFrame(d.mach!, d.f), { yaw: 1804, word: 0x2006, motorAge: 91 });
+  until(546);
+  assert.equal(ballistixLauncherFrame(d.mach!, d.f)?.word, 0x2006);
+  tick();
+  assert.equal(ballistixLauncherFrame(d.mach!, d.f), null);
+  until(674);
+  assert.equal(d.pl[3].shield, 240);
+  assert.equal(d.balls[0].h, 3984);
+  until(1000);
+  assert.equal(ballistixLauncherFrame(d.mach!, d.f)?.word, 0x40aa);
+  until(2822);
+  assert.deepEqual(d.pl.map(p => p.score), [0, 11, 0, 0]);
+  assert.deepEqual(d.random, [1309358587, 2788032768]);
 }
 // Three successive machine launches captured on USA L16. The new ball stays
 // at the muzzle for its birth tick and rebounds off the machine on the next.

@@ -63,7 +63,7 @@ for (const stage of stages) {
       const shield = fixture(stage, level);
       shield.d.post = { i: 3, t: 45 };
       const pad = shield.step();
-      assert.deepEqual([pad.x, !!pad.r], [-1, level === 2]);
+      assert.deepEqual([pad.x, !!pad.r], [level === 0 ? 0 : -1, level === 2]);
     }
   }
 
