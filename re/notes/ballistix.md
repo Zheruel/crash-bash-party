@@ -102,6 +102,14 @@ N. Gin’s launcher joins the collision list at spin-up and leaves it at retract
 - When no human remains in play, `FUN_80084788` latches spectator mode at the end of the seat pass. On the next frame `FUN_800b40ac` picks the first living seat with the lowest score. That seat gets skill 0 and opponent-selection weight 32. The other seats get skill 32 and weight 4. The target stays selected until it loses its last point. The second kick probe in spectator mode permits a blind kick only when the lapse is zero and rand(24) is at most the acting seat's skill.
 - An eliminated CPU's planner runs until the hull has sunk out of sight. The 61-tick dying state ends with `FUN_800898ec` drawing three rand(10) smoke delays and rand(2) for sound 451 or 452. `FUN_80089be8` adds rand(2048) at each puff launch and rand(10) when it hits the floor or reaches its scale limit. The sim keeps the puff timers in the snapshot so these draws run before later seats in the same frame.
 
+### Crashball, N. Ballism and Sky Balls defenders
+
+All four versus stages install `800b8a68`. Even on Sky Balls the defender tests the rolling ball's ray against the straight line at ±1952. A ship can wait, taunt, roam, or defend. The selected opponent offsets the predicted intercept. In N. Ballism an active shield post competes with the closest ball threat using the post actor's position. Away from Beach Ball the kick branch draws from 32, sets a lapse of 32 plus half the skill deficit, and tests the narrow goal once. The selected pad takes effect one tick later.
+
+Running the USA L14, L16 and L17 callbacks on 1,800 controlled cases per stage matched all 5,400 steering and action decisions, target and timer updates, and final RNG pairs. Cases include all seats and skills, spectator targeting, bouncing balls within kick range, and simultaneous incoming balls. The host and client prediction run the same planner in the shuffled seat pass. The pending pad and controller identity survive snapshot replay. Run `npx tsx scripts/test-ballistix-cpu.ts` from `web` for the fixed-input and takeover regressions.
+
+The L17 match checkpoint at frame 2072 matched continuously for 420 updates with one idle human and three Normal CPUs. Comparison covered staged pads, CPU state, ship movement and kick cooldowns, scores, balls, platform events, tilt, and both RNG words. At frame 2233 two rolling balls contact after the newer one reuses the lower pool slot. The disc updates it first. The same contact now resolves in slot order during play and result replay.
+
 ### Beach Ball entity pool and victory
 
 - Balls (`0x1501`), closed-goal barriers (`0x1505`) and the knockout burst (`0x1605`) share the dynamic entity pool. `FUN_80022a3c` takes the free-list head and `FUN_80022fd4` pushes released slots onto it. The capture numbers dynamic slots from `0x801c91c8` at 0x70-byte intervals.

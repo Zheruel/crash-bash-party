@@ -185,4 +185,17 @@ for (const [state, expected] of [
     assert(!w.bodies.some(body => body.id === b.id));
   }
 }
+// L17 frame 2233. A respawn reused the lower slot while an older ball was still rolling.
+for (const terminal of [false, true]) {
+  const { w, d, b } = ready('sky');
+  w.tick = d.f = 2232;
+  d.efc = 30;
+  Object.assign(b, { x: -134, y: -196, z: 1329, h: 3844, spd: 194, tgt: 128, dec: 1, beachPoolSlot: 1 });
+  const respawn = { ...b, id: w.nextId++, y: -191, z: 922, h: 2375, spd: 80, tgt: 80, beachPoolSlot: 0 };
+  d.balls.push(respawn);
+  if (terminal) stepBallistixResultArena(w, 1);
+  else stepWorld(w, ballDefence, []);
+  assert.deepEqual(d.balls.map(b => [b.x, b.y, b.z, b.h, b.spd]),
+    [[-58, -196, 1168, 2577, 136], [-95, -194, 993, 138, 136]]);
+}
 console.log('Ballistix contacts, launches, Sky Balls platform motion and ball trajectories matched.');

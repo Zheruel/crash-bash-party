@@ -2,7 +2,7 @@
 // seen through the real play and result cameras. Stage pieces come from the disc models listed in assets/stages/ballDefence.json;
 // floors and walls that the disc stores elsewhere are rebuilt here from the same level textures.
 import * as THREE from 'three';
-import { ballistixFloor, BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_U, skyOpeningFrame, type BallistixData } from '../../shared/games/ballDefence';
+import { ballistixFloor, BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_POST_AT, BD_U, skyOpeningFrame, type BallistixData } from '../../shared/games/ballDefence';
 import type { Body, GameEvent } from '../../shared/types';
 import type { BlobShadow } from '../fx';
 import { ASSET_BASE, getCatalog, type ModelRef } from '../crash';
@@ -24,8 +24,6 @@ const KNOCKOUT_FRAMES = 61;
 /** N.Gin machine pack (db 0x80054574 = disc 0764: part0 render id 0x2001, part5 0x2006 while it spits, script 0 = rise / retract
  *  puff) and the N.Ballism level model, whose looping script 1 is the power-up post (FUN_800bd770 at the corner bumper) */
 const MACH_PACK = 764, POST_PACK = 651;
-/** post markers 0x8005b2b8[4..7] in the N.Ballism level (u, y down; read from the running level) */
-const POST_AT = [[1649, -373, 1655], [1649, -373, -1640], [-1663, -373, 1655], [-1646, -373, -1640]];
 import type { ClientMiniGame } from './types';
 import { bigNumber, faceSprite, type HudSprite, SLOT_X } from '../ui/ps1hud';
 import { applyPose, LEVEL_CAMS, asDecal, levelStage, loadPlacements, ps1Pose, type LevelStageOpts, type Placements } from './ps1cam';
@@ -968,7 +966,7 @@ export function createBallDefenceView(): ClientMiniGame {
 
       // N.Ballism power-up post: the level's looping effect script 1 at its marker (FUN_800bd770); it ends with the post
       if (stageData.post) {
-        const [cx, cy, cz] = POST_AT[stageData.post.i];
+        const [cx, cy, cz] = BD_POST_AT[stageData.post.i];
         if (!post) {
           const at = { x: cx / BD_U, y: -cy / BD_U, z: -cz / BD_U };
           post = at;

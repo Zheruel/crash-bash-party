@@ -70,13 +70,16 @@ const FACE = [0x800, 0, 0x400, 0xc00];
 const LINES: number[][] = [[-2048, -1952, 2048, -1952], [-2048, 1952, 2048, 1952], [1952, -2048, 1952, 2048], [-1952, -2048, -1952, 2048]];
 /** AI error windows (0x800c1980) */
 const WIN = [0x100, 0x140, 0x180, 0x1c0, 0x280, 0x240, 0x280, 0x2c0, 0x300, 0x340, 0x380, 0x3c0, 0x480, 0x440, 0x480, 0x4c0,
-  0x500, 0x540, 0x580, 0x5c0, 0x680, 0x640, 0x680, 0x6c0, 0x700, 0x740, 0x780, 0x7c0, 0x880, 0x840, 0x880, 0x8c0];
+  0x500, 0x540, 0x580, 0x5c0, 0x680, 0x640, 0x680, 0x6c0, 0x700, 0x740, 0x780, 0x7c0, 0x880, 0x840, 0x880, 0x8c0,
+  0x271c]; // skill 0 with five balls reads the low half of the following pointer.
 const CNT_OFF = [16, 8, 4, 2, 1, 0, 0, 0, 0, 0]; // 0x800c1328, indexed by ball count
 /** Party-mode CPU skills (the EASY/MEDIUM/HARD tables pointed to by 0x8009d900). */
 const BOT_SKILLS: Record<string, number[]> = {
   crashball: [2, 10, 18], beach: [2, 11, 19], nballism: [2, 11, 18], sky: [6, 14, 20],
 };
 const PAD_BITS = [0x10, 0x30, 0x20, 0x60, 0x40, 0xc0, 0x80, 0x90]; // 0x80051244: direction bits per 45 deg of angle
+/** post markers 0x8005b2b8[4..7] in the N.Ballism level (u, y down; read from the running level) */
+export const BD_POST_AT = [[1649, -373, 1655], [1649, -373, -1640], [-1663, -373, 1655], [-1646, -373, -1640]];
 const POST_SEQ = [0, 1, 2, 3, 1, 3, 0, 1, 0, 3, 2, 1, 2, 0, 2, 3]; // 0x800c1440, indexed by running counter
 const RING = 2304; // Sky Balls ship orbit radius
 const BALL_MARKER_RADIUS = 89; // 0762 ball collision marker
@@ -100,9 +103,7 @@ const discAngle = (x: number, z: number) => atan2g(x, z) & 4095;
 /** signed difference b - a in -0x800..0x7ff (FUN_800154a0) */
 const adiff = (a: number, b: number) => { const d = (b - a) & 4095; return d >= 0x800 ? d - 4096 : d; };
 const aabs = (a: number, b: number) => Math.abs(adiff(a, b));
-const rnd = discRandomInt; // Beach uses the disc pair. The other variants keep their existing stream.
-/** deterministic pseudo random for the bot (must not touch w.rng) */
-const hash = (...v: number[]) => { let h = 0x811c9dc5; for (const x of v) { h = Math.imul(h ^ (x | 0), 0x01000193); h ^= h >>> 15; } return (h >>> 0) / 4294967296; };
+const rnd = discRandomInt;
 
 // ---------------------------------------------------------------- state
 interface Pl {
@@ -123,7 +124,7 @@ interface Pl {
   idleAt: number; // frame origin of script 0x1b, or -1 when inactive
   hold: number; // catch timer (0x8009d590)
   arm: number; // CPU release arming (+0x28)
-  beachCpu?: BeachCpu;
+  beachCpu?: BallistixCpu; // Original wire field, shared by all four arenas.
   cpuFallback?: true;
   cpu: boolean;
   skill: number;
@@ -144,7 +145,7 @@ interface BeachSmoke {
   y: number;
   vy: number;
 }
-interface BeachCpu {
+interface BallistixCpu {
   target: number;
   roamX: number;
   roamZ: number;
@@ -172,7 +173,7 @@ interface Ball {
   corner: number;
   trail?: BDTrailPoint[]; // current point followed by the six previous points, in disc units
 }
-type BeachPoolEffect = { beachPoolSlot: number } & ({ wall: number } | { releaseAt: number });
+type BallistixPoolEffect = { beachPoolSlot: number } & ({ wall: number } | { releaseAt: number });
 interface Post { i: number; t: number }
 /** Sky Balls platform event per player (0x800c1e78 + p*0x1c): offset, velocity, velocity clamp, accel up / down, direction, state, timer */
 interface SkyEv { pos: number; vel: number; max: number; ap: number; an: number; dir: number; st: number; tm: number }
@@ -181,7 +182,7 @@ interface Data {
   variant: string; f: number;
   pl: Pl[]; balls: Ball[]; bid: number[]; // bid[ball.id] = body id
   beachFreeBallSlots?: number[]; // Shared free stack. Keep the original snapshot field name.
-  beachPoolEffects?: BeachPoolEffect[];
+  beachPoolEffects?: BallistixPoolEffect[];
   ef8: number; efc: number; efa: number; off: number;
   last: number; // side that conceded last (0x800c1f16), -1 none
   walls: number; // closed goals bitmask 1=z- 2=z+ 4=x- 8=x+ (game axes)
@@ -245,7 +246,7 @@ const living = (d: Data) => d.pl.filter((p) => p.score > 0).length;
 
 export const bdBallY = (y: number) => -(y + 96) / BD_U; // disc y -> sim height above the floor
 
-const CPU_CONTROL = Symbol('Beach Ball CPU control');
+const CPU_CONTROL = Symbol('Ballistix CPU control');
 const cpuRequest = { ...IDLE, [CPU_CONTROL]: true };
 
 /** FUN_80085650: sixteen rows of four swaps, each against any seat in its row. */
@@ -268,19 +269,19 @@ function crashballFlash(w: World, d: Data, tick: number) {
 }
 
 // ---------------------------------------------------------------- setup
-function beachAllocSlot(d: Data): number {
+function allocPoolSlot(d: Data): number {
   // FUN_80022a3c / FUN_80022fd4: returned slots go ahead of untouched slots.
   return d.beachFreeBallSlots?.pop() ?? 1 + Math.max(-1,
     ...d.balls.map((b, i) => b.beachPoolSlot ?? i),
     ...(d.beachPoolEffects ?? []).map(e => e.beachPoolSlot));
 }
 
-function beachFreeSlot(d: Data, slot: number) {
+function freePoolSlot(d: Data, slot: number) {
   (d.beachFreeBallSlots ??= []).push(slot);
 }
 
 function newBall(w: World, d: Data): Ball {
-  const beachPoolSlot = d.variant === 'beach' ? beachAllocSlot(d) : undefined;
+  const beachPoolSlot = d.variant === 'beach' || isSky(d) ? allocPoolSlot(d) : undefined;
   return {
     id: w.nextId++, ...(beachPoolSlot === undefined ? {} : { beachPoolSlot }),
     st: 0, x: 4096, y: -128, z: 4096, h: 0, spd: 0, tgt: 0, acc: 0, dec: 0, who: -1, hcd: 0, tm: 0,
@@ -313,21 +314,16 @@ export const ballDefence: MiniGame = {
       cool: [0, 0, 0, 0], postT: variant === 'nballism' ? 81 : 180, postSeq: 0, post: null, mach: null,
     };
     w.data = d;
-    if (variant === 'beach' || variant === 'crashball') {
-      d.random = discRandomState(w.rng);
-      // The engine allocates all four AI records before shuffling, even for human seats.
-      for (let i = 0; i < MAX_SEATS; i++) rnd(w, 60);
-      d.shipOrder = ballistixShipOrder(w);
-    }
+    d.random = discRandomState(w.rng);
+    // The engine allocates all four AI records before shuffling, even for human seats.
+    for (let i = 0; i < MAX_SEATS; i++) rnd(w, 60);
+    d.shipOrder = ballistixShipOrder(w);
     d.postSeq = rnd(w, 15);
-    if (variant === 'beach') {
-      // The arena initializer also seeds the two event tables in individual versus.
-      rnd(w, 18);
-      rnd(w, 18);
-    }
+    rnd(w, 18); // First event table at 0x800c1c74.
+    const skyIndex = rnd(w, 18); // Second event table at 0x800c1c7c.
     if (variant === 'nballism') d.mach = { st: 0, t: 291, c: 0, yaw: 0, spin: 0 };
     if (variant === 'sky') { // The 270-tick tilt timer has counted down to 171 at GO.
-      d.sky = { ev: [0, 1, 2, 3].map(() => ({ pos: 0, vel: 0, max: 0, ap: 0, an: 0, dir: 0, st: 0, tm: 0 })), t: 171, i: rnd(w, 0x12) };
+      d.sky = { ev: [0, 1, 2, 3].map(() => ({ pos: 0, vel: 0, max: 0, ap: 0, an: 0, dir: 0, st: 0, tm: 0 })), t: 171, i: skyIndex };
       d.tilt = [...skyOpeningFrame(0).tilt];
     }
     for (let i = 0; i < MAX_SEATS; i++) {
@@ -375,12 +371,11 @@ export const ballDefence: MiniGame = {
       mirror(w, d);
       return;
     }
-    if (beach || d.variant === 'crashball') {
-      d.random ??= discRandomState(w.rng);
-      d.shipOrder ??= ballistixShipOrder(w);
-      rnd(w, 2); // FUN_800155fc advances the engine RNG once before the scene update.
-    }
-    if (beach) {
+    d.random ??= discRandomState(w.rng);
+    d.shipOrder ??= ballistixShipOrder(w);
+    rnd(w, 2); // FUN_800155fc advances the engine RNG once before the scene update.
+    const usesPool = beach || isSky(d);
+    if (usesPool) {
       // Old snapshots have only creation order. Preserve it for their initial slots.
       d.balls.forEach((b, i) => { b.beachPoolSlot ??= i; });
     }
@@ -389,32 +384,26 @@ export const ballDefence: MiniGame = {
     // Newly spawned posts register before the mesh pass. Expiry clears the marker afterward.
     updateBumperLights(d, previousPost ?? d.post);
     // FUN_8007906c collects callbacks after the arena controller and before the seats.
-    const callbacks = beach ? [...d.balls, ...(d.beachPoolEffects ?? [])] : undefined;
-    if (beach && d.shipOrder) {
-      let humanPlaying = false;
-      for (const p of d.shipOrder[rnd(w, 16)]) {
-        const pl = d.pl[p], input = inputs[p];
-        // The host supplies a CPU request for vacancies and disconnects. Prediction
-        // has missing pads, so it carries the last known controller from the snapshot.
-        const cpu = input ? CPU_CONTROL in input : pl.cpu || pl.cpuFallback === true;
-        humanPlaying ||= !cpu && pl.score > 0;
-        if (!pl.cpu && cpu) pl.cpuFallback = true;
-        else if (pl.cpuFallback) delete pl.cpuFallback;
-        if (!cpu && pl.beachCpu?.nextPad) delete pl.beachCpu.nextPad;
-        if (pl.st !== 0x25 || pl.beachSmoke) tickKickCooldown(pl);
-        const pad = cpu ? beachCpuPad(w, d, p) : input ?? IDLE;
-        playerFrame(w, d, p, pl.score <= 0 || d.beachDecidedAt !== undefined ? IDLE : pad, cpu);
-      }
-      // FUN_80084788 detects the last human's elimination after the seat pass.
-      if (!humanPlaying || alive === 1) d.beachSpectatorTarget ??= -1;
-      if (alive === 1) d.beachDecidedAt ??= d.f;
-    } else if (d.variant === 'crashball' && d.shipOrder) {
-      for (const p of d.shipOrder[rnd(w, 16)]) playerFrame(w, d, p, inputs[p] ?? IDLE);
-    } else {
-      for (let p = 0; p < MAX_SEATS; p++) playerFrame(w, d, p, inputs[p] ?? IDLE);
+    const callbacks = usesPool ? [...d.balls, ...(d.beachPoolEffects ?? [])] : undefined;
+    let humanPlaying = false;
+    for (const p of d.shipOrder[rnd(w, 16)]) {
+      const pl = d.pl[p], input = inputs[p];
+      // The host supplies a CPU request for vacancies and disconnects. Prediction
+      // has missing pads, so it carries the last known controller from the snapshot.
+      const cpu = input ? CPU_CONTROL in input : pl.cpu || pl.cpuFallback === true;
+      humanPlaying ||= !cpu && pl.score > 0;
+      if (!pl.cpu && cpu) pl.cpuFallback = true;
+      else if (pl.cpuFallback) delete pl.cpuFallback;
+      if (!cpu && pl.beachCpu?.nextPad) delete pl.beachCpu.nextPad;
+      if (pl.st !== 0x25 || pl.beachSmoke) tickKickCooldown(pl);
+      const pad = cpu ? ballistixCpuPad(w, d, p) : input ?? IDLE;
+      playerFrame(w, d, p, pl.score <= 0 || d.beachDecidedAt !== undefined ? IDLE : pad, cpu);
     }
+    // FUN_80084788 detects the last human's elimination after the seat pass.
+    if (!humanPlaying || alive === 1) d.beachSpectatorTarget ??= -1;
+    if (beach && alive === 1) d.beachDecidedAt ??= d.f;
     pushShields(w, d);
-    if (callbacks) beachPoolFrame(w, d, callbacks);
+    if (callbacks) runPoolCallbacks(w, d, callbacks);
     else {
       const balls = d.balls.slice();
       if (d.mach) machine(w, d);
@@ -441,23 +430,21 @@ export const ballDefence: MiniGame = {
     });
   },
 
-  bot(w, slot) {
-    const d = w.data as Data;
-    if (d.variant === 'beach') return cpuRequest;
-    return botInput(w, d, slot);
+  bot() {
+    return cpuRequest;
   },
 };
 
-function beachPoolFrame(w: World, d: Data, callbacks: (Ball | BeachPoolEffect)[]) {
+function runPoolCallbacks(w: World, d: Data, callbacks: (Ball | BallistixPoolEffect)[]) {
   callbacks.sort((a, b) => a.beachPoolSlot! - b.beachPoolSlot!);
   for (const entity of callbacks) {
     if ('st' in entity) {
       ballFrame(w, d, entity);
-      if (entity.st === -1) beachFreeSlot(d, entity.beachPoolSlot!);
+      if (entity.st === -1) freePoolSlot(d, entity.beachPoolSlot!);
     } else if ('releaseAt' in entity ? d.f >= entity.releaseAt :
       d.beachDecidedAt !== undefined && d.f - d.beachDecidedAt >= 30) {
       if ('wall' in entity) d.walls &= ~entity.wall;
-      beachFreeSlot(d, entity.beachPoolSlot);
+      freePoolSlot(d, entity.beachPoolSlot);
       d.beachPoolEffects = d.beachPoolEffects?.filter(e => e !== entity);
     }
   }
@@ -489,7 +476,9 @@ export function stepBallistixResultArena(w: World, age: number, winner?: Pick<Pl
       Object.assign(d.pl[slot], motion, { st: 0x22 });
       shipBalls(w, d, slot, winner.vel);
     }
-    for (const b of d.balls.slice()) {
+    const balls = d.balls.slice();
+    if (isSky(d)) balls.sort((a, b) => (a.beachPoolSlot ?? a.id) - (b.beachPoolSlot ?? b.id));
+    for (const b of balls) {
       if (b.st === 0 || b.st === 0x12) b.st = -1;
       else ballFrame(w, d, b);
     }
@@ -655,7 +644,7 @@ function tickKickCooldown(pl: Pl) {
   else if (pl.kpen > 0) pl.kpen--;
 }
 
-function beachIdleFrame(w: World, d: Data, pl: Pl) {
+function idleFrame(w: World, d: Data, pl: Pl) {
   if (pl.idleAt >= 0) {
     if (d.f - pl.idleAt >= IDLE_POSE_TICKS[pl.character]) {
       pl.idleAt = -1;
@@ -724,9 +713,8 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
   pl.boost = boost;
   // --- state machine (FUN_800b66d0 / b60fc)
   const previous = pl.st;
-  if (!beach) tickKickCooldown(pl);
   // The idle callback runs before the catch, kick and movement transitions.
-  if (beach && previous === 0x1c && !edgeC) beachIdleFrame(w, d, pl);
+  if (previous === 0x1c && !edgeC) idleFrame(w, d, pl);
   if (pl.st === 0x1f) {
     kickUpdate(w, d, p);
   } else if (pl.st === 0x21) {
@@ -759,14 +747,6 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
     pl.stateAt = d.f;
     pl.idleAt = -1;
     if (pl.st === 0x1c) pl.idleT = rnd(w, 150) + 180;
-  } else if (!beach && pl.st === 0x1c) {
-    if ((pl.idleAt ?? -1) >= 0) {
-      if (d.f - pl.idleAt >= IDLE_POSE_TICKS[pl.character]) pl.idleAt = -1;
-    } else if ((pl.idleT ?? 0) > 0) pl.idleT--;
-    else {
-      pl.idleAt = d.f;
-      pl.idleT = rnd(w, 600) + 300;
-    }
   }
   // --- apply motion (FUN_800b5c30 / b5ec8)
   const sm = w.params.speed;
@@ -827,7 +807,7 @@ function enterDie(w: World, d: Data, p: number) {
   pl.st = 0x24; pl.stateAt = d.f; pl.dieT = beach ? 61 : 60; pl.dead ||= d.f;
   if (!d.walls) emit(w, 'sfx', 0, 0, -1, 1, 1425); // goal wall closes (0x591/0x592)
   const wall = [1, 2, 8, 4][p];
-  if (beach) (d.beachPoolEffects ??= []).push({ beachPoolSlot: beachAllocSlot(d), wall });
+  if (beach) (d.beachPoolEffects ??= []).push({ beachPoolSlot: allocPoolSlot(d), wall });
   d.walls |= wall;
   pl.shield = 0;
   emit(w, 'ko', pl.x / BD_U, -pl.z / BD_U, p, 1);
@@ -840,7 +820,7 @@ function finishDie(w: World, d: Data, pl: Pl, p: number) {
   if (d.variant !== 'beach') return;
   pl.roll = 0;
   // Pack 0762 script 0 returns its entity after 23 updates.
-  (d.beachPoolEffects ??= []).push({ beachPoolSlot: beachAllocSlot(d), releaseAt: d.f + 23 });
+  (d.beachPoolEffects ??= []).push({ beachPoolSlot: allocPoolSlot(d), releaseAt: d.f + 23 });
   // FUN_800898ec: three smoke delays and a choice of knockout sound.
   pl.beachSmoke = [0, 3, 6].map(offset => ({ wait: rnd(w, 10) + offset, age: -1, y: 0, vy: 0 }));
   emit(w, 'sfx', pl.x / BD_U, -pl.z / BD_U, p, 1, 451 + rnd(w, 2));
@@ -1434,8 +1414,8 @@ function scoreBall(w: World, d: Data, b: Ball) {
   d.last = p;
   emit(w, 'sfx', pl.x / BD_U, -pl.z / BD_U, p, 1, SIDE_SFX[p]);
   pl.score--;
-  if (pl.score === 0 && d.variant === 'beach') {
-    pl.dead = d.f;
+  if (pl.score === 0) {
+    if (d.variant === 'beach') pl.dead = d.f;
     if (d.beachSpectatorTarget === p) d.beachSpectatorTarget = -1;
   }
   emit(w, 'goal', b.x / BD_U, -b.z / BD_U, p, 1, -1);
@@ -1485,30 +1465,28 @@ function resolveContact(a: Ball, radius: number, other?: Ball): boolean {
   return true;
 }
 
-// ---------------------------------------------------------------- Beach Ball CPU (FUN_800b8a68, four-seat party mode)
+// ---------------------------------------------------------------- Ballistix CPU (FUN_800b8a68, four-seat party mode)
 // Attack aims at the goal mouth. Defence predicts against the wider line in front of it.
-const BEACH_GOALS = [[-1280, -2048, 1280, -2048], [-1280, 2048, 1280, 2048],
+const GOAL_LINES = [[-1280, -2048, 1280, -2048], [-1280, 2048, 1280, 2048],
   [2048, -1280, 2048, 1280], [-2048, -1280, -2048, 1280]];
 // Opponent order from 0x800c19c0, indexed here by the defending seat.
-const BEACH_BIAS_ORDER = [[3, 1, 2], [2, 0, 3], [0, 3, 1], [1, 2, 0]];
+const BIAS_ORDER = [[3, 1, 2], [2, 0, 3], [0, 3, 1], [1, 2, 0]];
 
-function beachSkill(d: Data, slot: number): number {
+function cpuSkill(d: Data, slot: number): number {
   if (d.beachSpectatorTarget !== undefined &&
       (d.beachSpectatorTarget !== -1 || d.beachDecidedAt !== undefined)) {
     return slot === d.beachSpectatorTarget ? 0 : 32;
   }
-  return d.pl[slot].skill ?? BOT_SKILLS.beach[2];
+  return d.pl[slot].skill ?? BOT_SKILLS[d.variant][2];
 }
 
-
-
 /** FUN_800b7c60 / FUN_800b808c: intersect two segments in 16 u steps, then interpolate on the goal line. */
-function beachRay(d: Data, slot: number, b: Ball, heading: number, goal: boolean, draw: (n: number) => number) {
-  const skill = beachSkill(d, slot);
+function cpuRay(d: Data, slot: number, b: Ball, heading: number, goal: boolean, draw: (n: number) => number) {
+  const skill = cpuSkill(d, slot);
   const win = WIN[Math.max(0, 0x20 - skill - d.off)];
   const h = heading + draw(win) - win;
   const x2 = b.x - sinq(h), z2 = b.z - cosq(h);
-  const [lx, lz, rx, rz] = (goal ? BEACH_GOALS : LINES)[slot];
+  const [lx, lz, rx, rz] = (goal ? GOAL_LINES : LINES)[slot];
   if (Math.max(b.x, x2) < lx || rx < Math.min(b.x, x2) ||
       Math.max(b.z, z2) < lz || rz < Math.min(b.z, z2)) return null;
   const dx = (b.x - x2) >> 4, dz = (b.z - z2) >> 4;
@@ -1523,7 +1501,7 @@ function beachRay(d: Data, slot: number, b: Ball, heading: number, goal: boolean
   return [lx + (((rx - lx) * t) >> 8), lz + (((rz - lz) * t) >> 8)];
 }
 
-function beachCpuPad(w: World, d: Data, slot: number): InputState {
+function ballistixCpuPad(w: World, d: Data, slot: number): InputState {
   const pl = d.pl[slot];
   // The engine keeps calling the planner until the sinking hull is hidden.
   if ((pl.st === 0x25 && !pl.beachSmoke) || (d.beachResultAt !== undefined && d.f > d.beachResultAt)) return IDLE;
@@ -1536,7 +1514,7 @@ function beachCpuPad(w: World, d: Data, slot: number): InputState {
   const input: InputState = { ...IDLE };
   const draw = (n: number) => rnd(w, n);
   if (pl.arm > 0) pl.arm--;
-  const skill = beachSkill(d, slot);
+  const skill = cpuSkill(d, slot);
   const lateralX = ballistixSlidesHorizontally(slot);
   if (state.lapse > 0) state.lapse--;
   if (state.catchT > 0) state.catchT--;
@@ -1544,8 +1522,9 @@ function beachCpuPad(w: World, d: Data, slot: number): InputState {
   if (state.target === -1 && d.beachDecidedAt === undefined) {
     const rivals = d.pl.flatMap((p, i) => p.score > 0 && i !== slot ? [i] : []);
     if (rivals.length) {
-      if (d.beachSpectatorTarget === undefined) state.target = rivals[draw(rivals.length * 16) >> 4];
-      else {
+      if (d.beachSpectatorTarget === undefined || d.beachSpectatorTarget === -1) {
+        state.target = rivals[draw(rivals.length * 16) >> 4];
+      } else {
         const weight = (p: number) => p === d.beachSpectatorTarget ? 32 : 4;
         let roll = draw(rivals.reduce((total, p) => total + weight(p), 0));
         state.target = rivals.find(p => (roll -= weight(p)) < 0) ?? -1;
@@ -1558,23 +1537,30 @@ function beachCpuPad(w: World, d: Data, slot: number): InputState {
   let tx = pl.x, tz = pl.z, best = 0x7fffff;
   for (const b of balls) {
     if (b.st !== 1) continue;
-    const hit = beachRay(d, slot, b, b.h, false, draw);
+    const hit = cpuRay(d, slot, b, b.h, false, draw);
     if (!hit) continue;
     const dd = (b.x - hit[0]) ** 2 + (b.z - hit[1]) ** 2;
     if (dd < best) { best = dd; [tx, tz] = hit; }
   }
-  const threat = best === 0x7fffff ? 0 : ps1SqrtQ6(best) >> 6;
-  const bias = [-64, 0, 64][BEACH_BIAS_ORDER[slot].indexOf(state.target)] ?? 0;
+  const bias = [-64, 0, 64][BIAS_ORDER[slot].indexOf(state.target)] ?? 0;
   // The +x seat also applies its bias on x, the fixed axis of its slide.
   if (slot === 3) tz -= bias;
   else tx += slot === 0 ? bias : -bias;
+  if (d.variant === 'nballism' && d.post) {
+    const [x, , z] = BD_POST_AT[d.post.i];
+    const offset = Math.max(1, (32 - skill) * 32);
+    const distance = (pl.x - x + offset) ** 2 + (pl.z - z + offset) ** 2;
+    if (distance < best) { best = distance; tx = x; tz = z; }
+  }
+  const threat = best === 0x7fffff ? 0 : ps1SqrtQ6(best) >> 6;
   const angle = threat ? discAngle(tx - pl.x, tz - pl.z) : discAngle(state.roamX - pl.x, state.roamZ - pl.z);
   const steer = () => {
     const pad = PAD_BITS[(angle >> 9) & 7];
     if (lateralX) input.x = Number(!!(pad & 0x20)) - Number(!!(pad & 0x80));
     else input.y = Number(!!(pad & 0x40)) - Number(!!(pad & 0x10));
   };
-  const close = balls.some(b => {
+  const beach = d.variant === 'beach';
+  const close = beach && balls.some(b => {
     const dx = pl.x - b.x, dz = pl.z - b.z;
     return dx * dx + dz * dz < 640 ** 2 && aabs(discAngle(dx, dz), pl.face) < 0x2aa;
   });
@@ -1585,8 +1571,8 @@ function beachCpuPad(w: World, d: Data, slot: number): InputState {
       for (const b of balls) {
         if (b.st !== 2 || b.who !== slot || state.target === -1) continue;
         const alternate = d.f & 3;
-        if (beachRay(d, state.target, b, b.h, false, draw) ||
-            (alternate !== slot && beachRay(d, alternate, b, b.h, false, draw))) {
+        if (cpuRay(d, state.target, b, b.h, false, draw) ||
+            (alternate !== slot && cpuRay(d, alternate, b, b.h, false, draw))) {
           state.catchT = 0;
           state.target = -1;
           input.b = false;
@@ -1603,14 +1589,17 @@ function beachCpuPad(w: World, d: Data, slot: number): InputState {
         const target = state.target;
         let blindKick = d.beachSpectatorTarget === undefined;
         if (target !== -1 && state.lapse === 0) {
-          if (draw(24) > skill) state.lapse = ((32 - skill) >> 1) + 64;
+          if (draw(beach ? 24 : 32) > skill) state.lapse = ((32 - skill) >> 1) + (beach ? 64 : 32);
           else blindKick = true;
         }
         const nearby = target !== -1 && pl.kcd === 0
           ? balls.filter(b => (pl.x - b.x) ** 2 + (pl.z - b.z) ** 2 < range * range)
           : [];
-        const aimedKick = () => nearby.some(b => beachRay(d, target, b, discAngle(pl.x - b.x, pl.z - b.z), true, draw));
-        if (aimedKick()) input.a = true;
+        const aimedKick = () => nearby.some(b => cpuRay(d, target, b, discAngle(pl.x - b.x, pl.z - b.z), true, draw));
+        if (!beach) {
+          input.a = aimedKick() || (nearby.length > 0 && blindKick);
+          if (!input.a && target !== -1 && state.lapse > 0) state.lapse--;
+        } else if (aimedKick()) input.a = true;
         else {
           if (state.lapse > 0) state.lapse--;
           if (close) { state.catchT = 90; input.b = true; }
@@ -1651,122 +1640,4 @@ function beachCpuPad(w: World, d: Data, slot: number): InputState {
   }
   state.nextPad = input;
   return pad;
-}
-
-// ---------------------------------------------------------------- AI for Crashball, N.Ballism and Sky Balls
-/** intersection of a ball's predicted path (with the AI's aiming error) with a ship's defence segment (FUN_800b7c60) */
-function predict(w: World, d: Data, slot: number, b: Ball, salt: number): [number, number] | null {
-  let idx = (0x20 - (d.pl[slot].skill ?? BOT_SKILLS[d.variant][2])) - d.off;
-  if (idx < 0) idx = 0;
-  const win = WIN[idx];
-  const err = Math.floor(hash(w.tick, slot, b.id, salt) * win) - win;
-  const h = (b.h + err) & 4095;
-  const ex = b.x - cosq(h - 0x400), ez = b.z - cosq(h);
-  const [x1, z1, x2, z2] = LINES[slot];
-  // segment (b -> e) against segment (l1 -> l2)
-  const r = [ex - b.x, ez - b.z], s = [x2 - x1, z2 - z1];
-  const den = r[0] * s[1] - r[1] * s[0];
-  if (den === 0) return null;
-  const qx = x1 - b.x, qz = z1 - b.z;
-  const t = (qx * s[1] - qz * s[0]) / den, u = (qx * r[1] - qz * r[0]) / den;
-  if (t < 0 || t > 1 || u < 0 || u > 1) return null;
-  return [b.x + r[0] * t, b.z + r[1] * t];
-}
-
-function botInput(w: World, d: Data, slot: number): InputState {
-  const pl = d.pl[slot];
-  const out: InputState = { x: 0, y: 0, a: false, b: false };
-  if (!pl || pl.score <= 0 || pl.st >= 0x24) return out;
-  const skill = pl.skill ?? BOT_SKILLS[d.variant][2];
-  const sky = isSky(d);
-  const ax = ballistixSlidesHorizontally(slot);
-  // target: the ball whose predicted intercept is nearest to the ball itself
-  let best = 0x7fffff * 1, tx = 0, tz = 0, bd = 0, any = false;
-  for (const b of d.balls) {
-    if (b.st !== 1) continue;
-    const hit = sky ? predictSky(w, d, slot, b) : predict(w, d, slot, b, 0);
-    if (!hit) continue;
-    const dd = (b.x - hit[0]) ** 2 + (b.z - hit[1]) ** 2;
-    if (dd < best) { best = dd; tx = hit[0]; tz = hit[1]; bd = Math.sqrt(dd); any = true; }
-  }
-  // N.Ballism: chase a power-up that is closer than any threat
-  if (d.variant === 'nballism' && d.post) {
-    const [cx, cz] = bumpers(d)[d.post.i];
-    const k = Math.max(1, (0x20 - skill) * 0x20);
-    const dd = (pl.x - cx + k) ** 2 + (pl.z - cz + k) ** 2;
-    if (dd < best) { best = dd; tx = cx; tz = cz; bd = Math.sqrt(dd); any = true; }
-  }
-  let dirv = 0; // +1 = right (x sliders) / screen up (z sliders) in the game's pad terms
-  const sgn = slot === 0 || slot === 2 ? -1 : 1; // Sky Balls: ring angle = ang + sgn * vel
-  if (!any) {
-    // wander around the middle of the goal
-    const tgt = Math.floor(hash(slot, Math.floor(d.f / 90)) * 1024) - 512;
-    if (sky) {
-      const da = adiff(pl.ang, (FACE[slot] + (tgt >> 1)) & 4095);
-      if (Math.abs(da) > 0x20) dirv = (da > 0 ? 1 : -1) * sgn;
-    } else {
-      const diff = (ax ? pl.x : pl.z) - tgt;
-      if (Math.abs(diff) > 0x80) dirv = diff > 0 ? -1 : 1;
-    }
-  } else {
-    const k = (skill + d.off) * 0x20;
-    const da = sky ? adiff(pl.ang, atan(tx, tz)) : 0;
-    const diff = sky ? (da * RING * Math.PI * 2) / 4096 : ax ? pl.x - tx : pl.z - tz;
-    const dist = Math.abs(diff) + k;
-    if (dist > 0x280) {
-      if (bd < dist) out.r = true;
-      if (sky) dirv = (da > 0 ? 1 : da < 0 ? -1 : 0) * sgn;
-      else {
-        const bits = PAD_BITS[(atan(tx - pl.x, tz - pl.z) >> 9) & 7];
-        dirv = ax ? (bits & 0x20 ? 1 : bits & 0x80 ? -1 : 0) : (bits & 0x10 ? 1 : bits & 0x40 ? -1 : 0);
-      }
-    }
-  }
-  // pad -> stick: x sliders use stick x, z sliders: game +z is screen up (stick y < 0)
-  if (ax) out.x = dirv; else out.y = -dirv;
-  // kick
-  if (pl.kcd === 0 && pl.st !== 0x1f && pl.st !== 0x21) {
-    let R = Math.max(1, skill * 0x10 - d.off);
-    R = R + Math.floor(hash(w.tick, slot, 77) * R) + 0x100;
-    const lapse = hash(slot, Math.floor((w.tick + slot * 7) / 39)) * 0x20 < skill;
-    for (const b of d.balls) {
-      if (b.st !== 1 && b.st !== 8) continue;
-      const dx = pl.x - b.x, dz = pl.z - b.z;
-      if (dx * dx + dz * dz >= R * R) continue;
-      const a = atan(dx, dz);
-      let good = !lapse;
-      if (!good) {
-        // would the kicked ball reach someone else's line?
-        for (let o = 0; o < 4 && !good; o++) {
-          if (o === slot || d.pl[o].score <= 0 || sky) continue;
-          const bb: Ball = { ...b, h: a, x: b.x, z: b.z };
-          if (predict(w, d, o, bb, 1)) good = true;
-        }
-      }
-      if (good) { out.a = true; break; }
-    }
-  }
-  return out;
-}
-
-function predictSky(w: World, d: Data, slot: number, b: Ball): [number, number] | null {
-  // path of the ball against the ring of this ship
-  let idx = (0x20 - (d.pl[slot].skill ?? BOT_SKILLS[d.variant][2])) - d.off;
-  if (idx < 0) idx = 0;
-  const win = WIN[idx];
-  const err = Math.floor(hash(w.tick, slot, b.id, 0) * win) - win;
-  const h = (b.h + err) & 4095;
-  const ex = -cosq(h - 0x400), ez = -cosq(h); // unit (Q12) travel direction
-  // march along the path until the radius passes RING
-  for (let t = 0; t < 4096; t += 128) {
-    const x = b.x + (ex * t) / 4096, z = b.z + (ez * t) / 4096;
-    if (x * x + z * z >= RING * RING) {
-      const a = atan(x, z);
-      const q = (a + 0x200) & 0xc00;
-      const side = q === 0x800 ? 0 : q === 0 ? 1 : q === 0x400 ? 2 : 3;
-      if (side !== slot) return null;
-      return [x, z];
-    }
-  }
-  return null;
 }
