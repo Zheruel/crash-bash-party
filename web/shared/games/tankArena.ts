@@ -897,7 +897,11 @@ function tankStep(w: World, d: Data, p: number, t: Tk, inp: InputState) {
   // fire / mine / shield
   if (!d.over) {
     if (t.cd > 0) t.cd -= d.hum === 0 && t.cd > 1 ? 2 : 1;
-    else if ((press & 0x8000) && t.busy < 0 && d.shells.filter((s) => s.o === p && s.w !== 2).length < 3) fire(w, d, p, t);
+    else if ((press & 0x8000) && t.busy < 0) {
+      const inFlight = d.shells.filter(s => s.o === p && s.w !== 2).length;
+      if (inFlight < 3) fire(w, d, p, t);
+      else if (!drv) sfx(w, 0x4f1, px(L, t.x), pz(L, t.z), p);
+    }
   }
   if (press & 0x2000) layMine(w, d, p, t);
   if ((press & 0x4000) && lv === 5 && shieldReady) {

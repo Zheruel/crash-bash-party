@@ -120,11 +120,16 @@ for (const ammo of [1, 2]) {
   step(w, true);
   assert.equal(t.busy, -1);
   assert.equal(t.ammo, 2);
+  const clicks = () => w.ev.filter(e => e.k === 'sfx' && e.v === 0x4f1 && e.s === 0).length;
+  assert.equal(clicks(), 1);
+  step(w, true);
+  assert.equal(clicks(), 1);
   w.data.shells[0].w = 2;
   step(w);
   step(w, true);
   assert.equal(t.busy, 2);
   assert.equal(t.ammo, 1);
+  assert.equal(clicks(), 1);
 }
 
 // Same muzzle and weapon in the live L5–L8 capture. The boat trades lifetime for speed.

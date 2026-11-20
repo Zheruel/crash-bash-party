@@ -23,6 +23,8 @@ Eight USA recordings compared the same slot holding Right, Square, Circle, Cross
 
 The CPU starts with a gun cooldown of 150. Four mixed-room recordings counted it down to 52 on the last locked update and 51 on the first playable update. In CPU-only Swamp Fox and Metal Fox runs it reached zero on locked update 75. The human gun starts ready. The original setup at `800b6890` reads each character’s speed, applies Swamp’s 3/2 multiplier and then scales CPU speed by `(84 + skill) / 100` with integer truncation. The simulation matched 768 native speed initializations covering four seats, eight native characters, all four arenas, three skills and both control types.
 
+A human fire press with three stock shells still in flight plays `0x4f1` at the tank. The gun must be idle and its cooldown zero. Holding the button, pressing during recoil, and a CPU's rejected shot produce no cue. These gates matched 32 controlled calls to the original weapon routine on L5–L8.
+
 ## Individual versus results on L5–L8
 
 A full four-human idle Jungle Fox recording reached GO at sample 99 and a draw at sample 2797, or 2698 ticks later. The TIE mesh grew at +2, crossed its sound threshold at +23 and reset at +121. Metal Fox's duck flag at 800655ac stayed set through draw tick 119. Controlled two-way, four-way and simultaneous-knockout draws retained the four seat scores.
