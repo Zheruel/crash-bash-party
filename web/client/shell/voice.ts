@@ -125,7 +125,7 @@ export function tauntVoice(family: VoiceFamily, char: number | undefined, discId
 
 const RESULT_BANK: Record<string, VoiceFamily> = {
   ballDefence: 'a2', tilePainter: 'a2', dashRace: 'a2', tankArena: 'tank',
-  pushOff: 'b', ringDing: 'c', crateToss: 'c', dragonDrop: 'c', malletMash: 'c', kegKaboom: 'c',
+  pushOff: 'b', ringDing: 'c', crateToss: 'c', dragonDrop: 'b', malletMash: 'c', kegKaboom: 'c',
 };
 
 /** Announce a confirmed character using the same recording as the result sequence. */

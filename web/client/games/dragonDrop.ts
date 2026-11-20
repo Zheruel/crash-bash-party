@@ -2,11 +2,11 @@
 // circling outside the wall, archery-range props, tent and castle backdrop; riders are the per-character dino models.
 import * as THREE from 'three';
 import { CHARACTERS, DISC_CHARACTER } from '../../shared/look';
-import { createDragonDropResult, dragonRiderScript, RD_INTRO_GONG, RD_INTRO_TARGETS, RD_S, RD_TARGET_Y, type DragonDropData, type DragonTarget } from '../../shared/games/dragonDrop';
+import { createDragonDropResult, dragonCupFrame, dragonResultFrames, dragonRiderScript, RD_INTRO_GONG, RD_INTRO_TARGETS, RD_S, RD_TARGET_Y, type DragonDropData, type DragonTarget } from '../../shared/games/dragonDrop';
 import type { Body } from '../../shared/types';
 import { getCatalog } from '../crash';
 import { sfx, sfxRate } from '../shell/sound';
-import { hitVoice } from '../shell/voice';
+import { hitVoice, winnerVoice } from '../shell/voice';
 import { Actor, Kit, catalogInstance, preloadCatalogFor } from './kit';
 import { fxPartTemplate, PartBatch, pickupShadow, preloadFx } from './realFx';
 import { makeJewel } from './partyBits';
@@ -133,9 +133,8 @@ export function createDragonDropView(): ClientMiniGame {
   const puffs = new Map<number, THREE.Group>();
   let tracks: PartBatch;
   const burstLosers = new Set<number>();
-  let playedWinThrough = -1;
   let introTargetTick = -1;
-  let result: ReturnType<typeof createDragonDropResult> | undefined;
+  let result: { riders: ReturnType<typeof createDragonDropResult>; at: number; frame: number } | undefined;
   // Mode 1 fits the riders and the jewels currently on the engine's tracking list.
   let follow: Ps1Follow | null = null;
   const cam = () => (follow ??= new Ps1Follow(TRACK_CAMS[28], getCatalog().arenas.dragonDrop));
@@ -208,6 +207,7 @@ export function createDragonDropView(): ClientMiniGame {
     id: 'dragonDrop',
     async preload() {
       for (const file of new Set(Object.values(RD_SFX).map(([file]) => file))) sfx.preloadFile(file);
+      sfx.preloadFile('sfx/0278/6.mp3');
       [placements] = await Promise.all([loadPlacements('L28'), preloadCatalogFor('dragonDrop', [...PIECES, 'rdTarget', ...RIDERS]), preloadFx([LEVEL, SMOKE])]);
       loaded = true;
     },
@@ -215,7 +215,6 @@ export function createDragonDropView(): ClientMiniGame {
     init(ctx, world) {
       kit = new Kit(ctx, 'dragonDrop', { bg: 0x6a9ad8, hemi: [0xffffff, 0xb0b0b0, 1.6], sun: [4, 18, 8] });
       burstLosers.clear();
-      playedWinThrough = -1;
       introTargetTick = -1;
       result = undefined;
       build();
@@ -227,19 +226,35 @@ export function createDragonDropView(): ClientMiniGame {
     },
 
     render(ctx, w, dt) {
-      const previousFrame = kit.over.done ? kit.over.frame : -1;
-      kit.checkOver(w);
+      kit.checkOver(w, false);
       const d = w.data as DragonDropData;
-      const { done, frame, winners } = kit.over;
+      const { done, winners } = kit.over;
       const decided = done && winners.size > 0;
-      if (done && !decided && previousFrame < 23 && frame >= 23) sfx.playFile('sfx/0278/13.mp3', 0.9, true, sfxRate('0278', 0x1af));
+      let frame = 0, previousFrame = -1, catchingUp = false;
       if (done) {
-        result ??= createDragonDropResult(w, winners.values().next().value);
-        result.advance(frame);
+        const winner = winners.values().next().value;
+        result ??= { riders: createDragonDropResult(w, winner), at: ctx.resultReplayAt ?? ctx.time, frame: -1 };
+        const elapsed = Math.floor((ctx.time - result.at) * 30 + 1e-7);
+        const end = dragonResultFrames(!decided, winner === undefined ? 0 : kit.look(winner).char);
+        frame = Math.max(0, result.frame, Math.min(elapsed, end));
+        catchingUp = result.frame < 0 && frame > 1;
+        previousFrame = catchingUp ? frame : result.frame;
+        result.frame = frame;
+        const events = result.riders.advance(frame);
+        if (!catchingUp) for (const e of events) this.onEvent?.(ctx, e);
+        if (winner !== undefined) {
+          if (catchingUp) sfx.enterRoundResult('winner');
+          // The winning rider enters the result handler one update after ranking.
+          const char = kit.look(winner).char;
+          winnerVoice('dragonDrop', char, previousFrame - 1, frame - 1);
+          const cup = dragonCupFrame(char);
+          if (previousFrame < cup && frame >= cup) sfx.playFile('sfx/0278/6.mp3', 0.9, true, sfxRate('0278', 0x19d));
+        } else if (previousFrame < 23 && frame >= 23) {
+          sfx.playFile('sfx/0278/13.mp3', 0.9, true, sfxRate('0278', 0x1af));
+        }
       } else {
         result = undefined;
         burstLosers.clear();
-        playedWinThrough = -1;
       }
       const seen = new Set<number>(), seenJ = new Set<number>();
       tracks.begin();
@@ -252,7 +267,7 @@ export function createDragonDropView(): ClientMiniGame {
           const a = rider(b);
           seen.add(b.id);
           const playerData = (done ? d : kit.playerWorld(s).data) as DragonDropData;
-          const p = result?.players[s] ?? playerData.P[s];
+          const p = result?.riders.players[s] ?? playerData.P[s];
           for (const mark of p?.tracks ?? []) {
             tracks.add(mark.x * RD_S, 0, -mark.z * RD_S, -mark.yaw * Math.PI / 2048, 0, 1, 1 - (1024 + 64 * mark.age) / 4096);
           }
@@ -276,18 +291,18 @@ export function createDragonDropView(): ClientMiniGame {
               burstLosers.add(s);
               kit.real.play(LEVEL, 0, b.x, b.y, b.z);
             }
+            const playedWinThrough = previousFrame < WIN_START ? -1 : previousFrame - WIN_START + 1;
             if (!hidden && winTick > playedWinThrough) {
               for (const [at, sound, period] of WIN_CUES[char - 1]) {
                 if (winTick < at) continue;
                 const latest = period ? winTick - (winTick - at) % period : at;
                 if (latest > playedWinThrough) play(sound, 0.5, true);
               }
-              playedWinThrough = winTick;
             }
             continue;
           }
           // states: 99 idle, 100 run, 101 throw, 102 barge (action via body.dash), 103 recoil
-          const st = result?.players[s]?.st ?? playerData.st?.[s] ?? 99;
+          const st = result?.riders.players[s]?.st ?? playerData.st?.[s] ?? 99;
           const role = st === 101 ? 'throw' : st === 103 ? 'hit' : st === 100 ? 'run' : st === 99 ? 'idle' : undefined;
           const script = dragonRiderScript(st);
           a.update(body, dt, { role, script, scriptFrame: intro ?? p?.poseFrame ?? (st === 101 ? p?.tt : undefined), freeze: true, keepYaw: done });
@@ -343,7 +358,7 @@ export function createDragonDropView(): ClientMiniGame {
         shadow.position.y = floorY - 2 * JEWEL_SHADOW_SCALE * RD_S * rayScale;
         shadow.scale.setScalar(rayScale);
       }
-      kit.real.update(dt, ctx.camera);
+      kit.real.update(catchingUp ? frame / 30 : dt, ctx.camera);
       kit.fx.update(dt);
     },
 

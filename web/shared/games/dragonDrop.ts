@@ -1,4 +1,4 @@
-import { DISC_CHARACTER } from '../look';
+import { DISC_CHARACTER, winnerCheerFrame } from '../look';
 import { rotFx } from '../fitCamera';
 import { addBody, discRandomInt as ri, discRandomState, emit } from '../physics';
 import { IDLE, MAX_SEATS, type Body, type InputState, type MiniGame, type World } from '../types';
@@ -25,6 +25,10 @@ export const RD_TICKS = VERSUS_CLOCK_END;
 export const RD_R = 0xb00; // floor radius (ps1 units); the wall pushes back to 0xafc / 0xafe
 export const RD_TARGET_R = 2816; // target orbit radius
 export const RD_TARGET_Y = -1061;
+
+/** The rider enters victory on tick 1. The cup appears with the reaction and stays for 122 ticks. */
+export const dragonCupFrame = (char: number) => 1 + winnerCheerFrame(char);
+export const dragonResultFrames = (draw: boolean, char: number) => draw ? 120 : dragonCupFrame(char) + 122;
 
 const SKILLS = [8, 16, 20]; // FUN_80086918 selects the versus row at 0x800bd970.
 const BOT_SPEED = [48, 50, 52, 54, 56, 58, 60, 62, 64, 78, 82, 86, 90, 94, 98, 102]; // 0x800bdc1c, index skill >> 1
@@ -365,6 +369,8 @@ function pickVictim(w: World, d: DragonDropData, me: number): number {
 }
 /** FUN_800b49ac: is a barge at the picked nearest rival worth it right now */
 function bargeChance(w: World, d: DragonDropData, me: number): boolean {
+  // After a win every rival has flag 0x8000 and the target scan ends before the random pick.
+  if (d.winner >= 0) return false;
   const p = d.P[me]!;
   let best = 0x7ffffff, bi = -1;
   for (let i = 0; i < 4; i++) {
@@ -457,7 +463,7 @@ function aiTick(w: World, d: DragonDropData, p: RDPlayer, me: number) {
     case H_JEWEL: {
       const j = nearestFree(w, d, p);
       if (j !== -1) a.jw = j;
-      if (!(a.jw >= 0 && jfree(d.J[a.jw]))) {
+      if (!d.J[a.jw] || !jfree(d.J[a.jw])) {
         const k = nearestFree(w, d, p);
         if (k === -1) { toIdle(); break; }
         a.jw = k;
@@ -599,7 +605,7 @@ function collide(w: World, d: DragonDropData, p: RDPlayer, s: number) {
     let os = o.st;
     if (p.st !== ST_RECOIL) {
       if (os === ST_BARGE) {
-        if (p.carry >= 0 && d.J[p.carry].st === 1) d.J[p.carry].st = 5;
+        if (d.J[p.carry]?.st === 1) d.J[p.carry].st = 5;
         setState(w, d, p, s, ST_RECOIL);
         setState(w, d, o, u, ST_IDLE);
         E(w, 'bargehit', p.x, p.z, s, 1, u);
@@ -607,7 +613,7 @@ function collide(w: World, d: DragonDropData, p: RDPlayer, s: number) {
       }
     }
     if (os !== ST_RECOIL && p.st === ST_BARGE) {
-      if (o.carry >= 0 && d.J[o.carry].st === 1) d.J[o.carry].st = 5;
+      if (d.J[o.carry]?.st === 1) d.J[o.carry].st = 5;
       setState(w, d, o, u, ST_RECOIL);
       setState(w, d, p, s, ST_IDLE);
       E(w, 'bargehit', o.x, o.z, u, 1, s);
@@ -636,12 +642,14 @@ export const rdTest: { pads: number[] | null; order: number[] | null } = { pads:
 function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?: 'draw' | 'win') {
   const x = p.x, z = p.z;
   if (p.lock > 0) p.lock--;
-  if (result) p.pad = 0;
-  else if (rdTest.pads) { p.pad = rdTest.pads[s]; p.ang = rdPadAngle(p.pad); } else if (cpuDriven(p)) aiTick(w, d, p, s);
+  if (result) {
+    p.pad = 0;
+    if (cpuDriven(p)) aiTick(w, d, p, s);
+    if (result === 'draw') p.pad = 0;
+  } else if (rdTest.pads) { p.pad = rdTest.pads[s]; p.ang = rdPadAngle(p.pad); } else if (cpuDriven(p)) aiTick(w, d, p, s);
   // FUN_800b9930: pad -> heading and target velocity
   if (p.lock !== 0) p.pad = 0;
   p.tvx = 0; p.tvz = 0;
-  if (result === 'win') p.vx = p.vz = 0; // FUN_800b9930 clears winner velocity before the state handler.
   if (p.st !== ST_BARGE && (p.pad & 0xf0) !== 0) {
     p.hd = (p.ang + 0x800) & 0xfff;
     const spd = p.carry >= 0 ? CARRY : cpuDriven(p) ? BOT_SPEED[p.skill >> 1] : WALK;
@@ -649,6 +657,7 @@ function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?
     p.tvz = Math.floor((spd * T(p.hd + 0x800)) / 4096);
   }
   if (p.st === ST_THROW) { p.tvx = 0; p.tvz = 0; }
+  if (result === 'win') p.vx = p.vz = p.tvx = p.tvz = 0;
   // state handler
   switch (p.st) {
     case ST_IDLE:
@@ -694,10 +703,9 @@ function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?
   if (p.st === ST_THROW && p.tt >= 15) setState(w, d, p, s, ST_IDLE);
   if (p.st === ST_BARGE && p.poseFrame >= 28) setState(w, d, p, s, ST_IDLE);
   // FUN_800b9778: turn, accelerate, move, wall
-  if (result === 'win') {
-    if (p.st === ST_RESULT) p.yaw = (p.yaw + (adiff(p.yaw, 0) >> 2)) & 0xfff;
-    p.st = ST_RESULT;
-  } else if (p.lock === 0) p.yaw = (p.yaw + (adiff(p.yaw, p.hd) >> 2)) & 0xfff;
+  if (p.st === ST_RESULT) p.yaw = (p.yaw + (adiff(p.yaw, 0) >> 2)) & 0xfff;
+  else if (p.lock === 0) p.yaw = (p.yaw + (adiff(p.yaw, p.hd) >> 2)) & 0xfff;
+  if (result === 'win') p.st = ST_RESULT;
   if (p.vx !== p.tvx) {
     const k = p.tvx === 0 ? p.dc : p.ac;
     if (p.vx < p.tvx) { p.vx += k; if (p.tvx < p.vx) p.vx = p.tvx; } else { p.vx -= k; if (p.vx < p.tvx) p.vx = p.tvx; }
@@ -747,30 +755,39 @@ function bargeEffects(w: World, d: DragonDropData, moved: boolean[]) {
 /** Continue rider updates on a render-owned copy after the authority has ranked the round. */
 export function createDragonDropResult(source: World, winner: number | undefined) {
   const snapshot = source.data as DragonDropData;
-  // The native timeout holds the prior heading until the result handlers take over turning.
-  const d: DragonDropData = { ...snapshot, P: structuredClone(snapshot.P), J: [] };
-  for (const p of players(d)) { p.carry = -1; p.lock = 99; }
+  const d: DragonDropData = {
+    ...snapshot, winner: winner ?? -1,
+    P: structuredClone(snapshot.P), J: snapshot.J.map(j => ({ ...j })),
+  };
   if (snapshot.random) d.random = [...snapshot.random];
   const local: World = { ...source, data: d, ev: [] };
+  const loserCount = winner === undefined ? 0 : players(d).length - 1;
   let tick = 0;
   return {
     players: d.P,
     advance(frame: number) {
+      local.ev.length = 0;
       while (tick < frame) {
         tick++;
+        local.tick = source.tick + tick;
         const moved: boolean[] = [];
-        if (winner === undefined) {
-          for (const slot of d.ord[ri(local, 16)]) {
-            const p = d.P[slot];
-            if (p) moved[slot] = playerTick(local, d, p, slot, 'draw');
+        if (d.random) ri(local, 2);
+        for (const slot of d.ord[ri(local, 16)]) {
+          const p = d.P[slot];
+          if (p && (winner === undefined || slot === winner)) {
+            moved[slot] = playerTick(local, d, p, slot, winner === undefined ? 'draw' : 'win');
           }
-        } else {
-          const p = d.P[winner];
-          if (p) moved[winner] = playerTick(local, d, p, winner, 'win');
         }
         bargeEffects(local, d, moved);
-        local.ev.length = 0;
+        // The jewel objects get their first result update after the riders and are then removed.
+        d.J.length = 0;
+        // Each loser's model 0621 burst consumes the same four particle batches as a jewel spawn.
+        if (d.random && loserCount && tick <= 4) {
+          const draws = loserCount * (tick === 4 ? 12 : 28);
+          for (let i = 0; i < draws; i++) ri(local, 2);
+        }
       }
+      return local.ev;
     },
   };
 }

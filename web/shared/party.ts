@@ -4,6 +4,7 @@
 import { getGame, GAMES } from './registry';
 import { BALLISTIX_OPENING_TICKS } from './games/ballDefence';
 import { POLAR_WIN_TALLY_TICKS } from './games/pushOff';
+import { dragonResultFrames } from './games/dragonDrop';
 import { modifiersFor } from './modifiers';
 import { createWorld, roundOver, stepWorld } from './sim';
 import { botInput } from './bots';
@@ -598,9 +599,10 @@ export class Party {
     };
     this.broadcast(this.lastResults);
     let duration = final ? this.timing.final : this.timing.results;
-    if (!final && !draw && !cupsToWin && game.id === 'pushOff' && duration >= NORMAL_TIMING.results) {
+    if (!final && !draw && !cupsToWin && duration >= NORMAL_TIMING.results) {
       const char = this.lastRound?.seats[winner]?.look.char ?? 0;
-      duration = Math.max(duration, (winnerCheerFrame(char) + POLAR_WIN_TALLY_TICKS) * DT * 1000 + STANDINGS_MIN_MS);
+      if (game.id === 'pushOff') duration = Math.max(duration, (winnerCheerFrame(char) + POLAR_WIN_TALLY_TICKS) * DT * 1000 + STANDINGS_MIN_MS);
+      if (game.id === 'dragonDrop') duration = Math.max(duration, dragonResultFrames(false, char) * DT * 1000 + STANDINGS_MIN_MS);
     }
     this.setPhase(final ? 'final' : 'results', duration, now);
   }

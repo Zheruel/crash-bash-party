@@ -13,6 +13,7 @@ import { VIEWS } from './games';
 import { POLAR_DRAW_TICKS, POLAR_WIN_TALLY_TICKS, S_WIN } from '../shared/games/pushOff';
 import { ballistixCupDelay } from './games/ballDefenceResult';
 import { CRATE_RESULT_HOLD_MS } from './games/crateTossResult';
+import { dragonCupFrame, dragonResultFrames } from '../shared/games/dragonDrop';
 import { malletMashResultHoldMs } from './games/malletMash';
 import type { RenderWorld } from './games/types';
 import { InputManager, keyLabels, watchKeyboardLayout } from './input';
@@ -49,6 +50,7 @@ function arenaResultHoldMs(gameId: string | undefined, draw: boolean, char?: num
   if (gameId === 'pushOff') return (draw ? POLAR_DRAW_TICKS + 1 : winnerCheerFrame(char ?? 0) + POLAR_WIN_TALLY_TICKS) * 1000 / 30;
   if (gameId === 'tankArena') return (draw ? 121 : 123) * 1000 / 30;
   if (gameId === 'crateToss') return CRATE_RESULT_HOLD_MS;
+  if (gameId === 'dragonDrop') return dragonResultFrames(draw, char ?? 0) * DT * 1000;
   if (gameId === 'malletMash') return malletMashResultHoldMs(draw);
 }
 
@@ -807,6 +809,7 @@ export class App {
     const slot = m.placements[0];
     const char = this.seats[slot]?.look.char;
     if (!terminal?.finished || char === undefined) return;
+    if (this.client.round?.gameId === 'dragonDrop') return dragonCupFrame(char) * 1000 / 30;
     const cheer = winnerCheerFrame(char);
     if (this.client.round?.gameId === 'pushOff') {
       const rider = terminal.data.P?.[slot];

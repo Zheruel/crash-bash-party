@@ -5,7 +5,7 @@ import { Predictor } from '../client/predict';
 import { botInput } from '../shared/bots';
 import { IDLE } from '../shared/types';
 import { versusClock } from '../shared/games/common';
-import { createDragonDropResult, dragonDrop, dragonRiderScript, RD_INTRO_GONG, RD_INTRO_TARGETS, RD_TICKS, type DragonDropData } from '../shared/games/dragonDrop';
+import { createDragonDropResult, dragonCupFrame, dragonDrop, dragonResultFrames, dragonRiderScript, RD_INTRO_GONG, RD_INTRO_TARGETS, RD_TICKS, type DragonDropData } from '../shared/games/dragonDrop';
 import { createWorld, roundOver, stepWorld } from '../shared/sim';
 
 const seats = [8, 9, 0, 2].map((char, slot) => ({ char, slot, name: String(slot), bot: false }));
@@ -14,9 +14,30 @@ const initial = start();
 assert.equal(RD_INTRO_GONG, 80);
 assert.deepEqual(RD_INTRO_TARGETS[99], { phase: 1188, th: 747, tx: 2570, tz: 1148, tyaw: 750, troll: 1500, gcd: 71 });
 assert.deepEqual(initial.data.ord[0], [2, 0, 3, 1]);
+// L28 requests the reset 122 frames after the cup cue, or on frame 120 of a draw.
+assert.equal(dragonCupFrame(4), 90); // Cortex
+assert.equal(dragonResultFrames(false, 4), 212);
+assert.equal(dragonResultFrames(true, 4), 120);
 const beforeResult = JSON.stringify(initial);
 createDragonDropResult(initial, undefined).advance(120);
 assert.equal(JSON.stringify(initial), beforeResult);
+
+// L28 four-human tie with all four riders coasting into contact on the verdict.
+const contact = start();
+contact.data.random = [4114502064, 2456576070];
+contact.data.ord = '0132130213021302201332013210012313201203120310233201103212033210'.match(/.{4}/g)!.map(row => Array.from(row, Number));
+for (const [slot, [x, z, vx, vz, yaw, hd, dc]] of [
+  [-810, 300, 70, 0, 2461, 2461, 9], [-640, 375, -130, 0, 592, 512, 6],
+  [-570, 390, -45, 30, 512, 512, 9], [-520, 410, 155, 5, 2953, 3072, 6],
+].entries()) Object.assign(contact.data.P[slot], { x, z, vx, vz, yaw, hd, dc });
+const coast = createDragonDropResult(contact, undefined);
+const skipped = createDragonDropResult(JSON.parse(JSON.stringify(contact)), undefined);
+assert.deepEqual(coast.advance(1).map(e => [e.k, e.v]), [['bump', 0], ['bump', 3], ['bump', 0]]);
+assert.deepEqual(coast.advance(1), []);
+assert.deepEqual(coast.advance(2).map(e => [e.k, e.v]), [['bump', 2]]);
+assert.deepEqual(skipped.advance(2).map(e => e.v), [0, 3, 0, 2]);
+assert.deepEqual(coast.players, skipped.players);
+assert.deepEqual(coast.players.map(p => [p!.x, p!.z]), [[-1190, 245], [271, 789], [-633, 423], [24, 539]]);
 
 // L28 recorded barge, relative to the frame before the button went down.
 const barge = start();
@@ -150,9 +171,21 @@ for (const points of [0, 1, 3, 5]) {
 // Three complete USA L28 captures, starting from the disc's order table and RNG at GO.
 const firstOrder = '0132123002311230032121031032230121301230120332100123123023101320';
 for (const capture of [
-  { mode: 'Normal', rng: [1246185985, 2713100104], order: '1230023112300321210310322301213012301203321001231230231013201230', digest: 'bc08db3c19924efe6f365ba79474eff8ede80c00f5b80953b0134ffb5542225a' },
-  { mode: 'Hard', rng: [2754134720, 1885585218], order: firstOrder, digest: '3e14b48461b5e6d23af29f62c88fab64e500198387f22468dcbb5c81eaa8b654' },
-  { mode: 'Human', rng: [2171508062, 3975092396], order: firstOrder, digest: 'c474dad8506a1e3bf0e2ba0cb83ee947e474e3948d6ce3fa8e2a71779dbd1422' },
+  {
+    mode: 'Normal', rng: [1246185985, 2713100104], order: '1230023112300321210310322301213012301203321001231230231013201230',
+    digest: 'bc08db3c19924efe6f365ba79474eff8ede80c00f5b80953b0134ffb5542225a',
+    resultDigest: '054cbb3af174b9cc21d9214c80aea5901aa900027ead20b935b074aa5979185b',
+  },
+  {
+    mode: 'Hard', rng: [2754134720, 1885585218], order: firstOrder,
+    digest: '3e14b48461b5e6d23af29f62c88fab64e500198387f22468dcbb5c81eaa8b654',
+    resultDigest: '2b139292cfcea31f9e3b5af7c8759ed2223d0ead054e4eae5243042369ff15ee',
+  },
+  {
+    mode: 'Human', rng: [2171508062, 3975092396], order: firstOrder,
+    digest: 'c474dad8506a1e3bf0e2ba0cb83ee947e474e3948d6ce3fa8e2a71779dbd1422',
+    resultDigest: '0ddec40c6f2c2133351bbdb6fab9c2a486080864d4cc48feaeabae5fc8b7b829',
+  },
 ]) {
   const roster = [1, 4, 7, 6].map((char, slot) => ({
     char, slot, name: String(slot), bot: capture.mode !== 'Human' && slot > 0, level: capture.mode === 'Hard' ? 2 : 1,
@@ -182,5 +215,20 @@ for (const capture of [
     hash.update(values.join(',') + '\n');
   }
   assert.equal(hash.digest('hex'), capture.digest, capture.mode);
+  assert(roundOver(dragonDrop, w));
+  const snapshot = JSON.stringify(w);
+  const result = createDragonDropResult(w, d.draw ? undefined : d.winner);
+  const resultHash = createHash('sha256');
+  for (let frame = 0; frame < 90; frame++) {
+    result.advance(frame);
+    const values: number[] = [];
+    for (const rider of result.players) if (rider) {
+      values.push(rider.x, rider.z, rider.yaw, rider.st);
+      if (d.draw) values.push(playerPose(dragonRiderScript(rider.st), rider.id, rider.poseFrame!)!);
+    }
+    resultHash.update(values.join(',') + '\n');
+  }
+  assert.equal(resultHash.digest('hex'), capture.resultDigest, capture.mode + ' result');
+  assert.equal(JSON.stringify(w), snapshot);
 }
 console.log('Dragon Drop opening, jewel contacts, score roll, reconnect and three full USA round replays passed.');
