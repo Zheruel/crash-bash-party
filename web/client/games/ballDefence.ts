@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { BALLISTIX_OPENING_TICKS, ballistixFloor, ballistixLauncherFrame, BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_POST_AT, BD_U, ballistixOpeningFrame, type BallistixData } from '../../shared/games/ballDefence';
 import type { Body } from '../../shared/types';
 import type { BlobShadow } from '../fx';
-import { ASSET_BASE, getCatalog, type ModelRef } from '../crash';
+import { ASSET_BASE, getCatalog, type ModelInstance, type ModelRef } from '../crash';
 import { createCharacter } from '../characters';
 import { CHARACTERS } from '../../shared/look';
 
@@ -54,6 +54,14 @@ const BG: Record<string, number> = { crashball: 0x000000, beach: 0x1a3440, nball
 const BALL_COL: Record<string, number> = { crashball: 0xe4eef8, beach: 0xb4703c, nballism: 0xe4ecf6, sky: 0xc8d0da };
 // FUN_800bfe70, table 800c1a44. Z stays at 1 throughout.
 const FLASH_SCALE = [[5, 5], [4, 2], [1.5, 1], [0.5, 0.625], [0.125, 0.125]];
+
+// L15 spawns these seven animated actors separately from its static arena.
+// Rows are in entity order: position in disc units, first render word, script length.
+const BEACH_SCENERY = [
+  [-2265, 505, 4376, 0x4180, 78], [4194, 290, 3123, 0x4180, 78],
+  [-2035, 522, 4700, 0x4100, 78], [3695, 331, 2731, 0x4100, 78],
+  [-3635, 459, 2865, 0x4300, 79], [1711, 276, 3538, 0x4200, 79], [3291, 310, 2512, 0x4300, 79],
+] as const;
 
 /** sfx bank of each level (levelBanks in audio/index.json) */
 const BANK_OF: Record<string, string> = { crashball: '0157', beach: '0156', nballism: '0155', sky: '0154' };
@@ -218,6 +226,7 @@ function retintRed(root: THREE.Object3D) {
 
 interface Stage {
   group: THREE.Group;
+  beachScenery?: (ModelInstance | null)[];
   cornerArt?: { corner: number; serve: boolean; frames: THREE.Mesh[][] }[];
   /** per player p: the goal-mouth strip while the goal is open (cyan lights) and once it is closed (red) */
   strips?: [THREE.Object3D | null, THREE.Object3D | null][];
@@ -332,6 +341,14 @@ function fillCracks(root: THREE.Object3D) {
 function buildStage(variant: string): Stage {
   const group = new THREE.Group();
   const ref = refOf(variant);
+  const beachScenery = variant === 'beach' && ref ? BEACH_SCENERY.map(([x, y, z]) => {
+    const actor = catalogInstance({ model: ref.model, scale: ref.scale, parts: [] });
+    if (actor) {
+      actor.root.position.set(x / BD_U, -y / BD_U, -z / BD_U);
+      group.add(actor.root);
+    }
+    return actor;
+  }) : undefined;
   // the real level: every static object from the game's own object list, placed as the game does
   const lvl = ref ? levelStage(ref, placements.get(variant) ?? null, (r) => catalogInstance(r)?.root ?? null, LEVEL_OPTS[variant]) : null;
   if (lvl) {
@@ -373,7 +390,7 @@ function buildStage(variant: string): Stage {
       }
       return { group, skyGates, skyFans };
     }
-    return { group, strips, cornerArt: cornerArt(lvl, variant) };
+    return { group, strips, beachScenery, cornerArt: cornerArt(lvl, variant) };
   }
   const main = catalogInstance(ref);
   if (main) group.add(main.root);
@@ -435,7 +452,7 @@ function buildStage(variant: string): Stage {
     group.add(f);
   }
   // sky level: disc, engines and the far backdrop are in the model
-  return { group };
+  return { group, beachScenery };
 }
 
 // ------------------------------------------------------------------ view
@@ -825,6 +842,15 @@ export function createBallDefenceView(): ClientMiniGame {
       }
       const remaining = w.tick === 0 ? ctx.countdownTicksLeft : undefined;
       const opening = remaining === undefined ? undefined : ballistixOpeningFrame(remaining);
+      if (stage.beachScenery) {
+        const playFrame = result ? stageData.f : Math.floor(w.time * 30 + 1e-7);
+        const age = (opening?.pose ?? BALLISTIX_OPENING_TICKS + playFrame) - 1;
+        stage.beachScenery.forEach((actor, i) => {
+          const [, , , word, period] = BEACH_SCENERY[i];
+          const phase = stageData.beachSceneryPhases?.[i] ?? 0;
+          actor?.nativePose(word + (age + phase) % period);
+        });
+      }
       const tilt = variant === 'sky' ? opening?.tilt ?? stageData.tilt : undefined;
       if (tilt) skyTilt(tilt, opening?.pose ?? BALLISTIX_OPENING_TICKS + stageData.f);
       kit.root.getWorldQuaternion(billboard).invert().multiply(ctx.camera.quaternion);

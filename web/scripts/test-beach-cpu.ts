@@ -390,6 +390,16 @@ assert.deepEqual(contacts, [1]);
 assert.deepEqual(catches, [[2, 1], [2, 0], [24, 1], [109, 2]]);
 assert.deepEqual(launches, [[8, 0, 1], [127, 1, 1], [127, 1, 1]]);
 
+// L15 initializes four animated plants before choosing the arena event table.
+for (const sample of [
+  { seed: 43257, phases: [8, 4, 3, 4], postSeq: 14 },
+  { seed: 17654, phases: [2, 5, 5, 1], postSeq: 4 },
+]) {
+  const d = createWorld(ballDefence, [], [], sample.seed, 'beach').data as BallistixData;
+  assert.deepEqual(d.beachSceneryPhases, sample.phases);
+  assert.equal(d.postSeq, sample.postSeq);
+}
+
 // L15 from the stage seed. Tiny catches, boosts left, releases, coasts, kicks,
 // then taunts. Cortex's seat takes the same animation track with either custom rig.
 for (const cortex of [4, 8, 9]) {

@@ -204,6 +204,7 @@ interface Data {
   pl: Pl[]; balls: Ball[]; bid: number[]; // bid[ball.id] = body id
   beachFreeBallSlots?: number[]; // Shared free stack. Keep the original snapshot field name.
   beachPoolEffects?: BallistixPoolEffect[];
+  beachSceneryPhases?: number[];
   ef8: number; efc: number; efa: number; off: number;
   last: number; // side that conceded last (0x800c1f16), -1 none
   walls: number; // closed goals bitmask 1=z- 2=z+ 4=x- 8=x+ (game axes)
@@ -353,11 +354,11 @@ export const ballDefence: MiniGame = {
       return idle - BALLISTIX_OPENING_TICKS;
     });
     d.shipOrder = ballistixShipOrder(w);
+    // Four L15 scenery actors advance their animation in 800bffa8, then stagger by rand(8).
+    if (variant === 'beach') d.beachSceneryPhases = Array.from({ length: 4 }, () => 1 + rnd(w, 8));
     d.postSeq = rnd(w, 15);
     rnd(w, 18); // First event table at 0x800c1c74.
     const skyIndex = rnd(w, 18); // Second event table at 0x800c1c7c.
-    // Four Beach scenery actors stagger their animation with rand(8) in 800bffa8.
-    if (variant === 'beach') for (let i = 0; i < 4; i++) rnd(w, 8);
     if (variant === 'nballism') d.mach = { st: 0, t: 291, c: 0, yaw: 0, spin: 0 };
     const opening = ballistixOpeningFrame(0);
     if (variant === 'sky') { // The 270-tick tilt timer has counted down to 171 at GO.
