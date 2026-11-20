@@ -1,7 +1,6 @@
-import { TAUNT_TICKS } from './onFoot';
+import { onFootItemMarker, TAUNT_TICKS } from './onFoot';
 import { createPlayerDispatch, nextPlayerOrder, tickVersusTally, VERSUS_CLOCK_END } from './common';
 import { CRATE_ATTACK, CT_HULL } from './crateGripData';
-import { DD_ITEM_MARKERS } from './ringDingCrateData';
 import { at2, ps1SqrtFixed } from './dragonDrop';
 import { DISC_CHARACTER } from '../look';
 import { addBody, discRandomState, drawDiscRandom, emit, rand } from '../physics';
@@ -942,14 +941,7 @@ const DD_CRATE_BREAK_SOUNDS = [0x3f5, 0x3f5, 0x3f7, 0x3f8];
 const DD_WIN_LOAD = [15, 14, 13, 15, 15, 15, 15, 14];
 
 function itemMarker(p: DDPlayer, a: DDItemActor | null | undefined) {
-  const track = DD_ITEM_MARKERS[a?.script ?? 1]?.[p.id - 1];
-  if (!track?.length) return;
-  const length = track.length - 1;
-  const loop = track[0];
-  let frame = a?.frame ?? 0;
-  if (frame >= length) frame = loop < 0 ? length - 1 : loop + (frame - loop) % (length - loop);
-  const marker = track[frame + 1];
-  if (typeof marker !== 'number') return marker;
+  return onFootItemMarker(p.id, a?.script ?? 1, a?.frame ?? 0);
 }
 
 function trackCrateActor(w: World, d: RingDingData, p: DDPlayer | RingResultPlayer, slot: number, carried: number,

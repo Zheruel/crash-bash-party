@@ -54,7 +54,7 @@ Player landing on TNT lights it; landing on nitro explodes it.
 
 ## Effects (`FUN_800bef00`, `bede8`, `be9d0`)
 0x12 Aku 300 ticks; 0x13 boots 240 (+20 speed); 0x14 weight 240 (pass by player contact: receiver timer +10, receiver lock 30 ticks, giver cleared; KO at 0); 0x15 slow 240 (player updates every other tick). Fruit +1 HP (cap 20), sfx 0x1c2 = sample 0.
-Power-ups (Space and Snow only): when nobody has an effect, kind 0x12 + rand(4), random cell, falls from the sky; initial timer (rand(10)+10)*30; next 10-20 s after spawn, 5-15 s if someone has an effect; lifetime 120 ticks after landing. Fruit lifetime ~150 ticks.
+Power-ups (Space and Snow only): when nobody has an effect, kind 0x12 + rand(4), random cell, falls from the sky; initial timer (rand(10)+10)*30; next 10-20 s after spawn, 5-15 s if someone has an effect; lifetime 120 ticks after landing. Ordinary Wumpa fruit persists until collection. A free reward from a thrown Drain chest expires after 150 updates.
 
 ## Spawner (`b710c`, `b7358`, `b7d20`, `b7e74`, `b8040`)
 - 16x16 cell grid, centres -0x780 + 0x100*i, shuffled with 600 swaps (Drain uses the inner 12x12). Deck of 64 shuffled with 600 swaps, start index rand(32)+20.
@@ -142,3 +142,9 @@ Before the change, the normal Jungle client left a test winner at 1.51 world uni
 The replay matched winner entry and vertical position across 16 native fixtures initialized from the recorded actor state. The normal browser client ran all four stages, including Top G landing in Space with a separate airborne crate, Big Stein throwing in Snow, and a Top G win with knockout ghosts in Drain. The custom characters use Cortex's timing with their own models, grip markers and voice recordings. The worker-hosted Space test delivered equal terminal snapshots, placements and scores to a late spectator.
 
 The web uses measured delays for preloaded celebration assets. Arbitrary disc streaming times, the console RNG sequence for spirit sparks, and exact crate collision and hazard trajectories during the result remain outside the verified match. The web assembles the opening camera from its own view history or a terminal-position fit on late join.
+
+### Drain Bash question crates
+
+Spinning the question crate advances it through native states 9, 0xc and 0xd. The contents rise by 1,104 raw units and home toward marker 0x80 on the opener's current animation. Throwing it uses states 8, 0xe and 0xf. The crate releases at the hand on the event frame and first moves on the following update. Its reward bounces and any player can collect it on the descent. An unclaimed free reward expires after 150 updates. Collecting a weapon shrinks the other waiting chests over eight updates.
+
+In the USA Brio capture, the crate released at frame 154, broke at 167, and snapped to the launch cell at 168. A second player intercepted it at frame 200. The traced missile and fruit throws both matched from release through collection. One held pose the frame before release differed by one height unit. Brio and Rilla Roo also threw past the arena edge and their crates broke on landing. Crowded player/crate contacts and whole-round RNG synchronization remain unverified.
