@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { playerPose } from '../client/games/playerPose';
 import { Predictor } from '../client/predict';
-import { ballDefence } from '../shared/games/ballDefence';
+import { ballDefence, type BallistixData } from '../shared/games/ballDefence';
 import { CHARACTERS } from '../shared/look';
 import { cloneWorld, createWorld, stepWorld } from '../shared/sim';
 import { IDLE, type World } from '../shared/types';
@@ -390,4 +390,33 @@ assert.deepEqual(contacts, [1]);
 assert.deepEqual(catches, [[2, 1], [2, 0], [24, 1], [109, 2]]);
 assert.deepEqual(launches, [[8, 0, 1], [127, 1, 1], [127, 1, 1]]);
 
-console.log('Beach Ball native CPU, pad and prediction fixtures passed');
+// L15 from the stage seed. Tiny catches, boosts left, releases, coasts, kicks,
+// then taunts. Cortex's seat takes the same animation track with either custom rig.
+for (const cortex of [4, 8, 9]) {
+  const seats = [2, cortex, 7, 6].map((char, slot) => ({ char, slot, bot: slot > 0, level: 1 }));
+  const w = createWorld(ballDefence, seats, [], 43257, 'beach');
+  assert.deepEqual(w.data.random, [478322643, 422676884]);
+  const poses = new Map([
+    [10, [0x4000, 0x4215, 0x4186, 0x4095]],
+    [29, [0x4080, 0x400d, 0x400c, 0x400d]],
+    [42, [0x408d, 0x4006, 0x4005, 0x4006]],
+    [58, [0x4094, 0x4207, 0x4195, 0x4002]],
+    [64, [0x4094, 0x420d, 0x419b, 0x4008]],
+    [73, [0x409a, 0x4009, 0x4009, 0x4011]],
+    [79, [0x4000, 0x400f, 0x400f, 0x4003]],
+    [90, [0x4180, 0x4006, 0x4200, 0x4080]],
+  ]);
+  for (let tick = 1; tick <= 90; tick++) {
+    const pad = { ...IDLE, x: tick >= 29 && tick < 68 ? -1 : 0, r: tick >= 29 && tick < 58,
+      b: tick === 10 || tick === 25 || (tick >= 28 && tick < 64 && tick !== 32),
+      a: tick === 79, c: tick === 90 };
+    stepWorld(w, ballDefence, [pad, cpuPad(w, 1), cpuPad(w, 2), cpuPad(w, 3)]);
+    if (poses.has(tick)) {
+      const actual = (w.data as BallistixData).pl.map(({ character, pilot }) =>
+        pilot!.word ?? playerPose(pilot!.script, character, pilot!.frame));
+      assert.deepEqual(actual, poses.get(tick), 'seated pilot poses at tick ' + tick);
+    }
+  }
+}
+
+console.log('Beach Ball native CPU, pilot, pad and prediction fixtures passed');

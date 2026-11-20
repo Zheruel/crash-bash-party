@@ -1,3 +1,4 @@
+import { seatedPilot, stepPilot, type BallistixPilot } from './ballistixPilot';
 import { atan2g } from '../ps1Angle';
 import { ps1SqrtQ6 } from '../ps1Sqrt';
 /**
@@ -119,6 +120,7 @@ interface Pl {
   kfr: number; // frames into the kick swing (0x8009d596)
   st: number; // 0x1c idle, 0x1d move, 0x1e taunt, 0x1f kick, 0x21 catch, 0x22 win, 0x24 dying, 0x25 gone
   stateAt: number;
+  pilot?: BallistixPilot;
   character: number;
   idleT: number;
   idleAt: number; // frame origin of script 0x1b, or -1 when inactive
@@ -354,6 +356,8 @@ export const ballDefence: MiniGame = {
     d.postSeq = rnd(w, 15);
     rnd(w, 18); // First event table at 0x800c1c74.
     const skyIndex = rnd(w, 18); // Second event table at 0x800c1c7c.
+    // Four Beach scenery actors stagger their animation with rand(8) in 800bffa8.
+    if (variant === 'beach') for (let i = 0; i < 4; i++) rnd(w, 8);
     if (variant === 'nballism') d.mach = { st: 0, t: 291, c: 0, yaw: 0, spin: 0 };
     const opening = ballistixOpeningFrame(0);
     if (variant === 'sky') { // The 270-tick tilt timer has counted down to 171 at GO.
@@ -366,7 +370,7 @@ export const ballDefence: MiniGame = {
         x: START[i][0], z: START[i][1], y: opening.ships[i].y, roll: opening.ships[i].roll,
         ...(variant === 'sky' ? opening.ships[i] : {}),
         vel: 0, face: FACE[i], ang: FACE[i],
-        score: start, kcd: 0, kpen: 0, kfr: 0, st: 0x1c, stateAt: -BALLISTIX_OPENING_TICKS, hold: 0, arm: 0, cpu: !!seat?.bot,
+        score: start, kcd: 0, kpen: 0, kfr: 0, st: 0x1c, stateAt: -BALLISTIX_OPENING_TICKS, pilot: seatedPilot(BALLISTIX_OPENING_TICKS), hold: 0, arm: 0, cpu: !!seat?.bot,
         skill: BOT_SKILLS[variant][seat?.level ?? 2] ?? BOT_SKILLS[variant][2],
         character: DISC_CHARACTER[seat?.char ?? 0] ?? 1, idleT: idleTimers[i], idleAt: -1,
         pa: false, pb: false, pc: false, shield: 0, dead: 0, dieT: 0, pushed: false, last: 0, boost: false,
@@ -801,6 +805,8 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
   pl.boost = boost;
   // --- state machine (FUN_800b66d0 / b60fc)
   const previous = pl.st;
+  const pilot = pl.pilot ??= seatedPilot(Math.max(0, d.f - 1 - pl.stateAt));
+  const steering = dirv ? pl.vel : 0;
   // The idle callback runs before the catch, kick and movement transitions.
   if (previous === 0x1c && !edgeC) idleFrame(w, d, pl);
   if (pl.st === 0x1f) {
@@ -831,6 +837,7 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
       if (pl.kcd === 0) { pl.st = 0x1f; pl.kfr = 0; pl.kpen = Math.min(pl.kpen + 0x1e, 0x5a); pl.kcd = pl.kpen; emit(w, 'kick', pl.x / BD_U, -pl.z / BD_U, p, 1); emit(w, 'sfx', pl.x / BD_U, -pl.z / BD_U, p, 1, KICK_SFX[p]); }
     }
   }
+  stepPilot(pilot, pl.character, p, steering, previous, pl.st, pl.idleAt >= 0);
   if (pl.st !== previous) {
     pl.stateAt = d.f;
     pl.idleAt = -1;

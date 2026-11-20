@@ -1,6 +1,7 @@
 // BALLISTIX view (shared/games/ballDefence.ts): the four real levels (CRASHBALL, BEACH BALL, N.BALLISM, SKY BALLS)
 // seen through the real play and result cameras. Stage pieces come from the disc models listed in assets/stages/ballDefence.json;
 // floors and walls that the disc stores elsewhere are rebuilt here from the same level textures.
+import { playerPose } from './playerPose';
 import * as THREE from 'three';
 import { BALLISTIX_OPENING_TICKS, ballistixFloor, ballistixLauncherFrame, BD_BALL_R, BD_HALF, BD_NORMALS, BD_TRAIL_LENGTH, BD_POST_AT, BD_U, ballistixOpeningFrame, type BallistixData } from '../../shared/games/ballDefence';
 import type { Body } from '../../shared/types';
@@ -906,7 +907,8 @@ export function createBallDefenceView(): ClientMiniGame {
             // The catch and kick enter handlers both start script 0x1d (the seated idle pose).
             script: dying ? 0x20 : seatedLoser ? 0x19 : catching || kicking ? 0x1d : pl.st === 0x1e ? 0x1c : pl.st === 0x1d ? 0x1a : idleGesture ? 0x1b : 0x19,
             scriptFrame: opening?.pose ?? (seatedLoser ? result!.age : idleGesture ? player.f - pl.idleAt : age),
-            renderWord: winner?.pose,
+            renderWord: winner?.pose ?? (!opening && !seatedLoser && pl.pilot
+              ? pl.pilot.word ?? playerPose(pl.pilot.script, pl.character, pl.pilot.frame) : undefined),
             hop: -hover / BD_U,
             role: dying ? 'lose' : pl?.st === 0x1e ? 'hit' : pl?.st === 0x1d ? 'run' : 'idle',
             freeze: true,
