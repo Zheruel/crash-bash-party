@@ -208,6 +208,7 @@ interface Data {
   ef8: number; efc: number; efa: number; off: number;
   last: number; // side that conceded last (0x800c1f16), -1 none
   walls: number; // closed goals bitmask 1=z- 2=z+ 4=x- 8=x+ (game axes)
+  wallSoundAt?: number;
   skyWallSoundDelay?: number;
   cool: number[]; // spawn corner cooldowns
   bumperHitAt?: number[];
@@ -896,7 +897,10 @@ function knockoutSmokeFrame(w: World, d: Data, pl: Pl, puffs: BeachSmoke[]) {
 function enterDie(w: World, d: Data, p: number) {
   const pl = d.pl[p];
   pl.st = 0x24; pl.stateAt = d.f; pl.dieT = 61; pl.dead ||= d.f;
-  if (!d.walls) emit(w, 'sfx', 0, 0, -1, 1, 1425); // goal wall closes (0x591/0x592)
+  if (!d.walls) {
+    d.wallSoundAt = d.f;
+    emit(w, 'sfx', 0, 0, -1, 1, 1425);
+  }
   const wall = [1, 2, 8, 4][p];
   (d.beachPoolEffects ??= []).push({ beachPoolSlot: allocPoolSlot(d), wall });
   d.walls |= wall;

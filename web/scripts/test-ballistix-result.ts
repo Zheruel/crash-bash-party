@@ -7,6 +7,21 @@ import type { World } from '../shared/types';
 
 const seats = [6, 1, 8, 9].map((char, slot) => ({ slot, char, bot: false }));
 
+// A spectator arriving after the second knockout resumes the first barrier's loop.
+for (const variant of ['crashball', 'beach', 'nballism', 'sky']) {
+  const w = createWorld(ballDefence, seats, [], 47, variant);
+  w.data.pl[0].score = 0;
+  stepWorld(w, ballDefence, []);
+  assert.equal(w.data.wallSoundAt, 1);
+  for (let i = 0; i < 12; i++) stepWorld(w, ballDefence, []);
+  w.data.pl[2].score = 0;
+  stepWorld(w, ballDefence, []);
+  const saved = cloneWorld(w).data as BallistixData;
+  assert.equal(saved.walls, 9);
+  assert.equal(saved.wallSoundAt, 1);
+  assert.deepEqual(w.ev.filter(e => e.k === 'sfx' && e.o === 1425).map(e => e.t), [0]);
+}
+
 function fixture(variant: string, slot: number) {
   const w = createWorld(ballDefence, seats, [], 47, variant);
   for (let f = 0; f < 12; f++) stepWorld(w, ballDefence, []);
