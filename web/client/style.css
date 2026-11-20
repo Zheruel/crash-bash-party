@@ -504,3 +504,6 @@ body.champ[data-screen="game"] #vortex { opacity: 1; transition: opacity .3s; }
 }
 .force-victory:focus-visible { outline: 2px solid #fff6a4; outline-offset: 2px; }
 .force-victory:disabled { pointer-events: none; }
+.force-victory.touch::after {
+  content: ''; position: absolute; inset: 50% 0 auto; height: max(100%, 44px); transform: translateY(-50%);
+}

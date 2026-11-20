@@ -195,7 +195,7 @@ export class App {
     const useTouch = (enabled: boolean) => {
       if (this.touch.enabled === enabled) return;
       this.touch.enabled = enabled;
-      this.touch.show(enabled && this.phase === 'play' && this.mySlot() != null);
+      this.touch.show(enabled && this.phase === 'play' && this.mySlot() != null && !this.input.watchingBallistix);
       this.refreshControls();
     };
     window.addEventListener('pointerdown', e => {
@@ -885,7 +885,11 @@ export class App {
 
     const ballistix = this.phase === 'play' && c?.round?.gameId === 'ballDefence' ? arenaWorld?.data as BallistixData | undefined : undefined;
     const localShip = c?.roundSlot == null ? undefined : ballistix?.pl?.[c.roundSlot];
-    this.input.watchingBallistix = !!localShip && localShip.score <= 0;
+    const watching = !!localShip && localShip.score <= 0;
+    if (this.input.watchingBallistix !== watching) {
+      this.input.watchingBallistix = watching;
+      if (this.phase === 'play') this.touch.show(c?.roundSlot != null && !watching);
+    }
     if (ballistix && this.input.watchingBallistix && ballistix.spectatorSince !== undefined && this.canCaptureArenaKeys()) {
       const age = ballistix.f - ballistix.spectatorSince - SPECTATOR_WAIT;
       const closing = ballistix.pl.filter(p => p.score > 0).length > 1 ? -1
