@@ -13,6 +13,43 @@ const beforeResult = JSON.stringify(initial);
 createDragonDropResult(initial, undefined).advance(120);
 assert.equal(JSON.stringify(initial), beforeResult);
 
+// L28 state 0 at the input unlock. The opening pair have already spun in place.
+assert.deepEqual(initial.data.J.map((j: { st: number; yaw: number }) => [j.st, j.yaw]), [[0, 3136], [0, 3136], [6, 0]]);
+for (const flightState of [3, 4]) {
+  const w = start(), j = w.data.J[0], rider = w.data.P[0];
+  const step = () => stepWorld(w, dragonDrop, []);
+  Object.assign(j, { st: flightState, owner: 0, x: 0, y: 0, z: 0, vx: 10, vz: 0, vy: 256, b: 4 });
+  j.shadow = { x: 0, z: 0, visible: true };
+  step();
+  assert.equal(j.st, 0);
+  assert.equal(j.x, 10);
+  assert.equal(j.tracked, flightState === 4);
+  assert.equal(j.shadow.x, 0);
+  step();
+  assert.equal(j.shadow.x, 10);
+
+  Object.assign(j, { x: rider.x + 200, y: -64, z: rider.z, vx: -12 });
+  j.shadow.x = j.x;
+  step();
+  assert.equal(j.st, 1);
+  assert.equal(j.tracked, false);
+  assert.equal(j.shadow.visible, true);
+  assert.equal(j.shadow.x, j.x + 12);
+  step();
+  assert.equal(j.shadow.visible, false);
+
+  // Throw and knock-loose both restore the full-size jewel and ground marker on this tick.
+  j.st = flightState === 3 ? 2 : 5;
+  rider.carry = -1;
+  const resumed = structuredClone(w);
+  step();
+  stepWorld(resumed, dragonDrop, []);
+  assert.deepEqual(w, resumed);
+  assert.equal(j.st, flightState);
+  assert.equal(j.tracked, true);
+  assert.deepEqual(j.shadow, { x: j.x, z: j.z, visible: true });
+}
+
 assert.equal(versusClock(28), 90);
 assert.equal(versusClock(29), 89);
 for (let second = 5; second >= 0; second--) {

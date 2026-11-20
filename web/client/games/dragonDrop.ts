@@ -4,12 +4,11 @@ import * as THREE from 'three';
 import { CHARACTERS, DISC_CHARACTER } from '../../shared/look';
 import { createDragonDropResult, RD_INTRO_GONG, RD_INTRO_TARGETS, RD_S, RD_TARGET_Y, type DragonDropData, type DragonTarget } from '../../shared/games/dragonDrop';
 import type { Body } from '../../shared/types';
-import type { BlobShadow } from '../fx';
 import { getCatalog } from '../crash';
 import { sfx, sfxRate } from '../shell/sound';
 import { hitVoice } from '../shell/voice';
 import { Actor, Kit, catalogInstance, preloadCatalogFor } from './kit';
-import { preloadFx } from './realFx';
+import { pickupShadow, preloadFx } from './realFx';
 import { makeJewel } from './partyBits';
 import { applyPose, levelStage, loadPlacements, Ps1Follow, TRACK_CAMS, type Placements, type Tracked } from './ps1cam';
 import { arenaClockSprites, scoreHud } from '../ui/ps1hud';
@@ -19,6 +18,9 @@ import type { ClientMiniGame } from './types';
 const SKY = new THREE.Color(0x3a5929);
 /** Stage scale; level model 0621 carries the one effect script (0: jewel-appear burst), smoke frames are shared pack 0619 parts 3-18. */
 const S = 3.4, LEVEL = 621, SMOKE = 619;
+const JEWEL_SHADOW_SCALE = 0x23e8 / 4096;
+// The quad's vertices are at local y = -2 and its entity is at y = 128 in disc coordinates.
+const JEWEL_SHADOW_Y = (2 * JEWEL_SHADOW_SCALE - 128) * RD_S;
 const SMOKE_FRAMES = Array.from({ length: 16 }, (_, i) => 3 + i);
 /** sky backdrop wall: the PS1 draws it first, behind everything (no z-buffer) */
 const BACKDROP = ['extra_3b94'];
@@ -127,12 +129,12 @@ export function createDragonDropView(): ClientMiniGame {
   let kit: Kit;
   let loaded = false;
   let target: THREE.Group;
-  const jewels = new Map<number, { obj: THREE.Object3D; shadow: BlobShadow }>();
+  const jewels = new Map<number, { obj: THREE.Object3D; shadow: THREE.Object3D }>();
   const burstLosers = new Set<number>();
   let playedWinThrough = -1;
   let introTargetTick = -1;
   let result: ReturnType<typeof createDragonDropResult> | undefined;
-  // camera mode 1: keeps every rider and the swinging target in frame (engine fit, 30 Hz)
+  // Mode 1 fits the riders and the jewels currently on the engine's tracking list.
   let follow: Ps1Follow | null = null;
   const cam = () => (follow ??= new Ps1Follow(TRACK_CAMS[28], getCatalog().arenas.dragonDrop));
 
@@ -191,6 +193,7 @@ export function createDragonDropView(): ClientMiniGame {
       kit = new Kit(ctx, 'dragonDrop', { bg: 0x6a9ad8, hemi: [0xffffff, 0xb0b0b0, 1.6], sun: [4, 18, 8] });
       burstLosers.clear();
       playedWinThrough = -1;
+      introTargetTick = -1;
       result = undefined;
       build();
       follow = null;
@@ -216,6 +219,9 @@ export function createDragonDropView(): ClientMiniGame {
         playedWinThrough = -1;
       }
       const seen = new Set<number>(), seenJ = new Set<number>();
+      const tracked: Tracked[] = [];
+      const intro = ctx.countdownTicksLeft !== undefined && w.tick === 0
+        ? Math.max(0, RD_INTRO_TARGETS.length - 1 - ctx.countdownTicksLeft) : undefined;
       for (const b of w.bodies) {
         if (b.kind === 'player') {
           const s = b.slot;
@@ -225,6 +231,9 @@ export function createDragonDropView(): ClientMiniGame {
           const p = result?.players[s] ?? playerData.P[s];
           const body = result && p ? { ...b, x: p.x * RD_S, z: -p.z * RD_S, y: 0,
             vx: p.vx * RD_S * 30, vz: -p.vz * RD_S * 30, face: -p.yaw * Math.PI / 2048 } : b;
+          if (!decided || frame === 0 || winners.has(s)) {
+            tracked.push({ pos: new THREE.Vector3(body.x, body.y, body.z), face: body.face });
+          }
           if (done) a.face = body.face;
           if (decided) {
             // FUN_800bcf88 -> FUN_80085890: rider idle 0x4d, then winner script 0x56.
@@ -252,37 +261,56 @@ export function createDragonDropView(): ClientMiniGame {
           const role = st === 101 ? 'throw' : st === 103 ? 'hit' : st === 100 ? 'run' : st === 99 ? 'idle' : undefined;
           const script = st === 101 ? 0x4f : st === 102 ? 0x50 : st === 100 ? 0x4e : 0x4d;
           a.update(body, dt, { role, script, scriptFrame: st === 101 ? p?.tt : undefined, freeze: true, keepYaw: done });
-        } else if (b.kind === 'jewel' && !done) { // FUN_800bb3ec frees the jewels under either terminal flag (0x801).
+        } else if (b.kind === 'jewel' && (!done || frame === 0)) {
           seenJ.add(b.id);
           let v = jewels.get(b.id);
-          if (!v) { v = { obj: jewelObj(b.slot, 0.45), shadow: kit.fx.shadow(0.4, 0.4) }; kit.root.add(v.obj); jewels.set(b.id, v); }
-          const hidden = b.m === 6; // the third jewel stays hidden until tick 1350
-          v.obj.visible = !hidden;
-          v.shadow.visible = !hidden;
+          if (!v) {
+            v = { obj: jewelObj(b.slot, 0.45), shadow: pickupShadow(SMOKE, 19, S * JEWEL_SHADOW_SCALE,
+              { brightness: 0.5, depthBias: LAYERS.length * 2 }) };
+            kit.root.add(v.obj, v.shadow);
+            jewels.set(b.id, v);
+          }
+          const j = d.J[b.slot];
+          v.obj.visible = b.m !== 6 && intro !== 0;
+          v.obj.scale.setScalar(b.m === 1 ? 0.5 : 1);
           v.obj.position.set(b.x, b.y, b.z);
-          v.obj.rotation.y = b.face;
-          v.shadow.set(b.x, b.z, Math.max(0, b.y));
+          v.obj.rotation.y = intro === undefined ? b.face : -Math.max(0, intro - 1) * Math.PI / 64;
+          v.shadow.visible = intro === undefined ? (j?.shadow?.visible ?? (b.m !== 1 && b.m < 6)) : b.slot < 2 && intro >= 2;
+          const dx = j?.shadow ? (j.shadow.x - j.x) * RD_S : 0;
+          const dz = j?.shadow ? (j.z - j.shadow.z) * RD_S : 0;
+          v.shadow.position.set(b.x + dx, JEWEL_SHADOW_Y, b.z + dz);
+          if (j?.tracked ?? (b.m !== 1)) tracked.push({ pos: v.obj.position, face: v.obj.rotation.y, r: 512, h: 512, f: 512 });
+          if (intro !== undefined && b.slot < 2 && introTargetTick === 0 && intro > 0) {
+            kit.real.play(LEVEL, 0, b.x, -192 * RD_S, b.z);
+            play(SND.spawn, 0.5, true);
+          }
         }
       }
       kit.prune(seen);
-      for (const [id, v] of jewels) if (!seenJ.has(id)) { kit.root.remove(v.obj); kit.fx.removeShadow(v.shadow); jewels.delete(id); }
+      for (const [id, v] of jewels) if (!seenJ.has(id)) { kit.root.remove(v.obj, v.shadow); jewels.delete(id); }
 
       // target: swings on the rim (placed by the sim), faces the pit, rolls with the swing
       let swing: Readonly<DragonTarget> = d;
-      if (ctx.countdownTicksLeft !== undefined && w.tick === 0) {
-        const tick = Math.max(0, RD_INTRO_TARGETS.length - 1 - ctx.countdownTicksLeft);
-        swing = RD_INTRO_TARGETS[tick];
-        if (introTargetTick >= 0 && introTargetTick < RD_INTRO_GONG && tick >= RD_INTRO_GONG) play(SND.gong, 0.5, true);
-        introTargetTick = tick;
+      if (intro !== undefined) {
+        swing = RD_INTRO_TARGETS[intro];
+        if (introTargetTick >= 0 && introTargetTick < RD_INTRO_GONG && intro >= RD_INTRO_GONG) play(SND.gong, 0.5, true);
+        introTargetTick = intro;
       }
       target.position.set(swing.tx * RD_S, -RD_TARGET_Y * RD_S, -swing.tz * RD_S);
       target.rotation.set(0, (-swing.tyaw * Math.PI * 2) / 4096, (-swing.troll * Math.PI * 2) / 4096);
 
       // camera
       ctx.scene.background = SKY;
-      const tracked: Tracked[] = [{ pos: target.position, face: target.rotation.y, r: 512, h: 512, f: 512 }];
-      for (const a of kit.actors.values()) if (a.holder.visible) tracked.push({ pos: a.holder.position, face: a.yaw.rotation.y });
-      applyPose(ctx.camera, cam().step(dt, tracked));
+      applyPose(ctx.camera, cam().step(dt, tracked, done));
+      // Preserve the projected footprint of the buried native quad while depth-testing riders and the rim.
+      const eye = ctx.camera.position, floorY = 0.002;
+      const rayScale = (eye.y - floorY) / (eye.y - JEWEL_SHADOW_Y);
+      for (const { shadow } of jewels.values()) {
+        if (!shadow.visible) continue;
+        shadow.position.sub(eye).multiplyScalar(rayScale).add(eye);
+        shadow.position.y = floorY - 2 * JEWEL_SHADOW_SCALE * RD_S * rayScale;
+        shadow.scale.setScalar(rayScale);
+      }
       kit.real.update(dt, ctx.camera);
       kit.fx.update(dt);
     },
@@ -295,7 +323,6 @@ export function createDragonDropView(): ClientMiniGame {
           play(SND.gong, 0.5);
           break;
         case 'score': {
-          kit.shake(e.v >= 3 ? 0.2 : 0.08);
           play(SND.score, 0.6);
           play(SND.mult[e.v] ?? 0x6bb, 0.6);
           if (e.v >= 5) play(0x6b2, 0.6); // silent in the game's table
@@ -320,7 +347,6 @@ export function createDragonDropView(): ClientMiniGame {
           break;
         case 'bargehit':
           kit.actorForSlot(e.s)?.hit();
-          kit.shake(0.2);
           break;
         case 'recoil': // recoil enter (anim 0x4d): hit voice rand(4) of the 0x8009e080 ids
           kit.actorForSlot(e.s)?.hit();
@@ -330,7 +356,6 @@ export function createDragonDropView(): ClientMiniGame {
           play(SND.bump[e.v & 3], 0.45);
           break;
         case 'wallbump':
-          kit.shake(0.1);
           play(SND.bump[e.v & 3], 0.45);
           break;
         case 'step':
@@ -369,7 +394,6 @@ export function createDragonDropView(): ClientMiniGame {
     },
 
     dispose(ctx) {
-      for (const v of jewels.values()) kit.fx.removeShadow(v.shadow);
       jewels.clear();
       kit.dispose();
       void ctx;

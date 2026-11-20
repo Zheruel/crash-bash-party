@@ -100,16 +100,25 @@ export function fxPartTemplate(model: number, part: number, scale: number, add =
   return t ?? null;
 }
 
-const shadowMaterials = new WeakMap<THREE.Material, THREE.Material>();
+const shadowMaterials = new Map<string, WeakMap<THREE.Material, THREE.Material>>();
 
 /** The supply objects flag their ground mesh for subtractive drawing. */
-export function pickupShadow(model: number, part: number, scale: number) {
+export function pickupShadow(model: number, part: number, scale: number, { brightness = 1, depthBias = 0 } = {}) {
   const root = fxPartTemplate(model, part, scale)?.clone();
   if (!root) return new THREE.Group();
+  const key = `${brightness}:${depthBias}`;
+  let materials = shadowMaterials.get(key);
+  if (!materials) {
+    materials = new WeakMap();
+    shadowMaterials.set(key, materials);
+  }
   const shadow = (source: THREE.Material) => {
-    let mat = shadowMaterials.get(source);
+    let mat = materials.get(source);
     if (!mat) {
       mat = source.clone();
+      (mat as THREE.MeshBasicMaterial).color.multiplyScalar(brightness);
+      mat.polygonOffset = depthBias !== 0;
+      mat.polygonOffsetFactor = mat.polygonOffsetUnits = -depthBias;
       mat.transparent = true;
       mat.depthWrite = false;
       mat.blending = THREE.CustomBlending;
@@ -118,7 +127,7 @@ export function pickupShadow(model: number, part: number, scale: number) {
       mat.blendEquationAlpha = THREE.AddEquation;
       mat.blendSrcAlpha = THREE.ZeroFactor;
       mat.blendDstAlpha = THREE.OneFactor;
-      shadowMaterials.set(source, mat);
+      materials.set(source, mat);
     }
     return mat;
   };

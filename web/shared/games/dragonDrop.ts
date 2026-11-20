@@ -153,6 +153,10 @@ export interface RDJewel {
   st: number;
   x: number; y: number; z: number; vx: number; vy: number; vz: number; yaw: number;
   g: number; fl: number; b: number; hold: number; mult: number; owner: number; cd: number;
+  /** Independent ground node. Pickup and the last bounce return before its position updates. */
+  shadow?: { x: number; z: number; visible: boolean };
+  /** A thrown jewel leaves the camera list on its last bounce. A knocked-loose jewel stays on it. */
+  tracked?: boolean;
 }
 export interface DragonTarget {
   /** target: phase (0xc / tick), swing angle th (-0x300..0x300), placed yaw / roll / position, gong cooldown */
@@ -747,11 +751,13 @@ function jewelBounce(w: World, j: RDJewel): boolean {
   return false;
 }
 function jewelTick(w: World, d: DragonDropData, j: RDJewel, jj: number) {
+  const shadow = j.shadow ??= { x: j.x, z: j.z, visible: j.st !== 1 && j.st < 6 };
   if (j.cd > 0) j.cd--;
   let skipWall = false;
   const pick = () => {
     if (tryPickup(w, d, j, jj)) {
       j.st = 1;
+      j.tracked = false;
       E(w, 'jpick', j.x, j.z, j.owner);
       return true;
     }
@@ -759,6 +765,7 @@ function jewelTick(w: World, d: DragonDropData, j: RDJewel, jj: number) {
   };
   switch (j.st) {
     case 0: {
+      shadow.visible = true;
       j.yaw = (j.yaw + 0x20) & 0xfff;
       for (let u = 0; u < 3; u++) {
         const o = d.J[u];
@@ -782,12 +789,15 @@ function jewelTick(w: World, d: DragonDropData, j: RDJewel, jj: number) {
       break;
     }
     case 1: {
+      shadow.visible = false;
       j.yaw = (j.yaw + 0x40) & 0xfff;
       const o = d.P[j.owner];
       if (o) { j.x = o.x; j.z = o.z; j.y = -0x400; }
       break;
     }
     case 2: {
+      shadow.visible = true;
+      j.tracked = true;
       const o = d.P[j.owner]!;
       j.x = o.x; j.z = o.z; j.y = -0x200;
       j.g = 0x800; j.vy = 0; j.fl = 0; j.b = 0; j.hold = 4;
@@ -800,6 +810,7 @@ function jewelTick(w: World, d: DragonDropData, j: RDJewel, jj: number) {
       break;
     }
     case 3: {
+      shadow.visible = true;
       const o = d.P[j.owner];
       const old = j.hold--;
       if (old > 0 && o && ((o.bot) || (o.pad & 0x8000))) {
@@ -809,7 +820,7 @@ function jewelTick(w: World, d: DragonDropData, j: RDJewel, jj: number) {
       j.x += j.vx; j.z += j.vz;
       j.y += j.vy >> 8;
       j.vy += j.g;
-      if (jewelBounce(w, j)) return;
+      if (jewelBounce(w, j)) { j.tracked = false; return; }
       if (pick()) return;
       break;
     }
@@ -822,6 +833,8 @@ function jewelTick(w: World, d: DragonDropData, j: RDJewel, jj: number) {
       break;
     }
     case 5: {
+      shadow.visible = true;
+      j.tracked = true;
       const r = ri(w, 0x1000);
       j.vy = -0x60; j.g = 8; j.fl = 0; j.b = 0;
       j.vx = SIN(r) >> 6; j.vz = T(r) >> 6;
@@ -848,6 +861,8 @@ function jewelTick(w: World, d: DragonDropData, j: RDJewel, jj: number) {
       reflect(j, SIN(a0), T(a0));
     }
   }
+  shadow.x = j.x;
+  shadow.z = j.z;
 }
 
 // ---------------------------------------------------------------- mirror to bodies
@@ -926,7 +941,10 @@ export const dragonDrop: MiniGame = {
     }
     JEWEL0.forEach(([x, y, z], i) => {
       const b = addBody(w, 'jewel', i, x * RD_S, -z * RD_S, 0.4, 1);
-      d.J.push({ bid: b.id, st: i < 2 ? 7 : 6, x, y, z, vx: 0, vy: 0, vz: 0, yaw: 0, g: 0x800, fl: 0, b: 0, hold: 0, mult: 1, owner: 5, cd: 0 });
+      // The first locked update reveals the opening pair. They spin for 98 more before input unlocks.
+      const opening = i < 2;
+      d.J.push({ bid: b.id, st: opening ? 0 : 6, x, y, z, vx: 0, vy: 0, vz: 0, yaw: opening ? 98 * 0x20 : 0,
+        g: 0x800, fl: 0, b: 0, hold: 0, mult: 1, owner: 5, cd: 0, tracked: true, shadow: { x, z, visible: opening } });
     });
     sync(w, d);
   },
