@@ -1,6 +1,6 @@
 // CRATE CRUSH view (shared/games/crateToss.ts): the real Jungle / Space / Snow / Drain Bash stages, wood / TNT / Nitro crates.
 import * as THREE from 'three';
-import { CT_FLOOR_N, CT_HP, CT_OPENING_TICKS, CT_RING_COUNT, CT_RING_GAP, CT_RING_TICKS,
+import { CT_CHEST_REVEAL, CT_CHEST_SHRINK, CT_FLOOR_N, CT_HP, CT_OPENING_TICKS, CT_RING_COUNT, CT_RING_GAP, CT_RING_TICKS,
   CT_U, CT_WEAPON_BLAST, ctActionTicks, ctFruitRise, ctRingScale, floorAt, spaceFloorIndex } from '../../shared/games/crateToss';
 import type { Body, GameEvent } from '../../shared/types';
 import { ASSET_BASE, getCatalog } from '../crash';
@@ -365,6 +365,18 @@ export function createCrateTossView(): ClientMiniGame {
       case 'throwVoice': case 'resultThrowVoice':
         if (audio) charVoice('c', ctx.seats[e.s]?.look.char, 0x10);
         return true;
+      case 'pickup':
+        if (!audio) return true;
+        if (e.v === 1) playSample(FRUIT_SFX, 0.45);
+        else if (e.v >= 6 && e.v <= 8) {
+          const [n, id] = WEAPON_PICKUP_SOUND[e.v - 5];
+          playSample(n, 0.7, sfxRate(lv.bank, id), true);
+        }
+        return true;
+      case 'chestBreak':
+        burst('C', e.x, e.z, 0);
+        if (audio) playPick([18, 18, 20, 21], [0x3f5, 0x3f5, 0x3f7, 0x3f8], 1);
+        return true;
       case 'smash':
         burst(e.s === 2 ? 'C' : 'W', e.x, e.z, 0);
         if (audio) playPick(sfxSet().wood, WOOD_IDS, 0.5);
@@ -468,6 +480,8 @@ export function createCrateTossView(): ClientMiniGame {
       const openingFrame = tick === 0 && ctx.countdownTicksLeft !== undefined
         ? CT_OPENING_TICKS - ctx.countdownTicksLeft : undefined;
       for (const b of w.bodies) {
+        const state = d.cs?.[b.id];
+        const reward = b.kind === 'chest' && state?.s === CT_CHEST_REVEAL && state.t >= 0;
         const born = d.openingSpawns?.[b.id];
         const openingAge = born !== undefined && openingFrame !== undefined ? openingFrame - born : undefined;
         if (openingAge !== undefined && openingAge < 0) continue;
@@ -546,7 +560,7 @@ export function createCrateTossView(): ClientMiniGame {
             script: anims?.carry != null || kit.over.done ? undefined : script, scriptFrame: b.fall ? undefined : frame });
           if (variant === 'space' && (b.fall || !floorAt(d, b.x, b.z))) a.shadow.visible = false;
           if (variant === 'drain') updateWeaponIcon(b.slot, b.alive ? (d.weapon?.[b.slot] ?? 0) : 0, character, b.x, b.y, b.z, kit.poseTick(b.slot));
-        } else if (b.kind === 'crate' || b.kind === 'tnt' || b.kind === 'nitro' || b.kind === 'chest') {
+        } else if (b.kind === 'crate' || b.kind === 'tnt' || b.kind === 'nitro' || (b.kind === 'chest' && !reward)) {
           seenC.add(b.id);
           let v = crates.get(b.id);
           const previous = v;
@@ -571,9 +585,8 @@ export function createCrateTossView(): ClientMiniGame {
               v.obj.position.lerp(v.pickupFrom, 1 - THREE.MathUtils.smoothstep(elapsed, 0, ticks / 2));
             }
           }
-          const cst = d.cs?.[b.id];
           v.obj.scale.y = openingAge !== undefined ? Math.min(1, (openingAge + 1) / 8)
-            : cst?.s === 0 ? Math.max(0, 1 - cst.t / 8) : 1;
+            : state?.s === CT_CHEST_SHRINK ? state.t / 8 : state?.s === 0 ? Math.max(0, 1 - state.t / 8) : 1;
           const crateState = holderState.cs?.[b.id];
           v.obj.rotation.set(held && !grip ? crateState?.pitch ?? 0 : 0, grip && holder ? holder.face : b.face, 0, 'YXZ');
           const { x, y, z } = v.obj.position;
@@ -582,15 +595,21 @@ export function createCrateTossView(): ClientMiniGame {
           const lit = b.kind === 'tnt' && b.fall;
           v.mesh.visible = !lit;
           v.count.forEach((o, i) => (o.visible = lit && i === Math.max(0, Math.min(2, Math.ceil(b.m) - 1))));
-        } else if (b.kind === 'fruit' || b.kind === 'boots' || b.kind === 'potion' || b.kind === 'mask' || b.kind === 'weight' || b.kind === 'weapon') {
+        } else if (reward || b.kind === 'fruit' || b.kind === 'boots' || b.kind === 'potion' || b.kind === 'mask' || b.kind === 'weight' || b.kind === 'weapon') {
           if (b.kind === 'fruit' && born !== undefined && openingFrame !== undefined
             && born > (lastOpeningFrame ?? openingFrame - 1)) fruitSpawnSound();
           seenI.add(b.id);
           let o = items.get(b.id);
-          if (!o) { o = itemObj(b.kind, b); items.set(b.id, o); }
+          if (!o) {
+            o = reward ? itemObj(state.item ? 'weapon' : 'fruit', { slot: state.item }) : itemObj(b.kind, b);
+            items.set(b.id, o);
+          }
           const rise = b.kind === 'fruit' && b.y === 0 ? ctFruitRise(openingAge ?? (b.cd - 1)) : 0;
           o.obj.position.set(b.x, b.y + rise, b.z);
-          if (o.frames.length) { const f = Math.floor(((openingFrame ?? (tick + CT_OPENING_TICKS - 1)) + 1) / 2) % o.frames.length; o.frames.forEach((q, i) => (q.visible = i === f)); }
+          if (o.frames.length) {
+            const f = reward ? state.fruitFrame ?? 0 : Math.floor(((openingFrame ?? (tick + CT_OPENING_TICKS - 1)) + 1) / 2);
+            o.frames.forEach((q, i) => (q.visible = i === f % o.frames.length));
+          } else if (reward) o.obj.rotation.y = b.face;
           else o.obj.rotation.y += dt * 2;
         } else if (b.kind === 'orb' || b.kind === 'rocket' || b.kind === 'ring' || b.kind === 'weaponBlast') {
           seenS.add(b.id);
@@ -673,13 +692,6 @@ export function createCrateTossView(): ClientMiniGame {
           break;
         case 'hole':
           playSample(SPACE_FALL_SFX, 0.65, sfxRate(lv.bank, 0x410));
-          break;
-        case 'pickup':
-          if (e.v === 1) playSample(FRUIT_SFX, 0.45);
-          else if (e.v >= 6 && e.v <= 8) {
-            const [n, id] = WEAPON_PICKUP_SOUND[e.v - 5];
-            playSample(n, 0.7, sfxRate(lv.bank, id), true);
-          }
           break;
         case 'jump':
           dust(e.x, e.z, 1);

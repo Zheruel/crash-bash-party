@@ -209,3 +209,30 @@ assert.deepEqual(Array.from({ length: 16 }, (_, i) => Math.round(ctFruitRise(i) 
   [0,56,104,144,176,200,216,224,224,216,200,176,144,104,56,0]);
 
 console.log('Crate Crush countdown spawns, pickup limits, controls, jump and skate poses passed.');
+
+// USA Drain Bash, Brio's pickup and throw. Coordinates use the web Z convention.
+for (const edge of [false, true]) {
+  const w = createWorld(crateToss, [4, 2].map((disc, slot) => ({
+    slot, char: DISC_CHARACTER.indexOf(disc), bot: false, name: 'P' + slot,
+  })), [], 538, 'drain');
+  const ps = w.bodies.filter(b => b.kind === 'player');
+  const chest = w.bodies.find(b => b.kind === 'chest')!;
+  w.bodies = [...ps, chest];
+  w.data.tPower = w.data.tSpawn = w.data.tFruit = 100000;
+  Object.assign(ps[0], { x: 128 * CT_U, z: (edge ? 647 : -634) * CT_U, face: 0 });
+  w.data.f8[0] = 0;
+  Object.assign(ps[1], { x: -1846 * CT_U, z: -1755 * CT_U });
+  Object.assign(chest, { x: 128 * CT_U, z: (edge ? 896 : -384) * CT_U });
+  w.data.cs[chest.id].item = 25;
+  for (let frame = 120; frame <= 200; frame++) {
+    if (!edge && frame === 175) Object.assign(ps[1], { x: 93 * CT_U, z: 1267 * CT_U });
+    step(w, { a: frame <= 122 || frame === 152 || frame === 153 });
+    if (frame === 154) assert.deepEqual([chest.x, chest.y, chest.z].map(v => Math.round(v / CT_U)), [120, 352, edge ? 1059 : -222]);
+    if (frame === 166) assert(chest.alive);
+    if (edge && frame === 167) assert.equal(chest.alive, false);
+    if (!edge && frame === 174) assert.deepEqual([chest.x, chest.y, chest.z].map(v => Math.round(v / CT_U)), [93, 420, 1267]);
+    if (!edge && frame === 199) assert.equal(w.data.ammo[1], 0);
+  }
+  assert.equal(w.data.ammo[0], 0);
+  assert.equal(w.data.ammo[1], edge ? 0 : 2);
+}

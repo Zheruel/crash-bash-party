@@ -32,7 +32,7 @@
  * Events: grab, throw, kick (spin), hit (s victim, o attacker, v = dmg / CT_HP), smash (wood broke), land, explode (v radius, s=kind 0 tnt 1 nitro),
  *   lit, pickup (v 1 fruit 2 boots 3 slow 4 mask 5 weight 6.. weapons), ko, weapon, weaponHit, penguinWake / penguinHit, hole, jump, beep
  */
-import { attackHull, TAUNT_TICKS } from './onFoot';
+import { attackHull, onFootItemMarker, TAUNT_TICKS } from './onFoot';
 import { CRATE_GRIPS, CT_HULL } from './crateGripData';
 import { DISC_CHARACTER } from '../look';
 import { addBody, emit, rand } from '../physics';
@@ -116,8 +116,9 @@ const W_MISSILE = 0x19, W_ORB = 0x1b, W_RING = 0x1c;
 const DRAIN_WEAPONS = [25, 27, 28, 25, 28, 27, 28, 25, 27, 28, 27, 25, 27, 28, 25, 27, 25, 28]; // 0x800c46c0
 
 /** crate sub state */
-const C_GROW = 0, C_IDLE = 1, C_HELD = 2, C_THROWN = 3, C_SLIDE = 4, C_DELAY = 5, C_OPEN = 6, C_FALL = 7, C_DROP = 8;
-interface CS { gripScript?: number; gripFrame?: number; walking?: boolean; pitch?: number; s: number; t: number; hv: number; vv: number; up: boolean; dx: number; dz: number; own: number; fuse: number; kt: number; item: number }
+const C_GROW = 0, C_IDLE = 1, C_HELD = 2, C_THROWN = 3, C_SLIDE = 4, C_DELAY = 5, C_FALL = 7, C_DROP = 8;
+export const CT_CHEST_REVEAL = 6, CT_CHEST_SHRINK = 9;
+interface CS { homing?: boolean; touchable?: boolean; fruitFrame?: number; releasedAt?: number; gripScript?: number; gripFrame?: number; walking?: boolean; pitch?: number; s: number; t: number; hv: number; vv: number; up: boolean; dx: number; dz: number; own: number; fuse: number; kt: number; item: number }
 
 interface Data {
   char: number[];
@@ -341,9 +342,10 @@ function stepSpawners(w: World, d: Data, survivors: number, opening = false) {
   }
   // drain bash: four "?" crates at the edges once the last weapon was taken
   if (d.variant === 'drain') {
+    if (d.tPower >= (1 << 19)) d.tPower = 0; // older snapshots stored a sentinel while chests existed
     if (d.tPower <= 0 && !crates(w).some((c) => c.kind === 'chest')) {
       spawnDrainChests(w, d);
-      d.tPower = 1 << 20;
+      d.tPower = 0;
     } else if (d.tPower > 0) d.tPower--;
   }
 }
@@ -376,9 +378,6 @@ function destroy(w: World, d: Data, c: Body, skip: number, chain = true) {
   if (kind === 'crate') {
     emit(w, 'smash', c.x, c.z, -1, 1);
     areaDamage(w, d, c.x, c.z, c.y, KIND_DMG(d.variant, 'crate'), skip, 0xa0);
-  } else if (kind === 'chest') {
-    emit(w, 'smash', c.x, c.z, -1, 1);
-    openChest(w, d, c, s);
   } else {
     // LAB_800bae98 clears the tile at the center of a floor-level TNT or nitro blast.
     if (d.variant === 'space' && c.y === 0) {
@@ -399,9 +398,89 @@ function destroy(w: World, d: Data, c: Body, skip: number, chain = true) {
   delete d.cs[c.id];
 }
 
-function openChest(w: World, d: Data, c: Body, s: CS) {
-  const it = addBody(w, s.item === 0 ? 'fruit' : 'weapon', -1, c.x, c.z, 0.5, 1);
-  it.y = 0; it.slot = s.item; it.dash = FRUIT_LIFE; // slot holds the weapon id (0 = fruit)
+function chestMarker(w: World, d: Data, p: Body) {
+  const slot = p.slot, char = d.char[slot], action = d.act[slot];
+  let script = d.groundPose?.[slot]?.script || 1, frame = d.groundPose?.[slot]?.frame ?? w.tick;
+  const held = holdingCrate(w, slot);
+  if (action >= 1 && action <= 3) {
+    script = [15, 18, 10][action - 1]; frame = ctActionTicks(char, action) - d.stT[slot];
+  } else if (d.st[slot] === ST_HURT) {
+    script = 9; frame = HURT_TICKS - d.stT[slot];
+  } else if (held) {
+    const grip = d.cs[held.id];
+    script = grip.gripScript ?? 16; frame = grip.gripFrame ?? 0;
+  } else if (d.air[slot]) {
+    script = d.jh[slot] ? 6 : 7; frame = d.jumpFrame?.[slot] ?? 0;
+  } else if ((d.tauntAt?.[slot] ?? -1) >= 0) {
+    script = 2; frame = w.tick - d.tauntAt![slot];
+  }
+  const [x, h, z] = onFootItemMarker(char, script, Math.max(0, frame)) ?? [0, 384, 0];
+  const sin = Math.round(-4096 * Math.sin(p.face)), cos = Math.round(4096 * Math.cos(p.face));
+  return [Math.round(p.x / U) + ((x * cos + z * sin) >> 12), Math.round(p.y / U) + h,
+    Math.round(-p.z / U) + ((-x * sin + z * cos) >> 12)];
+}
+
+// The Drain actor has a 128-unit extent and the disc tests its edge against the arena.
+function outsideChestArena(c: Body) {
+  return Math.max(Math.abs(c.x), Math.abs(c.z)) > (ARENA - 128) * U;
+}
+
+/** Native chest states 0xc/d (struck) and 0xe/f (thrown). Coordinates below use the disc's Z axis. */
+function stepChestReveal(w: World, d: Data, c: Body, s: CS) {
+  const age = ++s.t;
+  if (age === -1) emit(w, 'chestBreak', c.x, c.z, s.own);
+  if (age < 0) return;
+  if (age === 0) {
+    c.x = ((Math.round(c.x / U) & ~255) + 128) * U;
+    c.z = -((Math.round(-c.z / U) & ~255) + 128) * U;
+    s.vv = s.homing ? 96 : 128;
+    s.up = true;
+    if (!s.item) s.fruitFrame = Math.floor(rand(w) * 14);
+    return;
+  }
+  if ((!s.homing && age > 150) || outsideChestArena(c)) {
+    c.alive = false;
+    delete d.cs[c.id];
+    return;
+  }
+  let x = Math.round(c.x / U), h = Math.round(c.y / U), z = Math.round(-c.z / U);
+  let collected = false;
+  const actors = players(w);
+  const opener = actors.find(p => p.slot === s.own);
+  if (s.homing && !s.up && opener) {
+    const [tx, th, tz] = chestMarker(w, d, opener);
+    const dx = x - tx, dz = z - tz;
+    x -= dx >> 2; h += (th - h) >> 2; z -= dz >> 2;
+    collected = (dx >> 3) === 0 && (dz >> 3) === 0;
+    s.touchable = true;
+  }
+  const contact = () => actors.find(p => p.alive && !p.fall && bodyOverlapsHeight(d, p, c.y, c.y + 256 * U)
+    && dist2(p.x, p.z, c.x, c.z) < p.r + 128 * U);
+  c.x = x * U; c.y = h * U; c.z = -z * U;
+  let receiver = s.touchable && s.homing ? contact() : undefined;
+  if (s.hv > 0) {
+    s.hv = Math.max(0, s.hv - THROWS[(d.char[s.own] ?? 1) - 1][2]);
+    x -= (Math.round(-4096 * Math.sin(c.face)) * s.hv) >> 12;
+    z -= (Math.round(4096 * Math.cos(c.face)) * s.hv) >> 12;
+  }
+  s.vv = Math.min(s.homing ? 240 : 80, Math.max(0, s.vv + (s.up ? -4 : 4)));
+  h += s.up ? s.vv : -s.vv;
+  if (!s.vv) s.up = false;
+  const landed = !s.up && h <= 0;
+  if (landed) { h = 0; s.up = true; s.vv >>= 1; s.hv >>= 1; }
+  c.x = x * U; c.y = h * U; c.z = -z * U;
+  if (!s.homing) {
+    if (!s.up) s.touchable = true;
+    if (s.touchable) receiver = contact();
+  }
+  if (s.homing || s.item) c.face -= 113 * TAU / 4096;
+  else c.face = 0;
+  if (s.homing && (collected || landed)) receiver ??= opener;
+  if (receiver || (s.homing && landed)) {
+    if (receiver) awardChest(w, d, receiver, s.item, c);
+    c.alive = false;
+    delete d.cs[c.id];
+  }
 }
 
 function wakePenguin(w: World, d: Data) {
@@ -622,7 +701,6 @@ export function createCrateCrushResult(terminal: World, winner: number | undefin
     return [s, { state: 'ready', script, elapsed, outAge: 0 }];
   }));
   let winnerAt = -1;
-  const justThrown = new Set<number>();
 
   function pose(a: CrateResultPlayer, state: ResultPlayerState, script: number, elapsed = 0) {
     a.state = state;
@@ -717,7 +795,6 @@ export function createCrateCrushResult(terminal: World, winner: number | undefin
           const crate = holdingCrate(world, s);
           if (crate) {
             throwCrate(world, d, p, crate);
-            justThrown.add(crate.id);
           }
         }
         if (d.stT[s] <= 0) {
@@ -763,9 +840,8 @@ export function createCrateCrushResult(terminal: World, winner: number | undefin
     step(): GameEvent[] {
       world.tick++;
       world.ev = [];
-      justThrown.clear();
       for (const p of actors) stepActor(p, forSlot.get(p.slot)!);
-      for (const c of crates(world)) if (!justThrown.has(c.id)) stepCrate(world, d, c);
+      for (const c of crates(world)) stepCrate(world, d, c);
       for (const o of world.bodies) if (o.alive && isPickup(o)) stepPickup(world, d, o, []);
       stepPenguin(world, d, []);
       stepShots(world, d, []);
@@ -1022,7 +1098,7 @@ function clampPlayer(w: World, d: Data, p: Body) {
   for (const c of crates(w)) {
     if (c.cd !== 0) continue;
     const s = d.cs[c.id];
-    if (!s) continue;
+    if (!s || s.s === CT_CHEST_REVEAL || s.s === CT_CHEST_SHRINK || (s.s === C_THROWN && s.own === slot)) continue;
     if (!bodyOverlapsHeight(d, p, c.y, c.y + CRATE_H * U)) continue;
     const dd = dist2(p.x, p.z, c.x, c.z), m = p.r + CRATE_R * U;
     if (dd >= m) continue;
@@ -1144,13 +1220,25 @@ function pickUp(w: World, d: Data, p: Body, c: Body) {
   emit(w, 'grab', c.x, c.z, p.slot, 1);
 }
 
+function applyGrip(p: Body, c: Body, s: CS, [x, y, z, yaw, pitch]: number[]) {
+  const sin = Math.sin(p.face), cos = Math.cos(p.face);
+  c.x = p.x + (x*cos + z*sin)*U;
+  c.y = p.y + y*U;
+  c.z = p.z + (z*cos - x*sin)*U;
+  c.face = p.face + yaw * TAU / 4096;
+  s.pitch = pitch * TAU / 4096;
+}
+
 function throwCrate(w: World, d: Data, p: Body, c: Body) {
   const s = csOf(d, c);
   const f = d.f8[p.slot];
   c.cd = 0; c.dash = 1;
-  const [speed, , , rise] = THROWS[(d.char?.[p.slot] ?? 1) - 1];
+  const index = (d.char?.[p.slot] ?? 1) - 1;
+  const [speed, , , rise] = THROWS[index];
+  applyGrip(p, c, s, CRATE_GRIPS[index][3][ACTIONS[index][3] + 1]);
+  s.releasedAt = w.tick;
   s.s = C_THROWN; s.own = p.slot; s.hv = speed; s.vv = rise; s.up = rise > 0; s.dx = Math.sin(f); s.dz = Math.cos(f); s.t = 0;
-  // Release from the character's last hand pose.
+  // The crate samples the release pose before its first airborne update.
   c.face = f; s.pitch = 0;
   emit(w, 'throw', p.x, p.z, p.slot, 1);
 }
@@ -1190,6 +1278,11 @@ function spinHit(w: World, d: Data, p: Body) {
 
 /** the crate was hit (flag 2): it slides away along one of 8 directions; nitro goes off, tnt is lit */
 function kickCrate(w: World, d: Data, c: Body, s: CS, by: number, ang: number) {
+  if (c.kind === 'chest') {
+    s.s = CT_CHEST_REVEAL; s.t = -3; s.homing = true; s.own = by; s.hv = 0;
+    c.face = snap8(ang);
+    return;
+  }
   if (c.kind === 'nitro') { s.own = by; destroy(w, d, c, -1); return; }
   const a = snap8(ang);
   s.s = C_SLIDE; s.own = by; s.hv = longKick(d.char?.[by] ?? 1) ? 112 : 80; s.dx = Math.sin(a); s.dz = Math.cos(a); s.kt = 2; s.t = 0;
@@ -1216,6 +1309,12 @@ function stepCrate(w: World, d: Data, c: Body) {
     if (s.fuse <= 0) { destroy(w, d, c, -1); return; }
   }
   switch (s.s) {
+    case CT_CHEST_REVEAL:
+      stepChestReveal(w, d, c, s);
+      return;
+    case CT_CHEST_SHRINK:
+      if (--s.t <= 0) { c.alive = false; delete d.cs[c.id]; }
+      return;
     case C_DROP: {
       if (s.t++ === 0) return;
       c.y -= s.vv * U;
@@ -1247,29 +1346,25 @@ function stepCrate(w: World, d: Data, c: Body) {
         if (frame === left || frame === right) emit(w, 'carryStep', p.x, p.z, slot, frame === left ? 0 : 1);
       }
       s.gripScript = script; s.gripFrame = frame;
-      const [x, y, z, yaw, pitch] = track[frame+1];
-      const sin = Math.sin(p.face), cos = Math.cos(p.face);
-      c.x = p.x + (x*cos + z*sin)*U;
-      c.y = p.y + y*U;
-      c.z = p.z + (z*cos - x*sin)*U;
-      c.face = p.face + yaw * TAU / 4096;
-      s.pitch = pitch * TAU / 4096;
+      if (script !== 15 || frame !== 0) applyGrip(p, c, s, track[frame + 1]);
       return;
     }
     case C_THROWN: {
+      if (s.releasedAt === w.tick) return;
       s.t++;
       const [, max, drag, , gravity] = THROWS[(d.char?.[s.own] ?? 1) - 1];
       s.hv = Math.min(max, Math.max(0, s.hv - drag));
       c.x += s.dx * s.hv * U; c.z += s.dz * s.hv * U;
       if (s.up) { s.vv -= gravity; if (s.vv <= 0) { s.vv = 0; s.up = false; } else c.y += s.vv * U; }
       else { s.vv = Math.min(80, s.vv + gravity); c.y -= s.vv * U; }
-      c.face += 0.25;
-      const hitWall = clampCrate(c);
+      if (c.kind !== 'chest') c.face += 0.25;
+      const hitWall = c.kind !== 'chest' && clampCrate(c);
       const hole = !floorAt(d, c.x, c.z);
       const ground = groundAt(w, d, c.x, c.z, c);
       const landed = !s.up && !hole && c.y <= Math.max(0, ground);
       if (landed) c.y = d.variant === 'space' ? ground : Math.max(0, c.y);
       if (hole && c.y < -SPACE_OBJECT_CULL * U) { c.alive = false; delete d.cs[c.id]; return; }
+      if (landed && c.kind === 'chest') s.hv >>= 1;
       if (hitWall || landed || strike(w, d, c, s) || !hole && s.hv <= 0 && s.t > 40) impact(w, d, c, s);
       return;
     }
@@ -1334,7 +1429,13 @@ function strike(w: World, d: Data, c: Body, s: CS): boolean {
 /** thrown / kicked crate broke: wood breaks, TNT and nitro explode; the player who threw it is spared */
 function impact(w: World, d: Data, c: Body, s: CS) {
   const own = s.own;
-  if (own >= 0) d.lastBy[0] = d.lastBy[0]; // (credit goes through the hit events)
+  if (c.kind === 'chest') {
+    emit(w, 'chestBreak', c.x, c.z, own);
+    if (outsideChestArena(c)) { c.alive = false; delete d.cs[c.id]; return; }
+    s.s = CT_CHEST_REVEAL; s.t = -1; s.homing = false;
+    c.cd = 0; c.dash = 0;
+    return;
+  }
   destroy(w, d, c, own);
 }
 
@@ -1371,16 +1472,28 @@ function collect(w: World, d: Data, o: Body, p: Body) {
     case 'potion': d.eff[slot] = EFF_SLOW; d.effT[slot] = SLOW_T; emit(w, 'pickup', o.x, o.z, slot, 3); break;
     case 'mask': d.eff[slot] = EFF_AKU; d.effT[slot] = MASK_T; emit(w, 'pickup', o.x, o.z, slot, 4); break;
     case 'weight': d.eff[slot] = EFF_WEIGHT; d.effT[slot] = WEIGHT_T; d.weight = slot; d.pass[slot] = 0; emit(w, 'pickup', o.x, o.z, slot, 5); break;
-    case 'weapon': {
-      const k = o.slot;
-      d.weapon[slot] = k === W_MISSILE ? 2 : k === W_ORB ? 1 : 3;
-      d.ammo[slot] = k === W_MISSILE ? 2 : k === W_ORB ? 3 : 1;
-      emit(w, 'pickup', o.x, o.z, slot, 5 + d.weapon[slot]);
-      for (const c of crates(w)) if (c.kind === 'chest' && c.cd === 0) { c.alive = false; delete d.cs[c.id]; } // the other "?" crates vanish
-      d.tPower = (Math.floor(rand(w) * 6) + 2) * 30;
-      break;
+    case 'weapon': awardChest(w, d, p, o.slot, o); break; // older snapshots with loose weapons
+  }
+}
+
+function awardChest(w: World, d: Data, p: Body, item: number, at: Body) {
+  const slot = p.slot;
+  if (!item) {
+    d.hp[slot] = Math.min(CT_HP, d.hp[slot] + 1);
+    emit(w, 'pickup', at.x, at.z, slot, 1);
+    return;
+  }
+  d.weapon[slot] = item === W_MISSILE ? 2 : item === W_ORB ? 1 : 3;
+  d.ammo[slot] = item === W_MISSILE ? 2 : item === W_ORB ? 3 : 1;
+  emit(w, 'pickup', at.x, at.z, slot, 5 + d.weapon[slot]);
+  for (const chest of crates(w)) {
+    const state = d.cs[chest.id];
+    if (chest.kind === 'chest' && state?.s === C_IDLE) {
+      state.s = CT_CHEST_SHRINK;
+      state.t = 8;
     }
   }
+  d.tPower = (Math.floor(rand(w) * 6) + 2) * 30;
 }
 
 // ---------- Drain Bash weapons ----------
