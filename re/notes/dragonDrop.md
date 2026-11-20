@@ -39,6 +39,10 @@ Placements: score desc, index asc; draw only if the top two tie.
 ## Bot AI (`aiTick`, handlers b3a38.. b4d6c)
 Versus skills 8 / 16 / 20 were read from all four slots after executing `FUN_80086918` in L28 at each difficulty. Handlers: 1 jewel hunt, 2 chase carrier, 3 direct throw, 4 to the x5 spot, 5 in zone, 6 evade (rival radius 250; barge-chance circle 200). Ray tests `b4268`/`b4474` use int32 wraparound. Victim selection, barge chances, collision sounds and jewel deflections use the shared native two-word RNG. Native `FUN_80085650` matched all 16 seat-order permutations and both final RNG words for each of four seeds. The online seed is mixed into the executable’s first starting word.
 
+At GO each CPU has already chosen an opening jewel. The engine advances the RNG once before the arena update (`80010394` → `800155fc`), then selects the seat order. Each CPU starts with an empty physical pad. A handler can switch from evading to aiming without writing any directions that tick. Retaining its previous pad made the rider coast in the wrong direction at its first pickup. The third jewel appears at tick 1350. Its burst consumes another 28, 28, 28 and 12 draws after gameplay on the next four updates.
+
+Three USA recordings ran for 2,699 consecutive gameplay updates each. Starting with the recorded RNG and order table at GO, the shared sim matched every rider's position, velocity, heading, state, effective input, cooldown and possession, every jewel's position, state and owner, all scores, and both RNG words. The Normal round ended 0–43–17–25 and Hard ended 0–22–38–23. A four-human directional-input recording ended in a scoreless draw. The Hard comparison used the recorded physical directions through knockback because the recoil handler clears the pad after reading it. The regression in `web/scripts/test-dragon-drop.ts` replays all three captures.
+
 ## Arena and character sounds
 
 Dragon Drop loads VAB 0179. Bank 0180 belongs to Ring Ding. The live L28 tone table at `0x80064508` resolves all Dragon Drop IDs to the samples and pitches in `RD_SFX`. Steps use the two short blips for each seat at run ticks 6 and 19, the gong uses sample 21, and `0x6b2` and `0x6c8–0x6cb` are silent. Barge and throw cues also follow the rider's seat.
@@ -71,7 +75,7 @@ The camera fits the riders and jewels on the list at `8005aa34`. Each jewel star
 With sampled USA positions, fitting the riders and target gave zero exact translations in 433 consecutive-frame comparisons. Using the recorded list matched all 433. A win and a draw also matched all 70 compared updates apiece with the result boxes from `80078dd4`. On the verdict update the camera still includes the active list. From the next update it fits the surviving riders. WebGL replays used both custom riders. The browser interpolates the 30 Hz fit between render frames.
 
 ## Unknowns
-Human stick deadzone and diagonal response, and whole-round CPU/random draw alignment remain to be compared directly.
+Analog stick deadzone, additional rosters and difficulties, and the RNG phase from boot through GO remain to be compared directly.
 
 ## Effects (decoded)
 Level model 0621 script 0 = jewel spawn burst (192 u up; parts 0, 1, 4, 5). Barge = smoke puff object 0x1903: pack 0619 parts 3-18, 16 frames,

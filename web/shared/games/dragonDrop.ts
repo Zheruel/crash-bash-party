@@ -136,6 +136,7 @@ export interface RDAi {
 }
 export interface RDPlayer {
   bid: number; id: number; bot: boolean; skill: number;
+  cpuFallback?: true;
   x: number; z: number; yaw: number; hd: number;
   vx: number; vz: number; tvx: number; tvz: number; ac: number; dc: number;
   st: number; rt: number; tt: number; cd: number;
@@ -177,6 +178,9 @@ export interface DragonDropData extends DragonTarget {
 }
 
 const players = (d: DragonDropData) => d.P.filter((p): p is RDPlayer => !!p);
+const CPU_CONTROL = Symbol('Dragon Drop CPU control');
+const cpuRequest = { ...IDLE, [CPU_CONTROL]: true };
+const cpuDriven = (p: RDPlayer) => p.bot || p.cpuFallback === true;
 const E = (w: World, k: string, px: number, pz: number, s = -1, v = 1, o = -1) => emit(w, k, px * RD_S, -pz * RD_S, s, v, o);
 
 /** pad bits -> pad angle (FUN_800b3538) */
@@ -411,6 +415,8 @@ const aimsAtTarget = (d: DragonDropData, p: RDPlayer) => {
 
 function aiTick(w: World, d: DragonDropData, p: RDPlayer, me: number) {
   const a = p.ai;
+  // The pad poll clears the previous CPU directions before this handler can write new ones.
+  p.pad = p.ang = 0;
   a.acc = 0;
   if (a.h !== H_DIRECT) {
     if (p.carry >= 0) {
@@ -616,14 +622,14 @@ export const rdTest: { pads: number[] | null; order: number[] | null } = { pads:
 function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?: 'draw' | 'win') {
   if (p.lock > 0) p.lock--;
   if (result) p.pad = 0;
-  else if (rdTest.pads) { p.pad = rdTest.pads[s]; p.ang = rdPadAngle(p.pad); } else if (p.bot) aiTick(w, d, p, s);
+  else if (rdTest.pads) { p.pad = rdTest.pads[s]; p.ang = rdPadAngle(p.pad); } else if (cpuDriven(p)) aiTick(w, d, p, s);
   // FUN_800b9930: pad -> heading and target velocity
   if (p.lock !== 0) p.pad = 0;
   p.tvx = 0; p.tvz = 0;
   if (result === 'win') p.vx = p.vz = 0; // FUN_800b9930 clears winner velocity before the state handler.
   if (p.st !== ST_BARGE && (p.pad & 0xf0) !== 0) {
     p.hd = (p.ang + 0x800) & 0xfff;
-    const spd = p.carry >= 0 ? CARRY : p.bot ? BOT_SPEED[p.skill >> 1] : WALK;
+    const spd = p.carry >= 0 ? CARRY : cpuDriven(p) ? BOT_SPEED[p.skill >> 1] : WALK;
     p.tvx = Math.floor((spd * T(p.hd + 0x400)) / 4096);
     p.tvz = Math.floor((spd * T(p.hd + 0x800)) / 4096);
   }
@@ -808,7 +814,7 @@ function jewelTick(w: World, d: DragonDropData, j: RDJewel, jj: number) {
       shadow.visible = true;
       const o = d.P[j.owner];
       const old = j.hold--;
-      if (old > 0 && o && ((o.bot) || (o.pad & 0x8000))) {
+      if (old > 0 && o && (cpuDriven(o) || (o.pad & 0x8000))) {
         j.vy -= 0x1800;
         if (j.vy < -0x6000) j.vy = -0x6000;
       }
@@ -904,6 +910,7 @@ export const dragonDrop: MiniGame = {
   controls: '{move} move. {a} throw or barge if empty-handed. Hold {a} for a higher throw.',
   maxTime: 90,
   settlesAfterTimeout: true,
+  bot: () => cpuRequest,
 
   setup(w, slots) {
     const chars = w.data?.chars as number[] | undefined; // optional host override: roster index per slot
@@ -941,12 +948,21 @@ export const dragonDrop: MiniGame = {
       d.J.push({ bid: b.id, st: opening ? 0 : 6, x, y, z, vx: 0, vy: 0, vz: 0, yaw: opening ? 98 * 0x20 : 0,
         g: 0x800, fl: 0, b: 0, hold: 0, mult: 1, owner: 5, cd: 0, tracked: true, shadow: { x, z, visible: opening } });
     });
+    // At GO each CPU has already picked its nearest jewel during the locked countdown.
+    for (let s = 0; s < MAX_SEATS; s++) {
+      const p = d.P[s];
+      if (p?.bot) {
+        aiTick(w, d, p, s);
+        p.pad = 0;
+      }
+    }
     sync(w, d);
   },
 
   step(w, inputs) {
     const d = w.data as DragonDropData;
     if (dragonDrop.isOver(w)) return;
+    if (d.random) ri(w, 2); // FUN_800155fc advances the engine RNG before the arena update.
     targetTick(w, d);
     for (const p of players(d)) if (p.cd > 0) p.cd--;
     d.t++;
@@ -954,8 +970,13 @@ export const dragonDrop: MiniGame = {
     for (let s = 0; s < MAX_SEATS; s++) {
       const p = d.P[s];
       if (!p) continue;
-      if (!p.bot && !rdTest.pads) {
-        p.pad = padOf(inputs[s] ?? IDLE);
+      const input = inputs[s];
+      if (!p.bot && input) {
+        if (CPU_CONTROL in input) p.cpuFallback = true;
+        else delete p.cpuFallback;
+      }
+      if (!cpuDriven(p) && !rdTest.pads) {
+        p.pad = padOf(input ?? IDLE);
         p.ang = rdPadAngle(p.pad);
       }
     }
@@ -965,6 +986,12 @@ export const dragonDrop: MiniGame = {
       if (p) playerTick(w, d, p, s);
     }
     d.J.forEach((j, i) => jewelTick(w, d, j, i));
+    // Model 0621 script 0 emits the third jewel's appearance particles for four updates.
+    const burstFrame = d.t - 0x546;
+    if (d.random && burstFrame >= 1 && burstFrame <= 4) {
+      const draws = burstFrame === 4 ? 12 : 28;
+      for (let i = 0; i < draws; i++) ri(w, 2);
+    }
     sync(w, d);
     if (d.shown ? tickVersusTally(d.score, d.shown, d.t, 1) : d.t >= 2700) {
       const pl = dragonDrop.placements(w);

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { Predictor } from '../client/predict';
+import { botInput } from '../shared/bots';
+import { IDLE } from '../shared/types';
 import { versusClock } from '../shared/games/common';
-import { createDragonDropResult, dragonDrop, RD_INTRO_GONG, RD_INTRO_TARGETS, RD_TICKS } from '../shared/games/dragonDrop';
+import { createDragonDropResult, dragonDrop, RD_INTRO_GONG, RD_INTRO_TARGETS, RD_TICKS, type DragonDropData } from '../shared/games/dragonDrop';
 import { createWorld, roundOver, stepWorld } from '../shared/sim';
 
 const seats = [8, 9, 0, 2].map((char, slot) => ({ char, slot, name: String(slot), bot: false }));
@@ -12,6 +16,43 @@ assert.deepEqual(initial.data.ord[0], [2, 0, 3, 1]);
 const beforeResult = JSON.stringify(initial);
 createDragonDropResult(initial, undefined).advance(120);
 assert.equal(JSON.stringify(initial), beforeResult);
+
+// A disconnected custom rider gets the same inputs, speed and throw boost as a roster CPU.
+for (const slot of [0, 1]) {
+  const host = start();
+  const reference = start();
+  reference.data.P[slot].bot = true;
+  const inputs = seats.map(() => IDLE);
+  inputs[slot] = botInput(dragonDrop, host, slot);
+  for (let tick = 0; tick < 150; tick++) {
+    stepWorld(host, dragonDrop, inputs);
+    stepWorld(reference, dragonDrop, []);
+    const { bot, cpuFallback, ...actual } = host.data.P[slot];
+    const { bot: rosterCPU, ...expected } = reference.data.P[slot];
+    assert.equal(bot, false);
+    assert.equal(cpuFallback, true);
+    assert.equal(rosterCPU, true);
+    assert.deepEqual(actual, expected);
+    assert.deepEqual(host.data.J, reference.data.J);
+  }
+  const spectator = new Predictor(dragonDrop, null);
+  spectator.onSnapshot(JSON.parse(JSON.stringify(host)), 0);
+  spectator.push({ ...IDLE, seq: 1 });
+  stepWorld(host, dragonDrop, inputs);
+  assert.equal(JSON.stringify(spectator.pred), JSON.stringify(host));
+
+  const rider = host.data.P[slot];
+  rider.lock = 0;
+  const keyboard = { ...IDLE, x: -1, seq: 2 };
+  const rejoined = new Predictor(dragonDrop, slot);
+  rejoined.onSnapshot(JSON.parse(JSON.stringify(host)), 1);
+  rejoined.push(keyboard);
+  inputs[slot] = keyboard;
+  stepWorld(host, dragonDrop, inputs);
+  assert.equal(rider.cpuFallback, undefined);
+  assert.equal(rider.pad, 0x80);
+  assert.equal(JSON.stringify(rejoined.pred), JSON.stringify(host));
+}
 
 // L28 state 0 at the input unlock. The opening pair have already spun in place.
 assert.deepEqual(initial.data.J.map((j: { st: number; yaw: number }) => [j.st, j.yaw]), [[0, 3136], [0, 3136], [6, 0]]);
@@ -82,4 +123,39 @@ for (const points of [0, 1, 3, 5]) {
   }
   assert.equal(dragonDrop.isDraw!(w, dragonDrop.placements(w)), points === 0);
 }
-console.log('Dragon Drop opening, jewel pickups and rebounds, score roll, timeout and snapshot replay passed.');
+// Three complete USA L28 captures, starting from the disc's order table and RNG at GO.
+const firstOrder = '0132123002311230032121031032230121301230120332100123123023101320';
+for (const capture of [
+  { mode: 'Normal', rng: [1246185985, 2713100104], order: '1230023112300321210310322301213012301203321001231230231013201230', digest: '7b09ae8d2b30f6573e7e49e2e069070e95ec10252513b0904834827b774f770e' },
+  { mode: 'Hard', rng: [2754134720, 1885585218], order: firstOrder, digest: '3f4793c92587c212020f06fe5756b6fc8c3592559190743eb7f5e69d0955e844' },
+  { mode: 'Human', rng: [2171508062, 3975092396], order: firstOrder, digest: '96ddc75bf7811c5cef0eabfb7f194dfc14a6073fe181873ab28ce3086dd2a8c7' },
+]) {
+  const roster = [1, 4, 7, 6].map((char, slot) => ({
+    char, slot, name: String(slot), bot: capture.mode !== 'Human' && slot > 0, level: capture.mode === 'Hard' ? 2 : 1,
+  }));
+  const w = createWorld(dragonDrop, roster, [], 0);
+  const d = w.data as DragonDropData;
+  d.random = [capture.rng[0], capture.rng[1]];
+  d.ord = capture.order.match(/.{4}/g)!.map(row => Array.from(row, Number));
+  const hash = createHash('sha256');
+  for (let tick = 1; tick <= RD_TICKS; tick++) {
+    const input = { ...IDLE };
+    if (tick > 1 && capture.mode !== 'Normal') {
+      const phase = (tick - 1) % 140;
+      if (phase < 36) input.x = 1;
+      else if (phase < 65) input.y = -1;
+      else if (phase < 96) input.y = 1;
+      else input.x = -1;
+    }
+    stepWorld(w, dragonDrop, [input]);
+    const values = [...d.random];
+    for (let slot = 0; slot < 4; slot++) {
+      const p = d.P[slot]!;
+      values.push(p.x, p.z, p.yaw, p.hd, p.vx, p.vz, p.st, p.cd, p.carry, p.pad, d.score[slot]);
+    }
+    for (const j of d.J) values.push(j.x, j.y, j.z, j.st, j.owner);
+    hash.update(values.join(',') + '\n');
+  }
+  assert.equal(hash.digest('hex'), capture.digest, capture.mode);
+}
+console.log('Dragon Drop opening, jewel contacts, score roll, reconnect and three full USA round replays passed.');
