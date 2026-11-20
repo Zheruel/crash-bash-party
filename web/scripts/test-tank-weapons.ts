@@ -7,6 +7,25 @@ const variants = ['swamp', 'desert', 'jungle', 'metal'];
 const seats = [0, 2, 3, 4].map((char, slot) => ({ char, slot, name: String(slot), bot: false }));
 const step = (w: World, fire = false) => stepWorld(w, tankArena, [{ ...IDLE, a: fire }]);
 
+// USA L5–L8. The mixed-room AI has 52 cooldown ticks left before the first live step.
+for (const variant of variants) {
+  const swamp = variant === 'swamp';
+  const looks = [0, 0, 8, 9];
+  for (const level of [0, 1, 2]) {
+    const lineup = looks.map((char, slot) => ({ char, slot, level, bot: slot > 0, name: String(slot) }));
+    const w = createWorld(tankArena, lineup, [], 42, variant);
+    const customSpeed = (swamp ? [30, 36, 39] : [24, 25, 27])[level];
+    assert.deepEqual(w.data.tk.map((t: { speed: number }) => t.speed),
+      [swamp ? 42 : 28, (swamp ? [35, 42, 46] : [28, 30, 32])[level], customSpeed, customSpeed]);
+    for (let tick = 0; tick <= 52; tick++) {
+      assert.deepEqual(w.data.tk.map((t: { cd: number }) => t.cd), [0, 52 - tick, 52 - tick, 52 - tick]);
+      step(w);
+    }
+    const bots = createWorld(tankArena, lineup.map(s => ({ ...s, bot: true })), [], 42, variant);
+    assert(bots.data.tk.every((t: { cd: number }) => t.cd === 0));
+  }
+}
+
 // First recoil word and first idle word captured from the two native callbacks.
 for (const variant of variants) {
   for (const { char } of seats) {

@@ -1107,7 +1107,8 @@ export const tankArena: MiniGame = {
     const variant = pickVariant(w, TA_VARIANTS);
     const lv = TA_LV.findIndex((l) => l.id === variant);
     const L = TA_LV[lv];
-    const d: Data = { variant, lv, f: 0, over: false, overF: -1, hum: 1, tk: [], shells: [], mines: [], flames: [], bombs: [], pickups: [], dropper: null, spawnT: 239 - TANK_INTRO_TICKS, par: 0, bump: 0 };
+    const hum = slots.some(s => !s.bot) ? 1 : 0;
+    const d: Data = { variant, lv, f: 0, over: false, overF: -1, hum, tk: [], shells: [], mines: [], flames: [], bombs: [], pickups: [], dropper: null, spawnT: 239 - TANK_INTRO_TICKS, par: 0, bump: 0 };
     w.data = d;
     for (let i = 0; i < MAX_SEATS; i++) {
       const s = slots.find((q) => q.slot === i);
@@ -1115,16 +1116,22 @@ export const tankArena: MiniGame = {
       const [x, z, yaw] = L.spawns[i];
       const dir = yaw === 0x800 ? 2 : yaw === 0xc00 ? 3 : yaw === 0 ? 0 : 1; // grid heading = shell direction
       const lvl = Math.max(0, Math.min(2, s?.level ?? 1));
-      const base = SPEED[char - 1];
+      const skill = L.skill[lvl];
+      const cpu = s?.bot ?? true;
+      const base = L.level === 5 ? Math.trunc(SPEED[char - 1] * 3 / 2) : SPEED[char - 1];
+      const speed = cpu ? Math.trunc(base * (84 + skill) / 100) : base;
+      // The initial 150-tick CPU cooldown counts down during the 98 updates before GO.
+      // In an all-CPU match it runs twice as fast and has already expired.
+      const cd = cpu && hum ? 150 - (TANK_INTRO_TICKS - 1) : 0;
       const weapon = TANK_STOCK_WEAPON[char - 1];
       const boatFrame = L.level === 5 ? TANK_INTRO_TICKS % 6 : 0;
       const id = mk(w, d, 'tank', i, x, z, 0xe0);
       d.tk.push({
         x, z, yaw, hull: L.level === 7 ? 0 : HULL[dir], st: S_RUN, stT: 0, dir, tn: 0, td: 0, vx: 0, vz: 0, bank: 0,
         ...(L.level === 5 ? { rotor: BOAT_ROTOR_AT_GO } : {}),
-        wpn: weapon, ammo: 999, cd: 0, busy: -1, gunFrame: L.level === 5 ? (boatFrame + 1) % 6 : 0,
-        gunPose: tankGunIdle(L.level, weapon, boatFrame), mines: 3, mcd: 0, hp: TA_HP, cpu: s ? s.bot : true,
-        skill: L.skill[lvl], char, resultVoiceTicks: winnerCheerFrame(s?.char ?? i), speed: L.level === 5 ? Math.trunc((base * 3) / 2) : base, pad: 0, prev: 0, aim: -1, inv: 0, shieldCd: 0,
+        wpn: weapon, ammo: 999, cd, busy: -1, gunFrame: L.level === 5 ? (boatFrame + 1) % 6 : 0,
+        gunPose: tankGunIdle(L.level, weapon, boatFrame), mines: 3, mcd: 0, hp: TA_HP, cpu,
+        skill, char, resultVoiceTicks: winnerCheerFrame(s?.char ?? i), speed, pad: 0, prev: 0, aim: -1, inv: 0, shieldCd: 0,
         dodge: false, taunt: 0, hy: 0, hvy: 0, kills: 0, elim: -1, hpAt: 0,
         ai: { mode: 0, timer: 1, target: -1, pad: 0, tx: 0, tz: 0, shoot: ((L.skill[lvl] * 0x55) >> 5) + 5, mref: 0, idle: R(w, 0x1e) }, body: id, bot: -1,
       });
