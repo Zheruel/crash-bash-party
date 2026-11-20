@@ -282,6 +282,42 @@ for (const variant of ['tilt', 'polar', 'melt', 'manic']) {
   }
 }
 
+// USA L5–L8 read the edges for weapons, mines and shields, but the held bit for taunts.
+for (const variant of ['swamp', 'desert', 'jungle', 'metal']) {
+  const host = new InlineHostCore('TANK', { auto: false, games: pickGames(['tankArena']), variants: { tankArena: variant }, timing: FAST_TIMING });
+  const pilots = [8, 9].map((char, color) => new GameClient(() => new LoopbackTransport(host), { name: 'Pilot' + color, look: { char, color } }));
+  const pressed = { x: 0, y: 0, a: true, b: true, c: true, d: true };
+  const neutral = { x: 0, y: 0, a: false, b: false };
+  let now = 1000;
+  const advance = async () => { host.step(now += 34); await tick(); };
+  const actions = (w: World, slot: number) => {
+    const t = w.data.tk[slot];
+    return [t.cd > 0, t.mines, !!t.shield, t.taunt > 0];
+  };
+  const fired = [true, 2, variant === 'swamp', true];
+  try {
+    for (const pilot of pilots) { await pilot.start(); await tick(); pilot.ready(true); }
+    await tick();
+    for (let n = 0; n < 35 && pilots[0].phase !== 'countdown'; n++) await advance();
+    pilots[0].sendInput(pressed);
+    pilots[1].sendInput(neutral);
+    await tick();
+    for (let n = 0; n < 20 && pilots[0].phase !== 'play'; n++) await advance();
+    pilots.forEach(pilot => pilot.sendInput(pressed));
+    const predicted = pilots.map((pilot, slot) => actions(pilot.predictor!.pred!, slot));
+    await tick(); await advance();
+    const first = pilots[0].snaps.at(-1)!.w;
+    const actual = pilots.map((_, slot) => actions(first, slot));
+    ok(variant + ': GO respects held and freshly pressed tank controls', first.tick === 1 &&
+      isDeepStrictEqual(actual, [[false, 3, false, true], fired]) && isDeepStrictEqual(actual, predicted));
+    pilots[0].sendInput(neutral); await tick(); await advance();
+    pilots[0].sendInput(pressed); await tick(); await advance();
+    ok(variant + ': releasing and pressing again arms the tank controls', isDeepStrictEqual(actions(pilots[0].snaps.at(-1)!.w, 0), fired));
+  } finally {
+    pilots.forEach(pilot => pilot.leave()); host.destroy();
+  }
+}
+
 // Held controls cross the Dash countdown once, even if old unreliable inputs arrive at GO.
 {
   const host = new InlineHostCore('GRID', { auto: false, games: pickGames(['dashRace']), variants: { dashRace: 'splash' }, timing: FAST_TIMING });

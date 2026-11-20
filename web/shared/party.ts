@@ -3,7 +3,7 @@
 // host's browser (PeerJS mode) or inside the Node ws server (LAN mode).
 import { getGame, GAMES } from './registry';
 import { BALLISTIX_OPENING_TICKS } from './games/ballDefence';
-import { POLAR_WIN_TALLY_TICKS, primePolarPad } from './games/pushOff';
+import { POLAR_WIN_TALLY_TICKS } from './games/pushOff';
 import { dragonResultFrames } from './games/dragonDrop';
 import { modifiersFor } from './modifiers';
 import { createWorld, roundOver, stepWorld } from './sim';
@@ -442,9 +442,9 @@ export class Party {
         break;
       case 'countdown':
         if (now >= this.phaseEnds) {
-          if (this.game?.id === 'pushOff' && this.world) {
+          if (this.game?.primeCountdownPad && this.world) {
             for (const [slot, id] of this.seats.entries()) {
-              if (id !== null) primePolarPad(this.world, slot, this.members.get(id)?.cur ?? IDLE);
+              if (id !== null) this.game.primeCountdownPad(this.world, slot, this.members.get(id)?.cur ?? IDLE);
             }
           }
           this.setPhase('play', 0, now);

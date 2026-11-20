@@ -145,6 +145,8 @@ export interface MiniGame {
   /** The native finish handler may wait for the displayed scores after the clock reaches zero. */
   settlesAfterTimeout?: boolean;
   setup(world: World, players: SlotInfo[], modifiers: Modifier[]): void;
+  /** Remember held controls at GO so the first live step can detect new presses. */
+  primeCountdownPad?(world: World, slot: number, input: InputState): void;
   step(world: World, inputs: (InputState | null | undefined)[], dt: number): void;
   isOver(world: World): boolean;
   /** Slot indices, best first. Must be valid at any moment (used on timeout). */

@@ -1,5 +1,4 @@
 import { DT, type Input, type InputState, type MiniGame, type World } from '../shared/types';
-import { primePolarPad } from '../shared/games/pushOff';
 import { cloneWorld, stepWorld } from '../shared/sim';
 
 /**
@@ -11,14 +10,14 @@ export class Predictor {
   pred: World | null = null;
   pending: Input[] = [];
   seq = 0;
-  openingPolarPad?: InputState;
+  openingPad?: InputState;
 
   constructor(private game: MiniGame, public slot: number | null) {}
 
   private step(i: Input) {
     if (!this.pred) return;
-    if (this.pred.tick === 0 && this.slot != null && this.openingPolarPad) {
-      primePolarPad(this.pred, this.slot, this.openingPolarPad);
+    if (this.pred.tick === 0 && this.slot != null && this.openingPad) {
+      this.game.primeCountdownPad?.(this.pred, this.slot, this.openingPad);
     }
     const arr: (Input | null)[] = [null, null, null, null];
     if (this.slot != null) arr[this.slot] = i;

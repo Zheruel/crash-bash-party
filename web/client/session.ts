@@ -152,7 +152,7 @@ export class GameClient {
     if (!opening && this.phase !== 'play') return;
     const inp = { seq: ++this.predictor.seq, ...s };
     if (opening) {
-      if (this.round?.gameId === 'pushOff') this.predictor.openingPolarPad = s;
+      this.predictor.openingPad = s;
       this.rawSend({ t: 'input', round: this.round?.round, ...inp, opening: true }, true);
       return;
     }

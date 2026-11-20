@@ -1097,6 +1097,12 @@ export const tankArena: MiniGame = {
   maxTime: 90,
   settlesAfterTimeout: true,
 
+  primeCountdownPad(w, slot, pad) {
+    const d = w.data as Data;
+    const t = d.tk[slot];
+    if (t && !t.cpu) t.prev = humanPad(pad, L_(d).level) & 0xe000; // fire, mine and shield use rising edges
+  },
+
   setup(w, slots) {
     const variant = pickVariant(w, TA_VARIANTS);
     const lv = TA_LV.findIndex((l) => l.id === variant);

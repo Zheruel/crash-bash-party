@@ -17,6 +17,10 @@ Status tags: [exact] read from the code (and mostly checked in a live recording)
 - Permanent tile blocks (cacb4 movement layer = cacfc projectile layer): L5 open 9x8 (bounds 0x1100,0xf00); L6 8x8 rows{1,3,4,6} x cols{1,3,4,6}; L7 8x8 rows{3,4} x cols{3,4}; L8 9x7 rows{1,3,5} x cols{1,3,5,7}. Metal Fox also has the timed platforms below.
 - Damage entry `FUN_800b6354`: ignored if game over, invulnerability counter, dead, or state 0x69. AI target with a live human: dmg*(((0x20-skill)*0x96>>5)+0x32)/100 (dmg<400). No live human (`DAT_8009d908`): dmg*3 [est: only x3], AI skill 30. Hit state 0x69 grants 60 ticks of immunity and launches the pilot with velocity −100 and gravity +12. The chassis offsets by half the hop. The lengths of hit and wreck states follow scripts 0x57 and 0x58 for that pilot.
 
+## Input at GO
+
+Eight USA recordings compared the same slot holding Right, Square, Circle, Cross and Triangle from the countdown with pressing them on the first playable update. On all four stages, sample 99 read held mask `0xf020` in both runs. The held run had an empty pressed mask, kept all three mines and left the gun ready. The fresh press spent one mine and set the stock gun cooldown to 10. Swamp Fox also set the shield timer to 60. Both runs started the 90-tick taunt. Releasing and pressing again on sample 110 fired the held run’s gun. The host and client prediction prime the three edge-triggered actions from the last countdown sample.
+
 ## Individual versus results on L5–L8
 
 A full four-human idle Jungle Fox recording reached GO at sample 99 and a draw at sample 2797, or 2698 ticks later. The TIE mesh grew at +2, crossed its sound threshold at +23 and reset at +121. Metal Fox's duck flag at 800655ac stayed set through draw tick 119. Controlled two-way, four-way and simultaneous-knockout draws retained the four seat scores.
