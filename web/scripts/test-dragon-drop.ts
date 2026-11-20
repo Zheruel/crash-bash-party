@@ -58,6 +58,15 @@ for (let second = 5; second >= 0; second--) {
   assert.equal(versusClock(tick), second);
 }
 
+// USA capture: the rolled target pushes the jewel against the rim on the scoring tick.
+const edge = start();
+edge.data.th = 17;
+const shot = edge.data.J[0];
+Object.assign(shot, { x: 70, y: -2231, z: 2715, vx: 151, vy: -1024, vz: -73, yaw: 3456, st: 3, mult: 3, owner: 0 });
+stepWorld(edge, dragonDrop, []);
+assert.deepEqual([shot.x, shot.y, shot.z, shot.yaw, shot.vx, shot.vz, shot.cd, edge.data.score[0]],
+  [352, -2350, 2790, 3586, 118, -118, 19, 3]);
+
 for (const points of [0, 1, 3, 5]) {
   const w = start();
   w.tick = w.data.t = RD_TICKS - 1;
@@ -73,4 +82,4 @@ for (const points of [0, 1, 3, 5]) {
   }
   assert.equal(dragonDrop.isDraw!(w, dragonDrop.placements(w)), points === 0);
 }
-console.log('Dragon Drop countdown, score roll, native timeout and snapshot replay passed.');
+console.log('Dragon Drop opening, jewel pickups and rebounds, score roll, timeout and snapshot replay passed.');

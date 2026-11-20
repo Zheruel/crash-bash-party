@@ -40,7 +40,7 @@ const sgnCos = (a: number) => (a < 0 ? icos(-a) : icos(a));
 const s16 = (v: number) => (v << 16) >> 16;
 
 /** FUN_8003278c: the engine's fixed-point rotation matrix from (pitch, yaw, roll), row-major 4.12. */
-export function rotFx(c: PS1Cam): number[] {
+export function rotFx(c: Pick<PS1Cam, 'pitch' | 'yaw' | 'roll'>): number[] {
   const a = c.pitch, b = c.yaw ?? 0, g = c.roll ?? 0;
   const s1 = sgnSin(a), c1 = sgnCos(a), c2 = sgnCos(b), s2 = sgnSin(b), s3 = sgnSin(g), c3 = sgnCos(g);
   const m = new Array<number>(9);

@@ -34,6 +34,8 @@ Each jewel also has a separate ground quad (`800bb23c`, word `2014`, part 19). I
 Phase advances 0xc per tick for 99 level updates before control is released. At play tick zero the next phase is 1188, swing angle 747, placed yaw 750, target X/Z (2570,1148), and gong cooldown 71. The countdown view samples the captured swing and rings the gong on level tick 80. th = SIN(phase)*3/16 & 0xfff (swing +-0x2f7). Placed at (SIN(th), T(th))*11/16 (units: orbit 2816), yaw th, roll 2*th, height ps1 y -1061. Gong (sfx 0x6bf) when th crosses 0x2f7/0xd09 with cooldown 0x5a. Hit box local x -886..900, z -3..196, top y -893, inflated 0x180, normal rotated by the target matrix; jewel reflects about the target's inward normal, gets cooldown 0x14, moves once more, score += mult.
 Placements: score desc, index asc; draw only if the top two tie.
 
+`800b8a40` uses yaw alone for its local contact test, then applies the full `8003278c` matrix to push the jewel away from the rolled surface. The signed product must be negated before shifting to fixed point. At yaw 17, a top-edge hit followed by rim contact ended at (352, −2350, 2790), heading 3586 and velocity (118, −118). The former matrix gave z = 2791 and heading 3584. The shared simulation matched position, heading, velocity, score and hit cooldown for 108 USA emulator probes around the box and 104 additional rolled-edge contacts.
+
 ## Bot AI (`aiTick`, handlers b3a38.. b4d6c)
 Versus skills 8 / 16 / 20 were read from all four slots after executing `FUN_80086918` in L28 at each difficulty. Handlers: 1 jewel hunt, 2 chase carrier, 3 direct throw, 4 to the x5 spot, 5 in zone, 6 evade (rival radius 250; barge-chance circle 200). Ray tests `b4268`/`b4474` use int32 wraparound. Victim selection, barge chances, collision sounds and jewel deflections use the shared native two-word RNG. Native `FUN_80085650` matched all 16 seat-order permutations and both final RNG words for each of four seeds. The online seed is mixed into the executable’s first starting word.
 
@@ -69,7 +71,7 @@ The camera fits the riders and jewels on the list at `8005aa34`. Each jewel star
 With sampled USA positions, fitting the riders and target gave zero exact translations in 433 consecutive-frame comparisons. Using the recorded list matched all 433. A win and a draw also matched all 70 compared updates apiece with the result boxes from `80078dd4`. On the verdict update the camera still includes the active list. From the next update it fits the surviving riders. WebGL replays used both custom riders. The browser interpolates the 30 Hz fit between render frames.
 
 ## Unknowns
-Human stick deadzone and diagonal response, target-edge deflection under roll, and whole-round CPU/random draw alignment remain to be compared directly.
+Human stick deadzone and diagonal response, and whole-round CPU/random draw alignment remain to be compared directly.
 
 ## Effects (decoded)
 Level model 0621 script 0 = jewel spawn burst (192 u up; parts 0, 1, 4, 5). Barge = smoke puff object 0x1903: pack 0619 parts 3-18, 16 frames,

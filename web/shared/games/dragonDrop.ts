@@ -1,4 +1,5 @@
 import { DISC_CHARACTER } from '../look';
+import { rotFx } from '../fitCamera';
 import { addBody, discRandomInt as ri, discRandomState, emit } from '../physics';
 import { IDLE, MAX_SEATS, type Body, type InputState, type MiniGame, type World } from '../types';
 import { tickVersusTally, VERSUS_CLOCK_END } from './common';
@@ -202,12 +203,6 @@ function padOf(inp: InputState): number {
 }
 
 // ---------------------------------------------------------------- target (FUN_800b7aa0) and its collision box (FUN_800b8a40)
-/** local -> world matrix for angles (0, b, c) (FUN_8003278c with a = 0), row major */
-function matFwd(b: number, c: number): number[] {
-  const sB = SIN(b), cB = T(b), sC = SIN(c), cC = T(c);
-  const t = sh12(cC, -sB), u = sh12(sC, -sB);
-  return [sh12(cC, cB), -sh12(sC, cB), sB, sC, cC, 0, t, -u, cB];
-}
 const mulv = (M: number[], x: number, y: number, z: number): [number, number, number] => [
   Math.floor((M[0] * x + M[1] * y + M[2] * z) / 4096),
   Math.floor((M[3] * x + M[4] * y + M[5] * z) / 4096),
@@ -243,7 +238,7 @@ function targetBox(d: DragonDropData, p: { x: number; y: number; z: number }): b
   const R = 0x180;
   if (dist >= R) return false;
   const k = Math.abs(R - dist) + 8;
-  const [wx, wy, wz] = mulv(matFwd(d.tyaw, d.troll), nx, ny, nz);
+  const [wx, wy, wz] = mulv(rotFx({ pitch: 0, yaw: d.tyaw, roll: d.troll }), nx, ny, nz);
   p.x += Math.floor((k * wx) / 4096);
   p.y += Math.floor((k * wy) / 4096);
   p.z += Math.floor((k * wz) / 4096);
