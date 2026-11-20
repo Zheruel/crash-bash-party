@@ -1802,8 +1802,8 @@ const E = (w: World, k: string, gx: number, gz: number, s = -1, v = 1, o = -1) =
 
 function padOf(inp: InputState): number {
   let b = 0;
-  if (inp.y > 0.4) b |= 0x10; // +z (the view's +z)
-  if (inp.y < -0.4) b |= 0x40;
+  if (inp.y < -0.4) b |= 0x10; // screen up is +z in PS1 coordinates
+  if (inp.y > 0.4) b |= 0x40;
   if (inp.x < -0.4) b |= 0x80;
   if (inp.x > 0.4) b |= 0x20;
   if (inp.a) b |= 0x8000;
@@ -2051,7 +2051,7 @@ export const pushOff: MiniGame = {
     };
     try { q.ai.bits = 0; decide(w, d, q, slot); handler(w, d, q, slot); } finally { poTest.rng = saved; }
     const b = q.ai.bits | (q.pr === 8 ? 0x8000 : 0);
-    return { x: b & 0x80 ? -1 : b & 0x20 ? 1 : 0, y: b & 0x10 ? 1 : b & 0x40 ? -1 : 0, a: (b & 0x8000) !== 0, b: (b & 0x2000) !== 0 };
+    return { x: b & 0x80 ? -1 : b & 0x20 ? 1 : 0, y: b & 0x10 ? -1 : b & 0x40 ? 1 : 0, a: (b & 0x8000) !== 0, b: (b & 0x2000) !== 0 };
   },
 };
 

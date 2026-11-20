@@ -2,10 +2,41 @@ import assert from 'node:assert/strict';
 import { POLAR_DRAW_TICKS, POLAR_TIMEOUT_TICK, S_IDLE, S_OUT, S_WIN, pushOff, stepPolarResultMotion } from '../shared/games/pushOff';
 import { winnerCheerFrame } from '../shared/look';
 import { createWorld, roundOver, stepWorld } from '../shared/sim';
-import { type World } from '../shared/types';
+import { IDLE, type World } from '../shared/types';
 
 const seats = (roster: number[]) => roster.map((char, slot) => ({ char, slot, name: String(slot), bot: false }));
 const isDraw = (w: World) => pushOff.isDraw!(w, pushOff.placements(w));
+
+// USA L19, first ten playable ticks. The screen's upward direction is native +Z.
+for (const [x, y] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+  for (const mirror of [false, true]) {
+    const w = createWorld(pushOff, seats([7, 0, 4, 6]), [], 243, 'polar');
+    w.params.mirror = mirror;
+    const rider = w.data.P[0];
+    const start = [rider.x, rider.z];
+    for (const distance of [2, 6, 12, 20, 30, 42, 56, 72, 90, 110]) {
+      stepWorld(w, pushOff, [{ ...IDLE, x, y }]);
+      const d = mirror ? -distance : distance;
+      assert.deepEqual([rider.x, rider.z], [start[0] + x * d, start[1] - y * d]);
+    }
+  }
+}
+
+// A disconnected human uses the bot's native pad through the human input path.
+const takeoverDirections = new Set<number>();
+for (let slot = 0; slot < 4; slot++) {
+  const w = createWorld(pushOff, seats([0, 8, 9, 2]), [], 243, 'polar');
+  const q = w.data.P[slot];
+  for (let t = 0; t < 60; t++) {
+    const pads = [IDLE, IDLE, IDLE, IDLE];
+    pads[slot] = pushOff.bot!(w, slot);
+    const direction = q.ai.bits & 0xf0;
+    stepWorld(w, pushOff, pads);
+    assert.equal(q.pb & 0xf0, direction);
+    takeoverDirections.add(direction & 0x50);
+  }
+}
+assert(takeoverDirections.has(0x10) && takeoverDirections.has(0x40));
 
 // USA L18–21. Each live rider has 20 ranking points regardless of position or dash charge.
 for (const variant of ['tilt', 'polar', 'melt', 'manic']) {

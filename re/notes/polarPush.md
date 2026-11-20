@@ -9,6 +9,10 @@ Setup: `FUN_800b5ac4` (callbacks), `FUN_800bafa0` (init), `FUN_800bb810` (per fr
   in state 0x50 (out), or a player has flag 0x200. At 1:30 the shared clock ranks the remaining riders. Two or more survivors draw. Eliminated riders finish in reverse order of elimination.
 - Buttons: D-pad move, **Square (0x8000) = dash/charge** (needs gauge >= cost), **Circle (0x2000) = throw** (only if holding a bolt, `+0x28`, MANIC),
   Square mash = climb back from the edge. (No jump.)
+- USA Polar Panic, four cardinal inputs held separately from GO. The first ten updates moved the rider
+  2, 6, 12, 20, 30, 42, 56, 72, 90 and 110 units from spawn. Up (`0x10`) increased Z, Down
+  (`0x40`) decreased Z, Left (`0x80`) decreased X and Right (`0x20`) increased X. The stage camera
+  projects positive native Z toward the top of the screen.
 - Walk (`FUN_800cccb8`, `FUN_800b5788`): target v = speed * dir(pad) (8 directions, full speed diagonally, not normalised); v approaches the
   target by 2/frame (target != 0) or 1/frame (target == 0); pos += v. Max speed `DAT_800d6924[p]` = table 0x800d5408[char*6]: chars 1-4 **55**, 5-8
   **40** units/frame (55 u/f = 5.2 world/s). Mass (`FUN_800b5684`): chars 1-4 **0x100**, 5-8 **0x180**; the Uka SHRINK/GROW items override mass+speed.
