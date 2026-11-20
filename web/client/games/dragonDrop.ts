@@ -119,10 +119,7 @@ function winPose(char: number, tick: number): number | undefined {
   if (tick < 0) return;
   const [first, length, loop, hold] = WIN_POSES[char - 1];
   const frame = tick < loop ? tick : loop + (tick - loop) % (length - loop);
-  const word = first + frame - (frame > loop ? hold : 0);
-  // Brio's first eleven words point past the end of group 2 in the extracted rider model.
-  if (char === 4 && word < 0x4180) return;
-  return word;
+  return first + frame - (frame > loop ? hold : 0);
 }
 
 export function createDragonDropView(): ClientMiniGame {
@@ -182,7 +179,14 @@ export function createDragonDropView(): ClientMiniGame {
     if (have) return have;
     const look = kit.look(b.slot);
     const inst = catalogInstance(getCatalog().props['rdRider_' + CHARACTERS[look.char % CHARACTERS.length].id]);
-    return inst ? kit.actor(b, () => ({ inst, scale: 1, steady: true, headY: 2.4, shadow: 1.3 })) : kit.actor(b);
+    const actor = inst ? kit.actor(b, () => ({ inst, scale: 1, steady: true, headY: 2.4 })) : kit.actor(b);
+    const shadow = pickupShadow(SMOKE, 19, S, { brightness: 0.75, depthBias: LAYERS.length * 2 });
+    if (shadow.children.length) {
+      actor.shadow.mesh.removeFromParent();
+      shadow.position.y = 0;
+      actor.yaw.add(shadow);
+    }
+    return actor;
   }
 
   function showPuff(slot: number, puff?: { age: number; x: number; z: number }) {

@@ -178,6 +178,7 @@ function loadModel(id: number) {
 /** A placed model instance. `root` is what you add to the scene; play() switches animation roles. */
 export class ModelInstance {
   readonly root = new THREE.Group();
+  private model?: THREE.Object3D;
   private mixer: THREE.AnimationMixer | null = null;
   private clips: THREE.AnimationClip[] = [];
   private action: THREE.AnimationAction | null = null;
@@ -192,6 +193,7 @@ export class ModelInstance {
     const loaded = peeked.get(this.ref?.model ?? -1) ?? null;
     if (!loaded || !this.ref) return false;
     const inner = cloneSkinned(loaded.scene);
+    this.model = inner;
     if (this.ref.parts) inner.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.visible = this.ref!.parts!.includes(o.name) || this.ref!.parts!.includes(o.parent?.name ?? ''); });
     const s = this.ref.scale ?? 1;
     inner.scale.multiplyScalar(s);
@@ -214,6 +216,7 @@ export class ModelInstance {
   }
 
   play(role: string, fade = 0.15) {
+    if (this.model) this.model.visible = true;
     this.showPart(null);
     if (!this.mixer || role === this.role) return;
     const idx = this.ref?.anims?.[role];
@@ -237,6 +240,7 @@ export class ModelInstance {
   pose(clip: number, frame: number, loop = false) {
     const c = this.clips[clip];
     if (!this.mixer || !c) return;
+    if (this.model) this.model.visible = true;
     if (this.posed !== clip || !this.action) {
       this.mixer.stopAllAction();
       this.action = this.mixer.clipAction(c);
@@ -259,6 +263,7 @@ export class ModelInstance {
 
   /** A PS1 render word selects either a static part or an animation group and frame. */
   nativePose(word: number): boolean {
+    if (!this.model) return false;
     if ((word & 0xe000) === 0x2000) {
       const part = 'part' + ((word & 0x1fff) - 1);
       if (!this.modelParts.some(p => p.name === part)) return false;
@@ -269,12 +274,20 @@ export class ModelInstance {
         this.role = '';
       }
       this.showPart(part);
+      this.model.visible = true;
       return true;
     }
     const group = this.groupClips.get((word & 0x1fff) >> 7);
     if (!group || (word & 0xe000) !== 0x4000) return false;
+    const frame = word & 127;
+    const frames = this.clips[group.clip].userData.frames;
+    // The disc submits no geometry when a word exceeds the group's frame table.
+    if (typeof frames === 'number' && frame >= frames) {
+      this.model.visible = false;
+      return true;
+    }
     this.showPart(this.modelParts.length ? group.part : null);
-    this.pose(group.clip, word & 127);
+    this.pose(group.clip, frame);
     return true;
   }
 
