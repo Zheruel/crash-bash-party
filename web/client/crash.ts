@@ -131,18 +131,26 @@ export function ps1Material(src: THREE.Material): THREE.Material {
   m.onBeforeCompile = (sh, renderer) => {
     sh.uniforms.nativeRaster = nativeRaster;
     sh.vertexShader = 'uniform bool nativeRaster;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
-      if (nativeRaster && gl_Position.w > 0.0) {
-        vec2 pixels = vec2(256.0, 120.0);
-        gl_Position.xy = floor(gl_Position.xy / gl_Position.w * pixels + 0.5) * gl_Position.w / pixels;
+      if (nativeRaster) {
+        if (gl_Position.w > 0.0) {
+          vec2 pixels = vec2(256.0, 120.0);
+          gl_Position.xy = floor(gl_Position.xy / gl_Position.w * pixels + 0.5) * gl_Position.w / pixels;
+        }
+        // Cancel perspective interpolation for both parts of the PS1 textured Gouraud packet.
         #ifdef USE_MAP
           vMapUv *= gl_Position.w;
+        #endif
+        #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+          vColor.rgb *= gl_Position.w;
         #endif
       }`);
     sh.fragmentShader = 'uniform bool nativeRaster;\n' + sh.fragmentShader.replace('#include <map_fragment>',
       THREE.ShaderChunk.map_fragment.replace('map, vMapUv', 'map, nativeRaster ? vMapUv * gl_FragCoord.w : vMapUv'));
     const srgbOut = renderer.outputColorSpace === THREE.SRGBColorSpace;
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <color_fragment>', '#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )\n diffuseColor.rgb *= vColor.rgb * PS1_X2;\n#endif')
+      .replace('#include <color_fragment>', `#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+        diffuseColor.rgb *= vColor.rgb * (nativeRaster ? gl_FragCoord.w : 1.0) * PS1_X2;
+      #endif`)
       .replace('#include <opaque_fragment>', `outgoingLight = clamp( outgoingLight, 0.0, 1.0 );
 if (nativeRaster) {
   const mat4 dither = mat4(-4., 2., -3., 3., 0., -2., 1., -1., -3., 3., -4., 2., 1., -1., 0., -2.);
