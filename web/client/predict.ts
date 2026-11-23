@@ -27,12 +27,14 @@ export class Predictor {
   onSnapshot(w: World, ack: number) {
     this.seq = Math.max(this.seq, ack);
     this.auth = w;
-    this.pending = this.pending.filter((i) => i.seq > ack);
+    // Inputs still in flight cannot change a round the host has already settled.
+    this.pending = w.finished ? [] : this.pending.filter((i) => i.seq > ack);
     this.pred = cloneWorld(w);
     for (const i of this.pending) this.step(i);
   }
 
   push(i: Input) {
+    if (this.auth?.finished) return;
     this.pending.push(i);
     if (this.pending.length > 30) this.pending.shift();
     this.step(i);

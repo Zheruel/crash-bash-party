@@ -6,6 +6,7 @@ import { InlineHostCore, pickGames, pickVariants } from '../client/net/hostCore'
 import { LoopbackTransport } from '../client/net/loopback';
 import { TransportError, type ClientTransport } from '../client/net/transport';
 import { GameClient } from '../client/session';
+import { Predictor } from '../client/predict';
 import { FAST_TIMING, NORMAL_TIMING, Party } from '../shared/party';
 import { DEFAULT_CUPS_TO_WIN, MAX_CUPS_TO_WIN, MIN_CUPS_TO_WIN, isCupsToWin } from '../shared/protocol';
 import type { C2S, ResultsMsg, S2C } from '../shared/protocol';
@@ -15,7 +16,7 @@ import { CHARACTERS } from '../shared/look';
 import { createWorld, defaultParams, roundOver, stepWorld } from '../shared/sim';
 import { modifiersFor } from '../shared/modifiers';
 import { botInput } from '../shared/bots';
-import { DT, type InputState, type MiniGame, type World } from '../shared/types';
+import { DT, IDLE, type InputState, type MiniGame, type World } from '../shared/types';
 
 let checks = 0;
 const ok = (name: string, cond: unknown) => {
@@ -28,6 +29,22 @@ const tick = () => new Promise<void>((r) => setImmediate(r));
 const simulationLimit = (game: MiniGame) => Number.isFinite(game.maxTime)
   ? game.maxTime + (game.settlesAfterTimeout ? 60 : 0.1)
   : 600;
+
+// A host can settle while it still has movement and object callbacks available.
+// An in-flight spin must never advance the terminal snapshot or its RNG.
+{
+  const game = getGame('ringDing')!;
+  const world = createWorld(game, [{ slot: 0, name: 'Player', bot: false }], [], 27);
+  const predictor = new Predictor(game, 0);
+  predictor.onSnapshot(world, 0);
+  predictor.push({ ...IDLE, b: true, seq: 1 });
+  ok('live prediction advances pending input', predictor.pred?.tick === world.tick + 1);
+  world.finished = true;
+  predictor.onSnapshot(world, 0);
+  predictor.push({ ...IDLE, a: true, seq: 2 });
+  ok('terminal prediction discards and ignores unacknowledged input',
+    predictor.pending.length === 0 && isDeepStrictEqual(predictor.pred, world));
+}
 
 // ---------- 1. every mini-game: deterministic, finite, ends, all bot levels ----------
 for (const game of GAMES) {
