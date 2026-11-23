@@ -21,6 +21,27 @@ export function onFootGlowMarker(character: number, script: number, elapsed: num
   return markerAt(ON_FOOT_GLOW_MARKERS[script]?.[character - 1], elapsed);
 }
 
+/** 0x8009dc68 as [X, Y] (columns 2 and 1): the throw (FUN_800c07f4) and attack (FUN_8008900c) flashes of the player object. */
+export const ON_FOOT_FLASH_GLOW: readonly (readonly [number, number])[] = [[20480, 20480], [16384, 8192], [6144, 4096], [2048, 2560], [512, 512]];
+
+/**
+ * FUN_8008900c, the attack state 10 of engine characters 3 and 4: after the anim VM, each update that finds marker
+ * 0x40 shows the player object there (drawn additive, flag 0x20000000) at the counter's row of 0x8009dc68, then
+ * advances the counter. FUN_80088f78 starts the counter at -2 for Cortex and 0 for Brio. The zero row hides it.
+ * Elapsed counts handler updates since the state's entry update.
+ */
+export function onFootSpinGlow(character: number, elapsed: number) {
+  if (character !== 3 && character !== 4) return;
+  let counter = character === 3 ? -2 : 0;
+  for (let update = 1; update <= elapsed; update++) {
+    const marker = onFootGlowMarker(character, 0x0a, update);
+    if (!marker) continue;
+    const scale = counter >= 0 ? ON_FOOT_FLASH_GLOW[counter] : undefined;
+    if (update === elapsed) return scale && { marker, scale };
+    if (counter < ON_FOOT_FLASH_GLOW.length) counter++;
+  }
+}
+
 function markerAt(track: (typeof ON_FOOT_MARKERS)[number][number] | undefined, elapsed: number) {
   if (!track) return;
   const length = track.length - 1;

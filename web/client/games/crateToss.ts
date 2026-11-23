@@ -18,7 +18,7 @@ import { arenaClockSprites, hudFace, SLOT_X, type HudSprite } from '../ui/ps1hud
 import { knockoutGhostRef, makeKnockoutGhost } from './knockoutGhost';
 import { CrateTossResult } from './crateTossResult';
 import { fxPartTemplate, preloadFx } from './realFx';
-import { onFootGlowMarker } from '../../shared/games/onFoot';
+import { ON_FOOT_FLASH_GLOW, onFootGlowMarker, onFootSpinGlow } from '../../shared/games/onFoot';
 import { CHARACTERS } from '../../shared/look';
 
 const S = 3.6;
@@ -357,34 +357,37 @@ export function createCrateTossView(): ClientMiniGame {
    * at model marker 0x40 (the ray gun's muzzle, Brio's flask). FUN_800c013c (pickup) scales it by the raw bytes of
    * 0x800c4790, a 2% speck the original never shows at full size; FUN_800c02d4 / 800c05a8 (carry) pulse X and Y by
    * 1 + sin/8 on the frame counter's 16-frame cycle; FUN_800c07f4 (throw) flashes it through 0x8009dc68 (5x to 1/8)
-   * for five updates. The engine hides it at the start of every player update, so it shows only in these states.
+   * for five updates. The attack state FUN_8008900c flashes it through the same table, drawn additive (onFootSpinGlow).
+   * The engine hides it at the start of every player update, so it shows only in these states.
    */
   const GLOW_MODEL: Record<string, number> = { cortex: 986, brio: 984 };
   const PICKUP_GLOW = [[80, 48], [56, 48], [24, 32], [16, 16], [8, 10], [10, 10], [16, 8], [10, 10], [8, 16], [10, 10], [16, 8],
     [10, 10], [8, 16], [10, 10], [16, 8], [10, 10], [8, 16], [10, 10], [16, 8], [10, 10], [8, 16], [10, 10]];
-  const THROW_GLOW = [[20480, 20480], [16384, 8192], [6144, 4096], [2048, 2560], [512, 512]];
-  const glows = new Map<number, THREE.Object3D>();
+  const glows = new Map<string, THREE.Object3D>();
   const glowAt = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
   function updateGlow(slot: number, script: number, frame: number | undefined, tick: number, b: Body, face: number) {
     const model = GLOW_MODEL[CHARACTERS[kit.look(slot).char]?.id];
     const character = model === 986 ? 3 : 4;
-    const marker = model && frame !== undefined && script >= 0xf && script <= 0x12 ? onFootGlowMarker(character, script, frame) : undefined;
+    const spin = model && frame !== undefined && script === 0x0a ? onFootSpinGlow(character, frame) : undefined;
+    const marker = spin?.marker ?? (model && frame !== undefined && script >= 0xf && script <= 0x12 ? onFootGlowMarker(character, script, frame) : undefined);
     // The handler's counter starts at 0 on the first update after the state's init has shown script frame 0.
     const index = (frame ?? 0) - 1;
-    const scale = !marker ? undefined : script === 0xf ? PICKUP_GLOW[Math.max(0, index)]
-      : script === 0x12 ? THROW_GLOW[Math.max(0, index)]
-      : [4096 + (Math.round(4096 * Math.sin(((((tick & 15) * 256 - 1024) & 4095) * Math.PI) / 2048)) >> 3)];
-    let obj = glows.get(slot);
+    const scale = spin?.scale ?? (!marker ? undefined : script === 0xf ? PICKUP_GLOW[Math.max(0, index)]
+      : script === 0x12 ? ON_FOOT_FLASH_GLOW[Math.max(0, index)]
+      : [4096 + (Math.round(4096 * Math.sin(((((tick & 15) * 256 - 1024) & 4095) * Math.PI) / 2048)) >> 3)]);
+    const additive = !!spin;
+    for (const [key, other] of glows) if (key.startsWith(`${slot}:`) && key !== `${slot}:${additive}`) other.visible = false;
+    let obj = glows.get(`${slot}:${additive}`);
     if (!marker || !scale) { if (obj) obj.visible = false; return; }
     if (!obj) {
-      const template = fxPartTemplate(model, 1, S);
+      const template = fxPartTemplate(model, 1, S, additive);
       if (!template) return;
       obj = new THREE.Group();
       obj.add(template.clone());
-      obj.name = 'carry-glow';
+      obj.name = additive ? 'attack-glow' : 'carry-glow';
       kit.root.add(obj);
       billboards.add(obj);
-      glows.set(slot, obj);
+      glows.set(`${slot}:${additive}`, obj);
     }
     const [x, h, z] = marker;
     glowAt.set(x, h, -z).multiplyScalar(CT_U).applyAxisAngle(UP, face);

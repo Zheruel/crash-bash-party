@@ -8,7 +8,8 @@ import { getCatalog } from '../crash';
 import { sfx, sfxRate } from '../shell/sound';
 import { charVoice, VOICE_VOL } from '../shell/voice';
 import { discStereo } from '../shell/discStereo';
-import { DISC_CHARACTER } from '../../shared/look';
+import { CHARACTERS, DISC_CHARACTER } from '../../shared/look';
+import { onFootSpinGlow } from '../../shared/games/onFoot';
 import { Actor, Kit, catalogInstance, nativeCharScale, preloadCatalogFor } from './kit';
 import { poseTicks } from './playerPose';
 import { fxPartTemplate, pickupShadow, preloadFx } from './realFx';
@@ -268,19 +269,46 @@ export function createRingDingView(): ClientMiniGame {
     return disc;
   }
 
+  /** FUN_8008900c: Cortex's and Brio's attack flashes part 1 of 0986 / 0984 at marker 0x40, additive and camera-facing. */
+  const ATTACK_GLOW: Record<string, number> = { cortex: 986, brio: 984 };
+  const attackGlows = new Map<number, THREE.Object3D>();
+  const glowAt = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
+  function updateAttackGlow(slot: number, frame: number | undefined, b: Body, face: number, camera: THREE.Camera) {
+    const model = ATTACK_GLOW[CHARACTERS[kit.look(slot).char]?.id];
+    const glow = model && frame !== undefined ? onFootSpinGlow(model === 986 ? 3 : 4, frame) : undefined;
+    let obj = attackGlows.get(slot);
+    if (!glow) { if (obj) obj.visible = false; return; }
+    if (!obj) {
+      const template = fxPartTemplate(model, 1, S, true);
+      if (!template) return;
+      obj = new THREE.Group();
+      obj.add(template.clone());
+      obj.name = 'attack-glow';
+      kit.root.add(obj);
+      attackGlows.set(slot, obj);
+    }
+    const [x, h, z] = glow.marker;
+    glowAt.set(x, h, -z).multiplyScalar(DD_S).applyAxisAngle(UP, face);
+    obj.position.set(b.x + glowAt.x, b.y + glowAt.y, b.z + glowAt.z);
+    obj.scale.set(glow.scale[0] / 4096, glow.scale[1] / 4096, 1);
+    obj.quaternion.copy(camera.quaternion);
+    obj.visible = true;
+  }
+
   return {
     id: 'ringDing',
     async preload() {
       for (const [file] of Object.values(DD_SFX)) sfx.preloadFile(file);
       placements = await loadPlacements('L27');
       await preloadCatalogFor('ringDing', ['ddRing', ...DECOR], CRATE_MODELS);
-      await preloadFx([PACK, CRATES, PICKUPS]);
+      await preloadFx([PACK, CRATES, PICKUPS, 986, 984]);
       loaded = true;
     },
 
     init(ctx, world) {
       kit = new Kit(ctx, 'ringDing', { bg: 0x1a1c28, hemi: [0xffffff, 0xc0b0b0, 1.6], sun: [-5, 18, 10] });
       poppedLosers.clear();
+      attackGlows.clear();
       result = undefined;
       opening = undefined;
       poseCues.length = 0;
@@ -290,7 +318,7 @@ export function createRingDingView(): ClientMiniGame {
       void world;
       kit.realFx(S);
       if (!loaded) this.preload!().then(() => {
-        if (kit) { kit.reset(); kit.root.clear(); crates.clear(); kit.realFx(S); build(); }
+        if (kit) { kit.reset(); kit.root.clear(); crates.clear(); attackGlows.clear(); kit.realFx(S); build(); }
       });
     },
 
@@ -404,6 +432,7 @@ export function createRingDingView(): ClientMiniGame {
               role: hit ? 'hit' : taunt !== undefined ? 'taunt' : spin ? 'spin' : air ? 'jump' : moving ? 'run' : 'idle' });
             a.holder.scale.setScalar(1);
           }
+          updateAttackGlow(s, !resultState && spin && p ? poseTicks(10, char) - p.t : undefined, body, a.face, ctx.camera);
           const disc = seatDisc(s);
           disc.position.set(body.x, 0, body.z);
           disc.visible = !ending?.hidden;
