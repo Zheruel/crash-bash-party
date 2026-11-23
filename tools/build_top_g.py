@@ -14,7 +14,7 @@ import numpy as np
 from scipy.spatial import Delaunay
 
 from build_stein_variants import DONORS, PS1_TEXTURE, body_vertices, build, load
-from custom_character_assets import GltfBuffer, Shape, replace_kart, tint_barrel_bands, tint_equipment
+from custom_character_assets import GltfBuffer, add_group_clips, Shape, replace_kart, tint_barrel_bands, tint_equipment
 
 ASSETS = Path(__file__).resolve().parents[1] / 'assets'
 MODELS = ASSETS / 'models'
@@ -234,6 +234,8 @@ def copy_clips(model, number, overrides):
         return copied[index]
 
     for index, clip in enumerate(donor['animations']):
+        if clip['name'].startswith('group'):
+            continue  # Stein's group clips follow his role clips; Top G gets his own.
         if index in overrides:
             model.doc['animations'].append(overrides[index])
             continue
@@ -276,6 +278,7 @@ def build_character():
         'ElbowR': [Z, (-52,0,-12), (-16,0,0), (-15,0,0), (-48,0,-15), Z],
     })
     copy_clips(model, 9001, {0: idle, 4: win, 13: taunt})
+    add_group_clips(model.doc, model.data, model.accessor)
     model.write(BASE)
 
     # Animation indices and hold frames follow the podium VM's existing scripts.
