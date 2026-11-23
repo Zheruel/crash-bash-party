@@ -122,7 +122,7 @@ interface Dr { born?: number; y?: number; id: number; x: number; z: number; vx: 
 const DROP_Z = [0x100, 0x500, 0xb00, 0xf00];
 interface Data {
   variant: string; lv: number; f: number; over: boolean; overF: number; hum: number;
-  tk: Tk[]; shells: Sh[]; mines: Mn[]; flames: Fl[]; bombs: Bm[]; pickups: TankPickup[]; dropper: Dr | null; spawnT: number; par: number; bump: number;
+  tk: Tk[]; shells: Sh[]; mines: Mn[]; flames: Fl[]; bombs: Bm[]; pickups: TankPickup[]; dropper: Dr | null; spawnT: number; par: number; bump: number; bumpP?: number; sinkSnd?: number;
   result?: { winner: number; rankedAt: number; poseAt?: number; recovered?: boolean };
   metalWalls?: MetalWalls; jungleStatues?: JungleStatues;
 }
@@ -312,6 +312,8 @@ function boatMove(d: Data, p: number, t: Tk) {
     const q = d.tk[o];
     if (o === p || gone(q)) continue;
     if (Math.abs(nx - q.x) < 0x1c1 && Math.abs(nz - q.z) < 0x1c0) {
+      // FUN_800b96f4 queues the bump cue for the next level frame unless one is cooling down.
+      if (d.bump === 0) { d.bump = -1; d.bumpP = p; }
       q.vx += Math.trunc(t.vx / 2); q.vz += Math.trunc(t.vz / 2);
       t.vx = Math.trunc(t.vx / 4); t.vz = Math.trunc(t.vz / 4);
       return;
@@ -1212,6 +1214,15 @@ export const tankArena: MiniGame = {
     const d = w.data as Data;
     d.f++;
     d.hum = hasHuman(d) ? 1 : 0;
+    // FUN_800b5fc4, the level frame before the players: the boat bump cue (60-tick cooldown) and the sinking platform cue.
+    if (d.bump < 1) {
+      if (d.bump !== 0) {
+        const t = d.tk[d.bumpP ?? 0], L = L_(d);
+        sfx(w, 0x4b9, px(L, t.x), pz(L, t.z));
+        d.bump = 60;
+      }
+    } else d.bump--;
+    if (d.sinkSnd && --d.sinkSnd === 0) sfx(w, 0x501, 0, 0);
     for (let p = 0; p < 4; p++) {
       const t = d.tk[p];
       t.ai.shoot = (((d.hum ? t.skill : 30) * 0x55) >> 5) + 5;
@@ -1232,6 +1243,7 @@ export const tankArena: MiniGame = {
       stepMetalWalls(d.metalWalls, d.f, d.tk.filter(t => !gone(t)), d.over, {
         firstLaterId: w.nextId,
         onWave: () => sfx(w, 0x501, 0, 0),
+        onSink: () => { d.sinkSnd = 2; },
         onRise: wall => breakPickupAt(w, d, wall.x, wall.y, wall.z),
       });
     }
