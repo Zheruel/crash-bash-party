@@ -448,7 +448,7 @@ export function createKegKaboomView(): ClientMiniGame {
           break;
         }
         case 'stun':
-          hitVoice('c', ctx.seats[e.s]?.look.char, 1, e.v, (file, volume, rate) => playSpatial(e, file, volume, rate));
+          hitVoice('c', ctx.seats[e.s]?.look.char, 1, e.v, (file, volume, rate) => playSpatial(e, file, volume, rate), undefined, e.s);
           break;
         case 'wave': // shock: script 3 (white ring out to ~5x) at the player
           kit.real.play(PACK, 3, e.x, kit.actorForSlot(e.s)?.holder.position.y ?? 0, e.z);

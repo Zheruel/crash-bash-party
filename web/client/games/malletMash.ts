@@ -321,7 +321,7 @@ export function createMalletMashView(): ClientMiniGame {
         }
         case 'stun': // FUN_800b4910: hit request with 0x446, then one of the victim's four hit voices
           sfx.playFile(BANK(27), 0.7, true);
-          hitVoice('c', ctx.seats[e.s]?.look.char, undefined, e.v);
+          hitVoice('c', ctx.seats[e.s]?.look.char, undefined, e.v, undefined, undefined, e.s);
           break;
         case 'cbreak': // crate state 4: script 2 (purple shards, smoke, stars)
           real.play(PACK, 2, e.x, 0, e.z);

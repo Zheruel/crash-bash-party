@@ -589,7 +589,7 @@ export function createDashRaceView(): ClientMiniGame {
         case 'hit': {
           const char = kit.look(e.s).char;
           const seaHit = [0x687, 0x686, 0x688, 0x685, 0x68c, 0x68a, 0x68b, 0x689][DISC_CHARACTER[char] - 1];
-          hitVoice('a2', char, DASH_FULL, e.v, undefined, variant === 'splash' ? () => play(seaHit) : undefined);
+          hitVoice('a2', char, DASH_FULL, e.v, undefined, variant === 'splash' ? () => play(seaHit) : undefined, e.s);
           break;
         }
         case 'fall':

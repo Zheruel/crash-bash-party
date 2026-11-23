@@ -423,7 +423,7 @@ export function createDragonDropView(): ClientMiniGame {
           break;
         }
         case 'recoil': // FUN_800b9e68 (anim 0x4d): hit voice rand(4) of the 0x8009e080 ids
-          hitVoice('b', ctx.seats[e.s]?.look.char, 0.8, kit.world && !kit.world.data.random ? -1 : e.v);
+          hitVoice('b', ctx.seats[e.s]?.look.char, 0.8, kit.world && !kit.world.data.random ? -1 : e.v, undefined, undefined, e.s);
           break;
         case 'bump':
           play(SND.bump[e.v & 3]);

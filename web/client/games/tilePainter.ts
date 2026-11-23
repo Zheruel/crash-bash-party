@@ -612,7 +612,7 @@ export function createTilePainterView(): ClientMiniGame {
           if (!catchingUp) charVoice('a2', kit.look(e.s).char, 0x10);
           break;
         case 'stun':
-          if (!catchingUp) hitVoice('a2', kit.look(e.s).char, 0.8, 0);
+          if (!catchingUp) hitVoice('a2', kit.look(e.s).char, 0.8, 0, undefined, undefined, e.s);
           break;
         case 'wipe':
           kit.shake(0.2);

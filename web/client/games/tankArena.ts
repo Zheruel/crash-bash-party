@@ -738,7 +738,7 @@ export function createTankArenaView(): ClientMiniGame {
           charVoice('tank', ctx.seats[e.s]?.look.char, 2);
           break;
         case 'hitVoice': // FUN_800ba964: 0x800c9428[char][rand(4)]
-          hitVoice('tank', ctx.seats[e.s]?.look.char, undefined, e.v);
+          hitVoice('tank', ctx.seats[e.s]?.look.char, undefined, e.v, undefined, undefined, e.s);
           break;
         case 'shellMuzzle':
           kit.real.play(PACK, e.o, e.x, e.v, e.z, { yaw: e.yaw, add: true });
