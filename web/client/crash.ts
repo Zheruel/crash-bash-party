@@ -94,7 +94,7 @@ class DiscMaterial extends THREE.MeshBasicMaterial {
   }
 }
 
-export function ps1Material(src: THREE.Material): THREE.Material {
+export function ps1Material(src: THREE.Material, nativeFacing = false): THREE.Material {
   const s = src as THREE.MeshStandardMaterial;
   const x = (src.userData ?? {}) as { textured?: boolean; semi_transparent?: boolean; abr?: number };
   if (s.map) {
@@ -128,9 +128,21 @@ export function ps1Material(src: THREE.Material): THREE.Material {
   }
   // textured without a texture (bit-15 ids past the paired t08, source unknown): treat the texel as mid grey
   m.defines = { PS1_X2: x.textured && s.map ? '(255.0 / 128.0)' : '1.0' };
+  if (nativeFacing) m.defines.PS1_FACE = 1;
   m.onBeforeCompile = (sh, renderer) => {
     sh.uniforms.nativeRaster = nativeRaster;
-    sh.vertexShader = 'uniform bool nativeRaster;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+    const raster = `uniform bool nativeRaster;
+      #ifdef PS1_FACE
+        varying float vPs1Facing;
+      #endif
+    `;
+    sh.vertexShader = raster + `#ifdef PS1_FACE
+      attribute float ps1Facing;
+    #endif
+    ` + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+      #ifdef PS1_FACE
+        vPs1Facing = ps1Facing;
+      #endif
       if (nativeRaster) {
         if (gl_Position.w > 0.0) {
           vec2 pixels = vec2(256.0, 120.0);
@@ -144,10 +156,14 @@ export function ps1Material(src: THREE.Material): THREE.Material {
           vColor.rgb *= gl_Position.w;
         #endif
       }`);
-    sh.fragmentShader = 'uniform bool nativeRaster;\n' + sh.fragmentShader.replace('#include <map_fragment>',
+    sh.fragmentShader = raster + sh.fragmentShader.replace('#include <map_fragment>',
       THREE.ShaderChunk.map_fragment.replace('map, vMapUv', 'map, nativeRaster ? vMapUv * gl_FragCoord.w : vMapUv'));
     const srgbOut = renderer.outputColorSpace === THREE.SRGBColorSpace;
     sh.fragmentShader = sh.fragmentShader
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+        #ifdef PS1_FACE
+          if (nativeRaster && vPs1Facing > 0.5 && gl_FrontFacing != (vPs1Facing > 1.5)) discard;
+        #endif`)
       .replace('#include <color_fragment>', `#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
         diffuseColor.rgb *= vColor.rgb * (nativeRaster ? gl_FragCoord.w : 1.0) * PS1_X2;
       #endif`)
@@ -165,6 +181,21 @@ ${srgbOut ? 'outgoingLight = mix( pow( outgoingLight * 0.9478672986 + vec3( 0.05
   return m;
 }
 
+function applyDiscMaterial(mesh: THREE.Mesh) {
+  const geometry = mesh.geometry;
+  const facing: string | undefined = geometry.userData.ps1Facing;
+  const nativeFacing = typeof facing === 'string' && !geometry.index
+    && facing.length * 3 === geometry.attributes.position.count;
+  if (nativeFacing) {
+    const sides = new Uint8Array(facing.length * 3);
+    for (let i = 0; i < facing.length; i++) sides.fill(Number(facing[i]), i * 3, i * 3 + 3);
+    geometry.setAttribute('ps1Facing', new THREE.BufferAttribute(sides, 1));
+  }
+  mesh.material = Array.isArray(mesh.material)
+    ? mesh.material.map(material => ps1Material(material, nativeFacing))
+    : ps1Material(mesh.material, nativeFacing);
+}
+
 function loadModel(id: number) {
   let p = cache.get(id);
   if (!p) {
@@ -173,7 +204,7 @@ function loadModel(id: number) {
       .then((g) => {
         g.scene.traverse((o) => {
           const m = o as THREE.Mesh;
-          if (m.isMesh) m.material = Array.isArray(m.material) ? m.material.map(ps1Material) : ps1Material(m.material);
+          if (m.isMesh) applyDiscMaterial(m);
         });
         return { scene: g.scene, anims: g.animations };
       })

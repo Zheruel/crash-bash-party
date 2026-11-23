@@ -13,6 +13,8 @@ import json, os, struct, sys
 
 SCALE = 1.0 / 1024.0
 MAX_MESH_TRIS = 20000
+# Stock on-foot models, checked against the vertex flags in every animation key.
+STOCK_RUNNERS = {f'{n:04}' for n in range(976, 991, 2)}
 
 
 def u32(d, o):
@@ -101,7 +103,8 @@ def parse_mesh(d, e, colours, uvs, idx):
                     uv[0], uv[1] = uv[1], uv[0]
             tris.append(dict(v=(a, b, c), textured=textured, tex=run_tex & 0x1FF,
                              tsel=(run_tex >> 15) & 1, semi=bool(ci & 0x8000), abr=(ci >> 13) & 3,
-                             col=cs, uv=uv, sflag=flag, rawuv=ui, rawcol=c0))
+                             col=cs, uv=uv, sflag=flag, rawuv=ui, rawcol=c0,
+                             facing=0 if m.vflag[c] & 2 else 1 + ((m.vflag[c] ^ k) & 1)))
             t += 1
         vi += cnt + 2
     m.tris = tris
@@ -336,6 +339,9 @@ def build_gltf(info, stem, texroot=None, outdir='.'):
                 COLOR_0=B.acc(bytes(colr), 5121, 'VEC4', n, 34962, norm=True),
                 TEXCOORD_0=B.acc(f32(uvs), 5126, 'VEC2', n, 34962))
             prim = dict(attributes=attrs, material=mi, mode=4)
+            if stem in STOCK_RUNNERS:
+                # 0 is two-sided, 1 faces clockwise, 2 faces counterclockwise after strip expansion.
+                prim['extras'] = dict(ps1Facing=''.join(str(t['facing']) for t in trs))
             if ans:
                 tg = []
                 for kf in allkeys:
