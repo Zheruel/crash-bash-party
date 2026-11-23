@@ -10,7 +10,7 @@ ctx.onmessage = (e) => {
   const m = e.data;
   switch (m.k) {
     case 'init':
-      party = new Party(m.code, { rounds: m.rounds, timing: m.timing, games: pickGames(m.games), variants: pickVariants(m.games) });
+      party = new Party(m.code, { rounds: m.rounds, timing: m.timing, games: pickGames(m.games), variants: pickVariants(m.games), dev: m.dev });
       timer = setInterval(() => party!.update(performance.now()), 8);
       break;
     case 'open':

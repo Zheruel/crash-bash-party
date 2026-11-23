@@ -44,6 +44,8 @@ export interface PartyOptions {
   games?: MiniGame[];
   /** force a variant per game id (dev: ?game=tilePainter:agogo) */
   variants?: Record<string, string>;
+  /** dev sweeps only (?chars=, ?allbots=1): force the four seat characters per round, and let bots drive human seats */
+  dev?: { chars?: number[]; bots?: boolean };
 }
 
 interface Member {
@@ -119,7 +121,7 @@ export class Party {
   private lastUpdate = 0;
   private lastSnap = '';
 
-  constructor(public readonly code: string, opts: PartyOptions = {}) {
+  constructor(public readonly code: string, private opts: PartyOptions = {}) {
     this.timing = opts.timing ?? NORMAL_TIMING;
     this.totalRounds = opts.rounds ?? 8;
     this.pool = opts.games ?? GAMES;
@@ -551,9 +553,14 @@ export class Party {
   private startRound(now: number) {
     const { game, mod, showdown, variant } = this.next!;
     const looks = this.seatLooks();
+    const dev = this.opts.dev;
+    if (dev?.chars?.length) {
+      // dev sweep: rotate through the list so every character is seated across consecutive rounds
+      for (let i = 0; i < looks.length; i++) looks[i] = { char: dev.chars[((this.round - 1) * looks.length + i) % dev.chars.length], color: looks[i].color };
+    }
     this.frozen = this.seats.map((id, i) => {
       const m = id != null ? this.members.get(id) : undefined;
-      return { name: m ? m.name : CHARACTERS[looks[i].char].name, bot: !m, look: looks[i] };
+      return { name: m && !dev?.bots ? m.name : CHARACTERS[looks[i].char].name, bot: !m || !!dev?.bots, look: looks[i] };
     });
     this.game = game;
     this.world = createWorld(game, this.frozen.map((f, slot) => ({ slot, name: f.name, bot: f.bot, char: f.look.char, level: this.botLevel })), mod ? [mod] : [], (Math.random() * 2 ** 32) >>> 0, variant?.id);

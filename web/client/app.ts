@@ -9,7 +9,7 @@ import { preloadBoardTextures } from './scene/tex';
 import { PodiumScene, preloadPodium } from './scene/podium';
 import { ShowcaseScene } from './scene/showcase';
 import { preloadCharacters } from './characters';
-import { getCatalog, ready } from './crash';
+import { devSetGame, getCatalog, ready } from './crash';
 import { VIEWS } from './games';
 import { POLAR_DRAW_TICKS, POLAR_WIN_TALLY_TICKS, S_WIN } from '../shared/games/pushOff';
 import { ballistixCupDelay } from './games/ballDefenceResult';
@@ -61,6 +61,11 @@ export class App {
   private nopeer = this.params.get('nopeer') === '1';
   /** ?game=ringDing,tankArena: only rotate through these mini-games */
   private games = this.params.get('game')?.split(',').filter(Boolean);
+  /** dev only (scripts/pose-sweep.mjs): ?chars=0,1,2 forces seat characters, ?allbots=1 lets bots drive every seat, ?rounds=N */
+  private dev = import.meta.env.DEV && (this.params.has('chars') || this.params.has('allbots'))
+    ? { chars: this.params.get('chars')?.split(',').map(Number).filter((n) => Number.isInteger(n) && n >= 0), bots: this.params.get('allbots') === '1' }
+    : undefined;
+  private rounds = import.meta.env.DEV ? Number(this.params.get('rounds')) || 8 : 8;
   private stage!: Stage;
   private input = new InputManager();
   private touch!: TouchControls;
@@ -323,7 +328,9 @@ export class App {
   // ------------------------------------------------------------ connect
   private timing(): Timing | undefined {
     if (!this.fast) return undefined;
-    return this.fast === '2' ? FAST_TIMING : FASTISH;
+    const cap = import.meta.env.DEV ? Number(this.params.get('cap')) : 0; // dev: ?cap=40 lets rounds play 40 s so bots reach a real winner
+    const t = this.fast === '2' ? FAST_TIMING : FASTISH;
+    return cap > 0 ? { ...t, playCap: cap } : t;
   }
 
   private async createParty(p: Profile, solo: boolean) {
@@ -337,7 +344,7 @@ export class App {
         make = () => new WsTransport();
       } else {
         let code = newRoomCode();
-        let core = createHostCore(code, 8, this.timing(), this.games);
+        let core = createHostCore(code, this.rounds, this.timing(), this.games, this.dev);
         let peer: PeerHost | null = null;
         if (!solo && !this.nopeer) {
           const proxy: HostCore = { open: (...a) => core.open(...a), message: (...a) => core.message(...a), close: (...a) => core.close(...a), destroy: () => core.destroy() };
@@ -345,7 +352,7 @@ export class App {
           peer.onFatal = (m) => this.toast('Matchmaking connection problem: ' + m);
           try {
             const final = await peer.start();
-            if (final !== code) { core.destroy(); code = final; core = createHostCore(code, 8, this.timing(), this.games); }
+            if (final !== code) { core.destroy(); code = final; core = createHostCore(code, this.rounds, this.timing(), this.games, this.dev); }
           } catch (e) {
             core.destroy();
             peer.stop();
@@ -566,6 +573,7 @@ export class App {
   private onPhase(p: Phase, ms: number) {
     const prev = this.phase;
     this.phase = p;
+    if (import.meta.env.DEV) (window as unknown as { __phase?: string }).__phase = p;
     if (this.optionsOpen) this.refreshControls();
     this.skipBtn?.classList.toggle('hidden', !(this.isHost && (p === 'wheel' || p === 'intro' || p === 'results')));
     switch (p) {
@@ -701,6 +709,7 @@ export class App {
     this.input.variant = m.variant?.id ?? this.variantInfo()?.id;
     this.touch.configure(this.input.game, this.input.variant);
     this.gameName = m.gameName;
+    devSetGame(m.gameId + (m.variant ? ':' + m.variant.id : ''));
     this.seats = m.seats.map((s) => ({ name: s.name, look: s.look, bot: s.bot }));
     this.hud.setSeats(this.seats, this.mySlot());
   }

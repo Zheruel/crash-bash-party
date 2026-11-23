@@ -33,7 +33,7 @@ export class InlineHostCore implements HostCore {
  * Same API, but the Party lives in a Web Worker so the simulation is not throttled
  * when the host's tab is in the background. Falls back to InlineHostCore if Workers fail.
  */
-export type WorkerIn = { k: 'init'; code: string; rounds?: number; timing?: Timing; games?: string[] } | { k: 'open'; id: number } | { k: 'msg'; id: number; d: string } | { k: 'close'; id: number } | { k: 'stop' };
+export type WorkerIn = { k: 'init'; code: string; rounds?: number; timing?: Timing; games?: string[]; dev?: PartyOptions['dev'] } | { k: 'open'; id: number } | { k: 'msg'; id: number; d: string } | { k: 'close'; id: number } | { k: 'stop' };
 export type WorkerOut = { k: 'out'; id: number; d: string; u: boolean };
 
 /** Resolve a game id filter to the registry entries (null/empty -> all). */
@@ -51,12 +51,12 @@ export function pickVariants(ids?: string[]) {
 
 export class WorkerHostCore implements HostCore {
   private sends = new Map<number, (d: string, u?: boolean) => void>();
-  constructor(private worker: Worker, code: string, rounds?: number, timing?: Timing, games?: string[]) {
+  constructor(private worker: Worker, code: string, rounds?: number, timing?: Timing, games?: string[], dev?: PartyOptions['dev']) {
     worker.onmessage = (e: MessageEvent<WorkerOut>) => {
       const m = e.data;
       if (m.k === 'out') this.sends.get(m.id)?.(m.d, m.u);
     };
-    worker.postMessage({ k: 'init', code, rounds, timing, games } satisfies WorkerIn);
+    worker.postMessage({ k: 'init', code, rounds, timing, games, dev } satisfies WorkerIn);
   }
   open(id: number, send: (d: string, u?: boolean) => void) {
     this.sends.set(id, send);
@@ -76,14 +76,14 @@ export class WorkerHostCore implements HostCore {
 }
 
 /** `games`: optional mini-game id filter for the rotation (dev: ?game=ringDing,tankArena) */
-export function createHostCore(code: string, rounds?: number, timing?: Timing, games?: string[]): HostCore {
+export function createHostCore(code: string, rounds?: number, timing?: Timing, games?: string[], dev?: PartyOptions['dev']): HostCore {
   if (typeof Worker !== 'undefined') {
     try {
       const w = new Worker(new URL('../host/hostWorker.ts', import.meta.url), { type: 'module' });
-      return new WorkerHostCore(w, code, rounds, timing, games);
+      return new WorkerHostCore(w, code, rounds, timing, games, dev);
     } catch (e) {
       console.warn('Worker unavailable, simulating on the main thread', e);
     }
   }
-  return new InlineHostCore(code, { rounds, timing, games: pickGames(games), variants: pickVariants(games) });
+  return new InlineHostCore(code, { rounds, timing, games: pickGames(games), variants: pickVariants(games), dev });
 }
