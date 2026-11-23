@@ -11,6 +11,30 @@ from scipy.spatial.transform import Rotation
 from build_stein_variants import MODELS, load, read
 
 
+# The stock cast is Gouraud shaded from one baked key light: smooth across a surface, hard at creases, and darker
+# on the side away from the light than the old flat facet shading was.
+LIGHT = tuple(v / math.hypot(-.42, .76, .49) for v in (-.42, .76, .49))
+CREASE = math.cos(math.radians(55))
+
+
+def gouraud(corners):
+    """Vertex colours for (position, face normal, base colour) corners, averaging normals of one colour's surface."""
+    surfaces = {}
+    for index, (position, normal, color) in enumerate(corners):
+        surfaces.setdefault((position, color), []).append(index)
+    colors = []
+    for position, normal, color in corners:
+        smooth = [0, 0, 0]
+        for other in surfaces[position, color]:
+            n = corners[other][1]
+            if sum(a*b for a, b in zip(n, normal)) > CREASE:
+                smooth = [a + b for a, b in zip(smooth, n)]
+        size = math.hypot(*smooth) or 1
+        shade = .64 + .36 * sum(a*b/size for a, b in zip(smooth, LIGHT))
+        colors.append(tuple(min(1, c * shade) for c in color))
+    return colors
+
+
 class GltfBuffer:
     def __init__(self, doc, data=b''):
         self.doc = doc
@@ -41,7 +65,8 @@ class GltfBuffer:
 
     def primitive(self, shape, material):
         textured = bool(shape.uvs)
-        arrays = [shape.positions, shape.normals, shape.colors]
+        colors = shape.colors if textured else gouraud(list(zip(shape.positions, shape.normals, shape.colors)))
+        arrays = [shape.positions, shape.normals, colors]
         attributes = [('POSITION', 3), ('NORMAL', 3), ('COLOR_0', 3)]
         if textured:
             arrays.append(shape.uvs)
@@ -88,13 +113,11 @@ class Shape:
             if size < 1e-9:
                 continue
             normal = tuple(v / size for v in normal)
-            shade = .78 + .22 * sum(k*l for k,l in zip(normal, (-.43,.77,.46)))
             if uv:
                 self.uvs.extend((uv[0], uv[n], uv[n+1]))
-                shade = 1
             self.positions.extend((a, b, c))
             self.normals.extend([normal] * 3)
-            self.colors.extend([tuple(v * shade for v in rgb)] * 3)
+            self.colors.extend([rgb] * 3)
 
     def rings(self, color, rows, sides=8):
         """Horizontal sections with height, half-width, half-depth, Z and X."""

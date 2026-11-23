@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial import Delaunay
 
-from build_stein_variants import DONORS, body_vertices, build, load
+from build_stein_variants import DONORS, PS1_TEXTURE, body_vertices, build, load
 from custom_character_assets import GltfBuffer, Shape, replace_kart, tint_barrel_bands, tint_equipment
 
 ASSETS = Path(__file__).resolve().parents[1] / 'assets'
@@ -52,10 +52,9 @@ class Model(GltfBuffer):
         self.nodes = {node['name']: i for i, node in enumerate(self.doc['nodes'])}
         self.doc['nodes'][self.nodes['BigStein']]['name'] = 'Hips'
         atlas = subprocess.check_output([
-            'magick', str(PORTRAIT), '-background', '#c0744a', '-alpha', 'remove',
-            '-resize', '512x512!', '-strip', '-sampling-factor', '4:4:4', '-quality', '92', 'jpeg:-',
+            'magick', str(PORTRAIT), '-background', '#c0744a', '-alpha', 'remove', *PS1_TEXTURE,
         ])
-        self.doc['images'] = [{'name': 'Top G portrait', 'mimeType': 'image/jpeg',
+        self.doc['images'] = [{'name': 'Top G portrait', 'mimeType': 'image/png',
                                'bufferView': self.buffer_view(atlas)}]
         self.doc['samplers'] = [{'magFilter': 9728, 'minFilter': 9728, 'wrapS': 33071, 'wrapT': 33071}]
         self.doc['textures'] = [{'source': 0, 'sampler': 0}]

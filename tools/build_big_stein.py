@@ -9,6 +9,9 @@ import struct
 import subprocess
 from collections import defaultdict
 
+from build_stein_variants import PS1_TEXTURE
+from custom_character_assets import gouraud
+
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'assets/models'
 portrait = ROOT / 'assets/portraits/big-stein.png'
@@ -62,8 +65,8 @@ def tri(n, points, color, uv=None):
     if length < 1e-12:
         return
     normal = tuple(k/length for k in normal)
-    shade = .78 + .22*sum(k*l for k,l in zip(normal,(-.4,.75,.52))) if uv is None else 1
-    rgb = tuple((int(color[i:i+2],16)/255)*shade for i in (0,2,4))
+    # Untextured corners keep their base colour here and are Gouraud shaded per surface below.
+    rgb = tuple(int(color[i:i+2],16)/255 for i in (0,2,4))
     for i, p in enumerate(points):
         geometry[n, int(uv is not None)].append((p,normal,rgb,uv[i] if uv else None))
 
@@ -236,9 +239,8 @@ for s,label in [(-1,'R'),(1,'L')]:
     lathe(knee,[(-.38,.101,.151,.055,0),(-.361,.105,.162,.055,0)],'68606a')
 
 # One mesh per moving rigid part, one primitive per material on that part.
-atlas=subprocess.check_output(['magick',str(portrait),'-background','#252434','-alpha','remove',
-    '-resize','512x512!','-strip','-sampling-factor','4:4:4','-quality','92','jpeg:-'])
-g['images']=[dict(name='Portrait atlas',mimeType='image/jpeg',bufferView=view(atlas))]
+atlas=subprocess.check_output(['magick',str(portrait),'-background','#252434','-alpha','remove',*PS1_TEXTURE])
+g['images']=[dict(name='Portrait atlas',mimeType='image/png',bufferView=view(atlas))]
 g['samplers']=[dict(magFilter=9728,minFilter=9728,wrapS=33071,wrapT=33071)]
 g['textures']=[dict(source=0,sampler=0)]
 for name,texture in [('Facets',False),('Portrait',True)]:
@@ -248,7 +250,9 @@ for name,texture in [('Facets',False),('Portrait',True)]:
 for (n,m),vs in sorted(geometry.items()):
     if 'mesh' not in g['nodes'][n]:
         g['nodes'][n]['mesh']=len(g['meshes']); g['meshes'].append(dict(primitives=[]))
-    # Deduplicate within each material; only coplanar, same-colour corners are shared.
+    if not m:
+        vs=[(p,normal,rgb,uv) for (p,normal,_,uv),rgb in zip(vs,gouraud([v[:3] for v in vs]))]
+    # Deduplicate within each material; only corners with one position, normal and colour are shared.
     unique=list(dict.fromkeys(vs)); lookup={v:i for i,v in enumerate(unique)}
     attrs={key:accessor([v[k] for v in unique],size,True) for k,(key,size) in
            enumerate([('POSITION',3),('NORMAL',3),('COLOR_0',3)]+([('TEXCOORD_0',2)] if m else []))}
