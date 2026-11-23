@@ -5,6 +5,7 @@ import type { Body, GameEvent } from '../../shared/types';
 import { ModelInstance, ready } from '../crash';
 import { sfx, sfxRate } from '../shell/sound';
 import { FX_PACKS } from './fxScripts';
+import { PO_FULL } from './polarAudio';
 import { RealFx, type FxTrack } from './realFx';
 
 const S = 1024 * U;
@@ -226,7 +227,7 @@ export class PolarItemEmitter {
   event(e: GameEvent) {
     const { bank } = this.config;
     const cue = (id: number, sample: number, from = '0447') =>
-      sfx.playFile(`sfx/${from}/${sample}.mp3`, 0.7, false, sfxRate(bank, id));
+      sfx.playFile(`sfx/${from}/${sample}.mp3`, PO_FULL, false, sfxRate(bank, id));
     switch (e.k) {
       case 'beamWarn': cue(0x463, 16); break; // all four banks alias this sample
       case 'beamEnd': cue(0x44d, 1); break;
@@ -262,13 +263,13 @@ export class PolarItemEmitter {
     const frame = FUSE_RAMP[Math.min(299, Math.max(0, age - rampStart))];
     const offset = Math.min(age - 1, rampStart - 1) * FUSE_RAMP[0].rate / 30 + frame.offset;
     if (this.fuse) this.fuse.update(frame.rate, offset);
-    else this.fuse = sfx.startSample('sfx/0447/6.mp3', 28 / 5995, 0.6, frame.rate, offset);
+    else this.fuse = sfx.startSample('sfx/0447/6.mp3', 28 / 5995, PO_FULL, frame.rate, offset);
   }
 
   private setLoop(sample: number, start: number, id: number, offset = 0) {
     if (this.loop?.sample === sample) return;
     this.stopAudio();
-    const source = sfx.startSample(`sfx/0447/${sample}.mp3`, start, 0.6, sfxRate(this.config.bank, id), offset);
+    const source = sfx.startSample(`sfx/0447/${sample}.mp3`, start, PO_FULL, sfxRate(this.config.bank, id), offset);
     if (source) this.loop = { sample, stop: source.stop };
   }
 

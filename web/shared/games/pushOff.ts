@@ -189,6 +189,14 @@ const SCRIPTS = DASH_SCRIPT.map((sc, id) => (id ? { dash: words(sc), hang: words
 const SKILLS = [8, 16, 20];
 const CENTRE_R2 = 1000000; // DAT_800d4dd0 on TILT (0x400000 elsewhere)
 
+/** First hit-voice id of each engine character (0x8009e080; voice block * 0x32 + 3). Every Polar voice id sits at a fixed offset from it. */
+const HIT_VOICE = [0, 3, 0x35, 0x67, 0x99, 0x12f, 0x161, 0xfd, 0xcb];
+/** FUN_800d0808: the voice keyed when a dash starts, mounted (n 0x16) and on foot (n 0x1a; Cortex's bank holds it as 0x1c). */
+const DASH_VOICE = HIT_VOICE.map((id) => id + 0x13);
+const FOOT_DASH_VOICE = HIT_VOICE.map((id, ch) => id + (ch === 3 ? 0x19 : 0x17));
+/** On-foot walk script 0x43: ticks each of its two poses is held (0x8007 n). */
+const FOOT_STEP = [[12, 12], [12, 12], [12, 12], [12, 12], [12, 12], [16, 16], [16, 14], [12, 12], [12, 12]];
+
 const mass0 = (id: number) => (id >= 5 ? 0x180 : 0x100);
 /** FUN_800b5684: base mass, 0x46 less on foot */
 const massOf = (q: PoP) => mass0(q.sel ?? q.ch) - (q.md === 1 ? 0x46 : 0);
@@ -343,16 +351,18 @@ function setState(w: World, d: Data, q: PoP, s: number, st: number) {
       const v = sq(imul(q.vx, q.vx) + imul(q.vz, q.vz));
       q.dcx = q.dcz = 1; q.acx = q.acz = 2;
       play(q, 0);
-      if (v > 0x20) { ri(w, 0x100); E(w, 'skid', q.x, q.z, s, r6); }
+      // the rider's sound handle is released (FUN_800225c4), then the skid 0x456 + rand(6) keys on it at pitch 0x1d80 + rand(0x100)
+      if (v > 0x20) E(w, 'skid', q.x, q.z, s, r6, ri(w, 0x100)); else E(w, 'quiet', q.x, q.z, s);
       break;
     }
-    case S_WALK: if (q.fl & F_WON) { setState(w, d, q, s, S_WIN); return; } play(q, 0); break;
+    case S_WALK: if (q.fl & F_WON) { setState(w, d, q, s, S_WIN); return; } play(q, 0); E(w, 'quiet', q.x, q.z, s); break; // FUN_800d31a0
     case S_DASH: { // FUN_800d0808
       if (q.fl & F_WON) { setState(w, d, q, s, S_WIN); return; }
       play(q, q.md === 1 ? 3 : 1);
       q.g -= dashCost(q);
       q.vx = q.vz = q.tvx = q.tvz = 0;
       E(w, 'dash', q.x, q.z, s, q.md === 1 ? 2 : 1);
+      E(w, 'voice', q.x, q.z, s, (q.md === 1 ? FOOT_DASH_VOICE : DASH_VOICE)[q.ch]);
       break;
     }
     case S_SLIP: { // FUN_800cfc58
@@ -380,8 +390,10 @@ function setState(w: World, d: Data, q: PoP, s: number, st: number) {
       q.vx = q.vz = q.tvx = q.tvz = 0;
       break;
     case S_BLAST: eliminate(w, d, q, s); break; // bomb (FUN_800d3170); the handler stops it from the next tick
-    case S_STUN: { // FUN_800cde8c
+    case S_STUN: { // FUN_800cde8c: sfx 0x467, the character's first hit voice, shock effect (pack 0403 script 0 at double rate)
       q.sc1c = 0; q.s98 = 0; q.vx = q.vz = q.tvx = q.tvz = 0; q.mass = 0x200;
+      E(w, 'stun', q.x, q.z, s, 1, -1, undefined, -q.y * U);
+      E(w, 'voice', q.x, q.z, s, HIT_VOICE[q.ch]);
       break;
     }
     case S_WIN: q.vx = q.vz = q.tvx = q.tvz = 0; break;
@@ -394,6 +406,7 @@ function setState(w: World, d: Data, q: PoP, s: number, st: number) {
       });
       q.hold--;
       E(w, 'throw', q.x, q.z, s, 1);
+      E(w, 'voice', q.x, q.z, s, HIT_VOICE[q.ch] + 0x14); // n 0x17
       break;
     }
     case S_FOOT: { // FUN_800d191c: idle on foot, accel 4 / decel 2
@@ -402,15 +415,16 @@ function setState(w: World, d: Data, q: PoP, s: number, st: number) {
       const v = sq(imul(q.vx, q.vx) + imul(q.vz, q.vz));
       q.acx = q.acz = 4; q.dcx = q.dcz = 2;
       play(q, 0);
-      if (v > 0x20) { ri(w, 0x100); E(w, 'skid', q.x, q.z, s, r6); }
+      // the rider's sound handle is released (FUN_800225c4), then the skid 0x456 + rand(6) keys on it at pitch 0x1d80 + rand(0x100)
+      if (v > 0x20) E(w, 'skid', q.x, q.z, s, r6, ri(w, 0x100)); else E(w, 'quiet', q.x, q.z, s);
       break;
     }
-    case S_FOOTWALK: play(q, 0); break; // FUN_800d2e00
+    case S_FOOTWALK: play(q, 0); E(w, 'quiet', q.x, q.z, s); E(w, 'voice', q.x, q.z, s, HIT_VOICE[q.ch] + 0x12); break; // FUN_800d2e00: script 0x43 opens with n 0x15
     case S_OFF: // FUN_800d2044: off the bear (mode 1); the clip ends in 0x54
       if (q.md === 0) q.md = 1; else eliminate(w, d, q, s);
       play(q, 4);
       break;
-    case S_BURN: q.s98 = 0; eliminate(w, d, q, s); break; // FUN_800d2248
+    case S_BURN: q.s98 = 0; eliminate(w, d, q, s); E(w, 'burn', q.x, q.z, s, 0, -1, undefined, -q.y * U); break; // FUN_800d2248: smoke 0x1613
   }
 }
 
@@ -481,8 +495,13 @@ function collide(w: World, d: Data, q: PoP, s: number) {
     const a = at2(ex, ez);
     exchange(d, q, o);
     const sp2 = imul(q.vx, q.vx) + imul(q.vz, q.vz);
-    if (sp2 > 0x400 && q.st !== S_BALL) E(w, 'thump', (q.x + o.x) >> 1, (q.z + o.z) >> 1, s, Math.min(1, Math.sqrt(sp2) / 90), i + 4 * r4);
-    if (sp2 > 0x1000 && q.st !== S_BALL && q.st !== 0x4c && q.st !== S_STUN && q.st !== 0x5a) { ri(w, 4); E(w, 'hit', (q.x + o.x) >> 1, (q.z + o.z) >> 1, s, Math.min(1.5, Math.sqrt(sp2) / 60), i); }
+    // sfx 0x446 + rand(4); a snowball keys 0x48b instead, and again above 64 u/tick
+    if (sp2 > 0x400) E(w, q.st === S_BALL ? 'snowbump' : 'thump', (q.x + o.x) >> 1, (q.z + o.z) >> 1, s, Math.min(1, Math.sqrt(sp2) / 90), i + 4 * r4);
+    if (sp2 > 0x1000 && q.st === S_BALL) E(w, 'snowbump', (q.x + o.x) >> 1, (q.z + o.z) >> 1, s, 1, i);
+    if (sp2 > 0x1000 && q.st !== S_BALL && q.st !== 0x4c && q.st !== S_STUN && q.st !== 0x5a) {
+      E(w, 'voice', q.x, q.z, s, HIT_VOICE[q.ch] + ri(w, 4));
+      E(w, 'hit', (q.x + o.x) >> 1, (q.z + o.z) >> 1, s, Math.min(1.5, Math.sqrt(sp2) / 60), i);
+    }
     q.by = i; q.byT = d.t; o.by = s; o.byT = d.t;
     bombPass(w, d, q, s, o, i);
     const push = 0x10a - dist;
@@ -517,7 +536,13 @@ function stateTick(w: World, d: Data, q: PoP, s: number) {
       if (q.st === S_FOOT) q.md = 1;
       q.g = Math.min(0x100, q.g + 4);
       collide(w, d, q, s);
+      // FUN_800cdbd0: the bear's footfall when the walk script (16 words, looping) stands at pc 4; 0x4a0 while shrunk
+      if (q.st === S_WALK && (q.af & 15) === 4) E(w, 'step', q.x, q.z, s, q.mass < 0x51 ? 1 : 0);
       anim(w, d, q, s);
+      if (q.st === S_FOOTWALK) { // script 0x43: n 0x15, a held pose, n 0x14, a held pose, loop
+        const [a, b] = FOOT_STEP[q.ch], t = (q.af - 1) % (a + b);
+        if (t === 0 || t === a) E(w, 'voice', q.x, q.z, s, HIT_VOICE[q.ch] + (t ? 0x11 : 0x12));
+      }
       const still = q.st === S_IDLE || q.st === S_FOOT;
       if (still ? (q.held & 0xf0) : !(q.held & 0xf0)) setState(w, d, q, s, still ? (q.md === 1 ? S_FOOTWALK : S_WALK) : q.md === 1 ? S_FOOT : S_IDLE);
       dashCheck(w, d, q, s);
@@ -538,9 +563,10 @@ function stateTick(w: World, d: Data, q: PoP, s: number) {
       break;
     case S_BURN: // FUN_800d2334: out after 60 ticks
       q.vx = q.vz = q.tvz = 0;
-      if (q.k === 4) burst(w);
+      if (q.k === 4) { E(w, 'burn', q.x, q.z, s, 4, -1, undefined, -q.y * U); burst(w); } // smoke 0x1613 + shards 0x1614
+      if (q.k === 2) E(w, 'burn', q.x, q.z, s, 2, -1, undefined, -q.y * U);
       if (q.k === 0x3c) setState(w, d, q, s, S_OUT);
-      if (--q.s98 < 0) { q.s98 = ri(w, 7) + 1; fx(w, 0x1000); fx(w, 0x1000); } // two sparks (0x1612)
+      if (--q.s98 < 0) { q.s98 = ri(w, 7) + 1; fx(w, 0x1000); fx(w, 0x1000); E(w, 'puff', q.x, q.z, s, 1, -1, undefined, -q.y * U); } // two wisps (0x1612)
       break;
     case S_FROZEN: // FUN_800cfb7c: no pad, turns slowly, still bumps and slips
       q.held = q.pressed = 0;
@@ -599,7 +625,7 @@ function stateTick(w: World, d: Data, q: PoP, s: number) {
       break;
     }
     case S_STUN: { // FUN_800ce664: 182 ticks, no pad, still bumps and slips
-      if (q.s98-- < 0) { q.s98 = ri(w, 8) + 0x18; fx(w, 0x1000); fx(w, 0x1000); E(w, 'dazed', q.x, q.z, s, 1); } // two star objects (0x1612), one rand each (replay count)
+      if (q.s98-- < 0) { q.s98 = ri(w, 8) + 0x18; fx(w, 0x1000); fx(w, 0x1000); E(w, 'dazed', q.x, q.z, s, 1, -1, undefined, -q.y * U); } // two star objects (0x1612), one rand each (replay count)
       q.held = q.pressed = 0;
       collide(w, d, q, s);
       edgeTest(w, d, q, s);
@@ -1669,7 +1695,7 @@ function pillars(w: World, d: Data, q: PoP, s: number) {
     q.x = (q.x - m12(pu, SIN(a))) | 0; q.z = (q.z - m12(pu, T(a))) | 0;
     const u = at2(q.x, q.z) & 0xfff, spd = sq(imul(q.vx, q.vx) + imul(q.vz, q.vz));
     q.vx = -(imul(spd, T(0x400 - u)) >> 13); q.vz = -(imul(spd, T(-u)) >> 13);
-    if (speed0(q.ch) * 192 < spd * q.mass) { pl[2] = 0; E(w, 'pillar', pl[0], pl[1], s, ri(w, 3)); } // 3 ice chunks (0x1604), sfx 0x46a-c
+    if (speed0(q.ch) * 192 < spd * q.mass) { pl[2] = 0; E(w, 'pillar', pl[0], pl[1], s, ri(w, 3), u); } // 3 ice chunks (0x1604), sfx 0x46a-c
     return;
   }
 }
@@ -1685,11 +1711,12 @@ function boltHit(w: World, d: Data, b: Bolt, r2: number): boolean {
     const q = d.P[i];
     if (!q || (q.fl & F_ELIM) || i === b.own || q.imm !== 0 || q.st === S_BLAST || q.st === S_OUT) continue;
     if (dist2(b.x, b.z, q.x, q.z) >= r2) continue;
-    ri(w, 4); // hit sfx 0x490-0x493 + the voice of the character
+    const take = ri(w, 4); // hit sfx 0x490-0x493 + the first hit voice (engine 8 keys Dingodile's, engine 6 none)
+    if (q.ch !== 6) E(w, 'voice', q.x, q.z, i, HIT_VOICE[q.ch === 8 ? 7 : q.ch]);
     q.by = b.own; q.byT = d.t;
     if (q.md === 1) {
       q.ty = 0x800; q.yaw = 0x800;
-      E(w, 'zapped', q.x, q.z, i, 2, b.own);
+      E(w, 'zapped', q.x, q.z, i, 2 + 4 * take, b.own);
       if (q.st !== S_BURN) setState(w, d, q, i, S_BURN);
     } else {
       // (real quirk, test hook only: with the render-node pool empty the bear object cannot spawn and the hit does nothing)
@@ -1700,7 +1727,7 @@ function boltHit(w: World, d: Data, b: Bolt, r2: number): boolean {
         id: -1, k: 2, st: 0, x: q.x, y: q.y, z: q.z, own: i, t: 5, yaw: b.yaw, fresh: true, sx: q.x, sz: q.z,
         tx: q.x - m12(3000, SIN(b.yaw)), tz: q.z - m12(3000, T(b.yaw)), spd: 0x32, go: 0, vx: 0, vy: 0, vz: 0, floor: 0x100,
       });
-      E(w, 'zapped', q.x, q.z, i, 1, b.own);
+      E(w, 'zapped', q.x, q.z, i, 1 + 4 * take, b.own);
       setState(w, d, q, i, S_OFF);
       q.imm = 0x3c;
       q.mass -= 0x46;
@@ -1746,7 +1773,7 @@ function boltTick(w: World, d: Data) {
   for (const b of d.bolts) {
     if (b.fresh) { b.fresh = false; continue; } // objects made this tick first run on the next one
     if (b.k === 2) { // FUN_800ca514: sparks every 1-7 ticks until it lands 0x100 below the ice
-      if (--b.t < 0) { fx(w, 0x1000); b.t = ri(w, 7) + 1; }
+      if (--b.t < 0) { fx(w, 0x1000); E(w, 'puff', b.x, b.z, -1, 3, -1, undefined, -b.y * U); b.t = ri(w, 7) + 1; }
       if (boltFly(b, -b.y)) dead.add(b);
       continue;
     }
@@ -1768,13 +1795,16 @@ function boltTick(w: World, d: Data) {
       if (q.hold === 0) { sp.n--; dead.add(b); }
     } else if (b.st === 0) { // FUN_800b4c74 thrown: off the ice it drops into the water (floor 0x100)
       const on = hullInside(HULL_MANIC, b.x, b.z);
-      if (!on) { b.floor = 0x100; if (b.floor <= b.y) { dead.add(b); continue; } }
+      if (!on) { b.floor = 0x100; if (b.floor <= b.y) { E(w, 'boltLand', b.x, b.z, b.own, 0, 0); dead.add(b); continue; } }
       if (!boltFly(b)) {
-        if (b.t-- < 0) { fx(w, 0x1000); b.t = ri(w, 2); } // spark trail: a 0x1612 (its init draws its angle) every 2-3 ticks
+        if (b.t-- < 0) { fx(w, 0x1000); E(w, 'puff', b.x, b.z, -1, 2, -1, undefined, -b.y * U); b.t = ri(w, 2); } // spark trail: a 0x1612 (its init draws its angle) every 2-3 ticks
         if (boltHit(w, d, b, BOLT_R * BOLT_R)) { b.st = 1; b.t = 0; }
-      } else { b.st = 1; b.t = 0; } // sfx 0x48f on the ice, 0x494 in the water
+      } else { // sfx 0x48f on the ice, 0x494 in the water; effect script 1 of the level model at the landing point
+        E(w, 'boltLand', b.x, b.z, b.own, hullInside(HULL_MANIC, b.x, b.z) ? 1 : 0, 1, undefined, -b.y * U);
+        b.st = 1; b.t = 0;
+      }
     } else { // explodes where it landed / hit: blast radius 470 on the first tick, gone after 31
-      if (b.t === 0) { E(w, 'strike', b.x, b.z, b.own, 470 * U); burst(w); boltHit(w, d, b, 0x35ee4); }
+      if (b.t === 0) { E(w, 'strike', b.x, b.z, b.own, 470 * U, -1, undefined, -b.y * U); burst(w); boltHit(w, d, b, 0x35ee4); }
       if (++b.t >= 0x1f) dead.add(b);
     }
   }
@@ -1798,7 +1828,7 @@ function tiltTick(d: Data) {
   d.az = Math.max(-0x40, Math.min(0x40, d.az));
 }
 
-const E = (w: World, k: string, gx: number, gz: number, s = -1, v = 1, o = -1) => emit(w, k, gx * U, gz * U, s, v, o);
+const E = (w: World, k: string, gx: number, gz: number, s = -1, v = 1, o = -1, yaw?: number, y?: number) => emit(w, k, gx * U, gz * U, s, v, o, yaw, y);
 
 function padOf(inp: InputState): number {
   let b = 0;
