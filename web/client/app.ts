@@ -1,7 +1,8 @@
 import { EMOTE_LABELS, winnerCheerFrame } from '../shared/look';
 import { FAST_TIMING, NORMAL_TIMING, STANDINGS_MIN_MS, type Timing } from '../shared/party';
-import { COUNT_FRAMES, COUNT_LABELS, NUMBERED_COUNTDOWN_TICKS, readsCountdownPad, type Phase, type ResultsMsg, type RoomState, type RoundMsg, type WheelMsg } from '../shared/protocol';
+import { COUNT_FRAMES, NUMBERED_COUNTDOWN_TICKS, readsCountdownPad, type Phase, type ResultsMsg, type RoomState, type RoundMsg, type WheelMsg } from '../shared/protocol';
 import { SPECTATOR_WAIT, type BallistixData } from '../shared/games/ballDefence';
+import { pogoResultWindowTicks } from '../shared/games/tilePainter';
 import { getGame } from '../shared/registry';
 import { DT, IDLE, type World } from '../shared/types';
 import { preloadBoardTextures } from './scene/tex';
@@ -45,14 +46,6 @@ import LOGO from './ui/img/logo.png';
 import { Stage } from './view';
 
 const FASTISH: Timing = { ...NORMAL_TIMING, intro: 1800, countdown: 1500, results: 4200, wheel: 3000, final: 32000, playCap: 5 };
-
-function arenaResultHoldMs(gameId: string | undefined, draw: boolean, char?: number) {
-  if (gameId === 'pushOff') return (draw ? POLAR_DRAW_TICKS + 1 : winnerCheerFrame(char ?? 0) + POLAR_WIN_TALLY_TICKS) * 1000 / 30;
-  if (gameId === 'tankArena') return (draw ? 121 : 123) * 1000 / 30;
-  if (gameId === 'crateToss') return draw ? 4000 : CRATE_RESULT_HOLD_MS;
-  if (gameId === 'dragonDrop') return dragonResultFrames(draw, char ?? 0) * DT * 1000;
-  if (gameId === 'malletMash') return malletMashResultHoldMs(draw);
-}
 
 interface HostHandle { core: HostCore; peer: PeerHost | null }
 
@@ -599,13 +592,17 @@ export class App {
         }
         this.input.capture = this.canCaptureArenaKeys();
         break;
-      case 'countdown':
+      case 'countdown': {
+        const c = this.client!;
         this.intro.hide();
         this.input.capture = this.canCaptureArenaKeys();
         if (this.input.capture) this.stage.renderer.domElement.focus({ preventScroll: true });
         if (!this.arenaReady && !this.loading.visible) this.loading.show();
-        this.countMs = Math.max(1, this.client!.phaseEnds - this.client!.phaseStartedAt);
+        const frames = NUMBERED_COUNTDOWN_TICKS + (c.round?.countdownLeadTicks ?? 0);
+        this.countMs = Math.max(1, c.phaseEnds - c.phaseStartedAt);
+        this.count.startCountdown(c.phaseEnds, this.countMs * COUNT_FRAMES / frames);
         break;
+      }
       case 'play':
         if (!this.arenaReady && !this.loading.visible) this.loading.show();
         if (prev !== 'countdown') void this.levelMusic();
@@ -818,7 +815,7 @@ export class App {
     const remaining = this.phase === 'results' ? Math.max(0, this.client!.phaseEnds - performance.now()) : Infinity;
     const lastGame = this.client?.round?.gameId ?? '', lastLevel = this.variantInfo()?.id ?? null;
     const cupHold = this.arenaCupHold(m);
-    const holdMs = cupHold ?? arenaResultHoldMs(lastGame, !!m.draw, w === null ? undefined : this.seats[w]?.look.char) ?? 3500;
+    const holdMs = cupHold ?? this.arenaResultHoldMs(m) ?? 3500;
     const delay = this.stage.gameVisible || cupHold !== undefined
       ? Math.max(0, Math.min(this.resultsAt + holdMs - performance.now(), remaining - STANDINGS_MIN_MS)) : 0;
     clearTimeout(this.resultsTimer);
@@ -839,6 +836,19 @@ export class App {
     const game = this.client?.round?.gameId, variant = this.variantInfo()?.id;
     const background = !this.stage.gameVisible && game ? thumb(game, variant) : undefined;
     this.results.show(m, this.seats, this.mySlot(), this.streaks, background);
+  }
+
+  private arenaResultHoldMs(m: ResultsMsg) {
+    const game = this.client?.round?.gameId;
+    const draw = !!m.draw;
+    const winner = draw ? undefined : m.placements[0];
+    const char = winner === undefined ? 0 : this.seats[winner]?.look.char ?? 0;
+    if (game === 'tilePainter') return pogoResultWindowTicks(this.client?.snaps.at(-1)?.w, winner, char) * DT * 1000;
+    if (game === 'pushOff') return (draw ? POLAR_DRAW_TICKS + 1 : winnerCheerFrame(char) + POLAR_WIN_TALLY_TICKS) * DT * 1000;
+    if (game === 'tankArena') return (draw ? 121 : 123) * DT * 1000;
+    if (game === 'crateToss') return draw ? 4000 : CRATE_RESULT_HOLD_MS;
+    if (game === 'dragonDrop') return dragonResultFrames(draw, char) * DT * 1000;
+    if (game === 'malletMash') return malletMashResultHoldMs(draw);
   }
 
   private arenaCupHold(m: ResultsMsg) {
@@ -865,7 +875,7 @@ export class App {
     const elapsed = Math.max(0, now - (this.client?.phaseStartedAt ?? now));
     const duration = ms + elapsed;
     const defaultIntroMs = m.cupsToWin ? Math.min(7000, duration * 0.24) : Math.min(3600, duration * 0.14);
-    const holdMs = arenaResultHoldMs(this.client?.round?.gameId, !!m.draw, this.seats[m.placements[0]]?.look.char);
+    const holdMs = this.arenaResultHoldMs(m);
     const introMs = holdMs !== undefined
       ? Math.max(defaultIntroMs, Math.min(holdMs + LOADING_MIN_MS, duration * 0.24))
       : defaultIntroMs;
@@ -984,9 +994,7 @@ export class App {
     if (c && this.phase === 'countdown') {
       const frame = Math.max(0, Math.min(frames - 1, Math.floor(frames * (1 - (c.phaseEnds - t) / this.countMs))));
       this.stage.ctx.countdownTicksLeft = frames - frame;
-      const numberedFrame = frame - lead;
-      if (numberedFrame < 0) this.count.set('');
-      else this.count.set(COUNT_LABELS[Math.floor(numberedFrame / COUNT_FRAMES)], numberedFrame % COUNT_FRAMES);
+      this.count.countdownFrame(frame - lead);
     } else if (this.phase === 'play') {
       this.count.advanceGo(Math.floor((t - this.playAt) / (1000 * DT)));
     }

@@ -39,7 +39,8 @@ interface Look { bg: number; hemi: [number, number, number] }
 const LOOKS: Record<string, Look> = {
   dot: { bg: 0x101830, hemi: [0xffffff, 0xc0c8e0, 1.5] },
   toxic: { bg: 0x0a1408, hemi: [0xffffff, 0xb8c8a8, 1.5] },
-  splash: { bg: 0x0a2a58, hemi: [0xffffff, 0xb0c8e8, 1.5] },
+  // The cavern's translucent layers add their colour over the disc's black clear.
+  splash: { bg: 0x000000, hemi: [0xffffff, 0xb0c8e8, 1.5] },
   dante: { bg: 0x1a0a08, hemi: [0xffffff, 0xd8b8a0, 1.5] },
 };
 const ARENA: Record<string, string> = { dot: 'dotDash', toxic: 'toxicDash', splash: 'splashDash', dante: 'dantesDash' };

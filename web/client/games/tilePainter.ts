@@ -1,6 +1,6 @@
 // POGO PANDEMONIUM view (shared/games/tilePainter.ts): the real stages 675 / 671 / 667 / 663 with an 8x8 painted floor.
 import * as THREE from 'three';
-import { BEAM_FRAMES, createPogoResult, enterPogoResult, finishPogoHop, pogoResultPickup, pogoWinnerLand, PADLOCK_INTRO_TICKS, POGO_TRAIL_FRAMES, tickPogoResultObjects, tickPogoTiles, TP_TILE, tileWorld, type PogoProjectileTrail } from '../../shared/games/tilePainter';
+import { BEAM_FRAMES, createPogoResult, enterPogoResult, finishPogoHop, pogoResultPickup, pogoResultWindowTicks, pogoWinnerLand, pogoWinnerTailTicks, PADLOCK_INTRO_TICKS, POGO_TRAIL_FRAMES, tickPogoResultObjects, tickPogoTiles, TP_TILE, tileWorld, type PogoProjectileTrail } from '../../shared/games/tilePainter';
 import type { World } from '../../shared/types';
 import { createCharacter, usedVariant } from '../characters';
 import { ASSET_BASE, getCatalog, ModelInstance } from '../crash';
@@ -30,9 +30,6 @@ const PACK = 770, DIGITS = 732, LOCO = 667, K = TP_TILE * 2, U = K / 1024;
 const YAW_UNIT = 2 * Math.PI / 4096;
 const WIN_SCRIPT = 0x32, RESULT_HOP_SCRIPT = 0x2e;
 const TIME_UP_SOUND = 'sfx/0277/5.mp3', DRAW_SOUND = 'sfx/0278/13.mp3';
-const DRAW_ARENA_FRAMES = 120; // FUN_8007d9dc sets a 120-frame draw timer at timeout.
-const WIN_NAME_WAIT = [24, 23, 26, 23, 23, 23, 26, 26];
-const WIN_ARENA_TAIL = 63 + 2 + 90 + 30; // Voice cue at age 63 + name wait, then the common result timers.
 
 interface PogoResult {
   world: World;
@@ -212,7 +209,7 @@ export function createTilePainterView(): ClientMiniGame {
         if (finishPogoHop(w, p)) continue;
         enterPogoResult(w, p, lose);
         entered[slot] = frame;
-        if (win) state.lastFrame = frame + WIN_ARENA_TAIL + (WIN_NAME_WAIT[w.data.fam[slot] - 1] ?? 26);
+        if (win) state.lastFrame = frame + pogoWinnerTailTicks(kit.look(slot).char);
         if (lose) kit.real.play(PACK, 0, p.x, 0, p.z);
       }
       const age = frame - entered[slot];
@@ -342,7 +339,8 @@ export function createTilePainterView(): ClientMiniGame {
         playProjectileImpacts(w);
         kit.checkOver(w);
         if (kit.over.done) {
-          const lastFrame = kit.over.winners.size ? 17 + WIN_ARENA_TAIL + Math.max(...WIN_NAME_WAIT) : DRAW_ARENA_FRAMES;
+          const winner = kit.over.winners.values().next().value;
+          const lastFrame = pogoResultWindowTicks(undefined, winner, winner === undefined ? 0 : kit.look(winner).char);
           result = { world: createPogoResult(w), at: ctx.resultReplayAt ?? ctx.time, entered: [-1, -1, -1, -1], lastFrame };
         }
       }

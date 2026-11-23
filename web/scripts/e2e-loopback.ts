@@ -6,7 +6,7 @@ import { InlineHostCore, pickGames, pickVariants } from '../client/net/hostCore'
 import { LoopbackTransport } from '../client/net/loopback';
 import { TransportError, type ClientTransport } from '../client/net/transport';
 import { GameClient } from '../client/session';
-import { FAST_TIMING, Party } from '../shared/party';
+import { FAST_TIMING, NORMAL_TIMING, Party } from '../shared/party';
 import { DEFAULT_CUPS_TO_WIN, MAX_CUPS_TO_WIN, MIN_CUPS_TO_WIN, isCupsToWin } from '../shared/protocol';
 import type { C2S, ResultsMsg, S2C } from '../shared/protocol';
 import { POINTS } from '../shared/types';
@@ -119,7 +119,7 @@ const drawFamilies: [string, Finish][] = [
   ['dashRace', (w, laps) => { w.data.lap = [...laps]; }],
 ];
 
-async function playFinishes(game: MiniGame, finish: Finish, scores: number[][], resumeRound?: number) {
+async function playFinishes(game: MiniGame, finish: Finish, scores: number[][], resumeRound?: number, resultWindow?: number) {
   let round = 0;
   const fixture: MiniGame = {
     ...game,
@@ -132,8 +132,10 @@ async function playFinishes(game: MiniGame, finish: Finish, scores: number[][], 
       if (w.tick === 1) finish(w, scores[round - 1]);
     },
   };
+  const timing = { ...FAST_TIMING, playCap: 2 * DT };
+  if (resultWindow !== undefined) timing.results = NORMAL_TIMING.results;
   const host = new InlineHostCore('SCORE', {
-    auto: false, rounds: scores.length, games: [fixture], timing: { ...FAST_TIMING, playCap: 2 * DT },
+    auto: false, rounds: scores.length, games: [fixture], timing,
   });
   const sentFastTicks = new Set<number>();
   const open = host.open.bind(host);
@@ -152,6 +154,8 @@ async function playFinishes(game: MiniGame, finish: Finish, scores: number[][], 
     return transport;
   }, { name: 'Player', look: { char: 0, color: 0 } });
   const results: ResultsMsg[] = [];
+  let resultsMs = 0;
+  client.h.phase = (phase, ms) => { if (phase === 'results') resultsMs = ms; };
   client.h.results = (result) => {
     const snap = client.snaps[0];
     ok(`${game.id} round ${result.round}: only terminal snapshot survived loss and preceded results`,
@@ -164,7 +168,8 @@ async function playFinishes(game: MiniGame, finish: Finish, scores: number[][], 
     await tick();
     client.ready(true);
     await tick();
-    for (let i = 0; i < 200 && results.length < scores.length; i++) {
+    const ticks = resultWindow === undefined ? 200 : Math.ceil(resultWindow / 34) + 200;
+    for (let i = 0; i < ticks && results.length < scores.length; i++) {
       host.step(1000 + i * 34);
       await tick();
       if (results.length === resumeRound && client.phase === 'results') {
@@ -185,6 +190,7 @@ async function playFinishes(game: MiniGame, finish: Finish, scores: number[][], 
       }
     }
     ok(`${game.id}: received every authoritative result`, results.length === scores.length && client.phase === 'final');
+    if (resultWindow !== undefined) ok('Pogo result phase includes the celebration and standings', resultsMs >= resultWindow);
     return results;
   } finally {
     client.leave();
@@ -203,6 +209,9 @@ for (const [id, finish] of drawFamilies) {
     && isDeepStrictEqual(draw.prev, win.scores) && isDeepStrictEqual(draw.scores, win.scores)
     && isDeepStrictEqual(draw.stars, win.stars) && isDeepStrictEqual(draw.winners, [1]));
 }
+
+// Idle Crash enters on tick 1, celebrates for 209 ticks, and leaves 1.2 seconds for standings.
+await playFinishes(getGame('tilePainter')!, setScore, [[9, 3, 1, 2], [8, 9, 9, 2]], undefined, 8200);
 
 // Send a hop and its release over an unordered connection, then deliver the release first.
 {

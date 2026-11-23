@@ -193,10 +193,14 @@ class SoundSystem {
     return this.startSample(path, loopStart, vol, rate)?.stop ?? (() => {});
   }
 
-  /** The offset is in source seconds. While decoding, keep the latest requested playback position. */
-  startSample(path: string, loopStart: number | null, vol: number, rate: number, offset = 0, stereo?: [number, number]) {
+  /** Offset is in source seconds. An optional cue window uses performance.now() milliseconds. */
+  startSample(path: string, loopStart: number | null, vol: number, rate: number, offset = 0, stereo?: [number, number],
+    schedule?: { at: number; until: number }) {
     const ctx = this.ctx, bus = this.sfxBus;
     if (!ctx || !bus) return null;
+    const audioOrigin = schedule ? ctx.currentTime - performance.now() / 1000 : 0;
+    const startAt = schedule ? audioOrigin + schedule.at / 1000 : 0;
+    const stopAt = schedule ? audioOrigin + schedule.until / 1000 : undefined;
     let stopped = false;
     let source: AudioBufferSourceNode | undefined;
     let channels: [GainNode, GainNode] | undefined;
@@ -208,7 +212,8 @@ class SoundSystem {
       }
     };
     void this.loadBuffer(path).then((buffer) => {
-      if (stopped || !buffer || (loopStart ?? offset) >= buffer.duration) { stopped = true; return; }
+      const expired = stopAt !== undefined && (ctx.currentTime >= stopAt || ctx.currentTime - startAt > .25);
+      if (stopped || expired || !buffer || (loopStart ?? offset) >= buffer.duration) { stopped = true; return; }
       const gain = ctx.createGain();
       gain.gain.value = vol;
       source = ctx.createBufferSource();
@@ -236,7 +241,8 @@ class SoundSystem {
       };
       const position = loopStart !== null && offset >= buffer.duration
         ? loopStart + (offset - loopStart) % (buffer.duration - loopStart) : offset;
-      source.start(0, position);
+      source.start(Math.max(0, startAt), position);
+      if (stopAt !== undefined) source.stop(stopAt);
     });
     return {
       get ended() { return stopped; },

@@ -23,7 +23,7 @@
  *   wipe, mine, boom, cross, line, lock, unlock, border, spawn, shield.
  */
 import { atan2g } from '../ps1Angle';
-import { DISC_CHARACTER } from '../look';
+import { DISC_CHARACTER, winnerCheerFrame } from '../look';
 import { addBody, emit, rand } from '../physics';
 import { cloneWorld } from '../sim';
 import { IDLE, MAX_SEATS, type Body, type InputState, type MiniGame, type World } from '../types';
@@ -37,6 +37,7 @@ export { pogoClock };
 
 // ---- constants read from the overlay
 const HOP_END = [0, 17, 17, 17, 17, 17, 17, 17, 16]; // c5372 counter: FUN_800b5ee4 lands when cnt >= total (c5074 = 17, 16 for char 8); +1 decision frame => 18 frame period
+const DRAW_RESULT_TICKS = 120; // FUN_8007d9dc starts this timer at the verdict.
 // FUN_800b5ee4 emits a landing effect on the character's matching hop pose.
 const HOP_FX_FRAME = [0, 10, 14, 2, 2, 14, 14, 2, 2];
 const STUN_FRAMES = 51; // FUN_800b6f34: c5368 counts up, cleared when > 0x32
@@ -713,8 +714,7 @@ function hopPos(d: Data, p: number) {
 
 function advanceHop(w: World, d: Data, slot: number) {
   const previous = d.cnt[slot], family = d.fam[slot];
-  const fast = d.fastHop?.[slot] ?? (d.item[slot] === 5);
-  d.cnt[slot] += (fast ? 2 : 1) * w.params.speed;
+  d.cnt[slot] += hopAdvance(w, d, slot);
   if (d.cnt[slot] >= HOP_END[family]) {
     land(w, d, slot);
     return;
@@ -726,6 +726,32 @@ function advanceHop(w: World, d: Data, slot: number) {
     takeQueued(d);
     emit(w, 'pogoDust', x, z, slot, family >= 7 ? 6 : 4);
   }
+}
+
+function hopAdvance(w: World, d: Data, slot: number) {
+  const fast = d.fastHop?.[slot] ?? (d.item[slot] === 5);
+  return (fast ? 2 : 1) * w.params.speed;
+}
+
+export function pogoWinnerTailTicks(char: number) {
+  return winnerCheerFrame(char) + 2 + 90 + 30;
+}
+
+/** Result window measured from the terminal snapshot, including an unfinished winner hop. */
+export function pogoResultWindowTicks(w: World | undefined, winner: number | undefined, char = 0) {
+  if (winner === undefined) return DRAW_RESULT_TICKS;
+  if (!w) return Math.max(...HOP_END) + pogoWinnerTailTicks(char);
+  const d = w.data as Data;
+  let counter = d.cnt[winner];
+  let entry = 1;
+  if (counter >= 0 && !d.stun[winner] && !d.taz[winner]) {
+    if ((d.pendingStun ?? 0) & (1 << winner)) return 2 + pogoWinnerTailTicks(char);
+    const advance = hopAdvance(w, d, winner);
+    const end = HOP_END[d.fam[winner]];
+    // Accumulate like advanceHop, including fractional Double Time increments.
+    while ((counter += advance) < end) entry++;
+  }
+  return entry + pogoWinnerTailTicks(char);
 }
 
 function turnRider(body: Body, dir: number, shift: number) {

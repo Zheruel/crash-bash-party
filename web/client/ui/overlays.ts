@@ -271,6 +271,7 @@ export class CountOverlay {
   private loaded = false;
   private label: CountLabel = '';
   private voice: ReturnType<typeof sfx.startSample> = null;
+  private readonly numberVoices: NonNullable<ReturnType<typeof sfx.startSample>>[] = [];
   private frame = 0;
   private result?: DrawResult;
 
@@ -293,14 +294,38 @@ export class CountOverlay {
     for (const cue of Object.values(COUNT_CUES)) sfx.preloadFile(cue.file);
   }
 
-  set(label: CountLabel, frame = 0) {
+  private updateLabel(label: CountLabel, frame: number) {
     this.frame = frame;
-    if (label === this.label && !this.result) return;
+    if (label === this.label && !this.result) return false;
     this.label = label;
     this.result = undefined;
     this.el.textContent = label;
+    return true;
+  }
+
+  set(label: CountLabel, frame = 0) {
+    for (const voice of this.numberVoices) voice.stop();
+    this.numberVoices.length = 0;
+    if (!this.updateLabel(label, frame)) return;
     this.voice?.stop();
     this.voice = label ? sfx.startSample(COUNT_CUES[label].file, null, 0.9, 1) : null;
+  }
+
+  /** Queue spoken numbers on the audio clock, so a slow render cannot skip a cue. */
+  startCountdown(endsAt: number, numberMs: number) {
+    this.set('');
+    const now = performance.now();
+    for (const [index, label] of COUNT_LABELS.entries()) {
+      const at = endsAt - (COUNT_LABELS.length - index) * numberMs;
+      if (now - at > 250) continue;
+      const voice = sfx.startSample(COUNT_CUES[label].file, null, 0.9, 1, 0, undefined, { at, until: at + numberMs });
+      if (voice) this.numberVoices.push(voice);
+    }
+  }
+
+  countdownFrame(frame: number) {
+    if (frame < 0) this.updateLabel('', 0);
+    else this.updateLabel(COUNT_LABELS[Math.floor(frame / COUNT_FRAMES)], frame % COUNT_FRAMES);
   }
 
   showDraw(at: number, playAt: number, gameId: string) {

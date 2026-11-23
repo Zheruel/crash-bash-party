@@ -6,6 +6,7 @@ import { CT_OPENING_TICKS } from './games/crateToss';
 import { BALLISTIX_OPENING_TICKS } from './games/ballDefence';
 import { POLAR_WIN_TALLY_TICKS } from './games/pushOff';
 import { dragonResultFrames } from './games/dragonDrop';
+import { pogoResultWindowTicks } from './games/tilePainter';
 import { modifiersFor } from './modifiers';
 import { createWorld, roundOver, stepWorld } from './sim';
 import { botInput } from './bots';
@@ -652,6 +653,11 @@ export class Party {
     };
     this.broadcast(this.lastResults);
     let duration = final ? this.timing.final : this.timing.results;
+    if (!final && game.id === 'tilePainter' && duration >= NORMAL_TIMING.results) {
+      const char = this.lastRound?.seats[winner]?.look.char ?? 0;
+      const resultTicks = pogoResultWindowTicks(world, draw ? undefined : winner, char);
+      duration = Math.max(duration, resultTicks * DT * 1000 + STANDINGS_MIN_MS);
+    }
     if (!final && !draw && !cupsToWin && duration >= NORMAL_TIMING.results) {
       const char = this.lastRound?.seats[winner]?.look.char ?? 0;
       if (game.id === 'pushOff') duration = Math.max(duration, (winnerCheerFrame(char) + POLAR_WIN_TALLY_TICKS) * DT * 1000 + STANDINGS_MIN_MS);
