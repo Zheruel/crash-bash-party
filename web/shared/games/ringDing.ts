@@ -104,12 +104,14 @@ export interface DDPlayer {
 }
 export interface DDBalloon {
   bid: number; ty: number; ow: number;
+  objectSlot?: number;
   x: number; z: number; hy: number;
   angle: number; dr: number; da: number; po: number; pa: number;
   st: number; tf: boolean; tc: number; ot: number;
 }
 export interface DDCrate {
   bid: number; x: number; z: number;
+  objectSlot?: number;
   /** 3 spawned, 0 init, 6 growing, 1/11 solid, 9 hit, 12 opening, 13 flying */
   st: number; g: number; tf: boolean; tc: number; item: number;
   // g is the vertical scale for a box and height above the floor for a flying item.
@@ -142,6 +144,7 @@ export interface RingDingData {
   slots: number[][];
   P: (DDPlayer | null)[];
   B: DDBalloon[]; C: DDCrate[];
+  freeObjectSlots?: number[];
   itemActors?: (DDItemActor | null)[];
   cpuRng?: [number, number];
   updateOrders?: number[][];
@@ -273,7 +276,7 @@ function spawnBalloon(w: World, d: RingDingData, slot: number[], ty: number) {
   const x = (r * trig(a - 1024)) >> 12, z = (r * trig(a)) >> 12;
   const body = addBody(w, 'balloon', -1, x * DD_S, -z * DD_S, 0.45, 1);
   const o: DDBalloon = {
-    bid: body.id, ty, ow: ty === 12 ? -1 : OWNER[ty], x, z, hy: 1536 + ri(w, 128),
+    bid: body.id, objectSlot: d.freeObjectSlots?.pop(), ty, ow: ty === 12 ? -1 : OWNER[ty], x, z, hy: 1536 + ri(w, 128),
     angle: a, dr: 0, da: 0, po: 4, pa: 0, st: 3, tf: false, tc: -1, ot: 0,
   };
   if (ty === 12) o.ot = 4 + ri(w, 3);
@@ -287,8 +290,8 @@ function spawnCrate(w: World, d: RingDingData, slot: number[]) {
   const [a, r] = slot;
   const x = (r * trig(a - 1024)) >> 12, z = (r * trig(a)) >> 12;
   const body = addBody(w, 'crate', -1, x * DD_S, -z * DD_S, 0.7, 1);
-  d.C.push({ bid: body.id, x, z, st: 6, g: 0x40, tf: false, tc: -1, item: [PU_MAGNET, PU_HOVER][ri(w, 2)],
-    yaw: 0, ringAngle: a, ringRadius: r });
+  d.C.push({ bid: body.id, objectSlot: d.freeObjectSlots?.pop(), x, z, st: 6, g: 0x40, tf: false, tc: -1,
+    item: [PU_MAGNET, PU_HOVER][ri(w, 2)], yaw: 0, ringAngle: a, ringRadius: r });
   emit(w, 'cratespawn', x * DD_S, -z * DD_S);
 }
 
@@ -680,7 +683,7 @@ function stepResultPlayer(p: RingResultPlayer, slot: number, players: (RingResul
   if (p.put > 0 && --p.put === 0) p.pu = 0;
 }
 
-function stepResultBalloon(w: World & { ev: RingResultEvent[] }, d: RingDingData, o: DDBalloon,
+function stepResultBalloon(w: World, d: RingDingData, o: DDBalloon,
                            players: (RingResultPlayer | null)[]): boolean {
   if (o.st !== 9) {
     if (o.st === 0 || o.st === 3) {
@@ -695,8 +698,9 @@ function stepResultBalloon(w: World & { ev: RingResultEvent[] }, d: RingDingData
   const p = players[o.tc];
   const owner = p && d.rc > 0 ? d.rcO : o.ow;
   const x = o.x * DD_S, z = -o.z * DD_S;
-  w.ev.push({ id: w.evId++, t: w.tick, k: 'pop', x, z, s: o.tc, v: o.hy * DD_S,
-    o: o.ty === 12 ? -1 : owner, balloonType: o.ty });
+  const event: RingResultEvent = { id: w.evId++, t: w.tick, k: 'pop', x, z, s: o.tc, v: o.hy * DD_S,
+    o: o.ty === 12 ? -1 : owner, balloonType: o.ty };
+  w.ev.push(event);
   if (o.ty === 12) blackEffect(w, d, o);
   else if (p && owner === o.tc) d.score[o.tc] = Math.min(999, d.score[o.tc] + 1);
   else if (p) {
@@ -747,21 +751,9 @@ export function createRingDingResult(w: World, winner: number | undefined) {
           stepResultPlayer(p, slot, players, replay, data, tick, winner);
           trackCrateActor(replay, data, p, slot, equipped, tick, slot === winner);
         }
-        // The native object list updates newest first and removes each pop before the next object.
-        for (let i = data.B.length - 1; i >= 0; i--) {
-          const o = data.B[i];
-          if (stepResultBalloon(replay, data, o, players)) continue;
-          data.B.splice(i, 1);
-          balloons.delete(o.bid);
-        }
+        updateArenaObjects(replay, data, { tick, winner, players, balloons, crates });
         for (let s = 0; s < data.shown.length; s++) {
           data.shown[s] += Math.sign(data.score[s] - data.shown[s]);
-        }
-        for (let i = data.C.length - 1; i >= 0; i--) {
-          const c = data.C[i];
-          if (updateCrate(replay, data, c, tick, winner)) continue;
-          data.C.splice(i, 1);
-          crates.delete(c.bid);
         }
       }
       return replay.ev;
@@ -877,13 +869,35 @@ function updateBalloon(w: World, d: RingDingData, o: DDBalloon): boolean {
   return true;
 }
 
-function updateBalloons(w: World, d: RingDingData) {
-  for (let i = 0; i < d.B.length;) {
-    const o = d.B[i];
-    if (updateBalloon(w, d, o)) { i++; continue; }
-    d.B.splice(i, 1);
-    const b = w.bodies.find(b => b.id === o.bid);
-    if (b) b.alive = false;
+interface RingResultObjects {
+  tick: number;
+  winner: number | undefined;
+  players: (RingResultPlayer | null)[];
+  balloons: Map<number, DDBalloon>;
+  crates: Map<number, DDCrate>;
+}
+
+const objectSlot = (o: DDBalloon | DDCrate) => o.objectSlot ?? o.bid;
+
+/** FUN_8007906c queues callbacks by ascending pool slot. Free slots are reused last-freed first. */
+function updateArenaObjects(w: World, d: RingDingData, result?: RingResultObjects) {
+  const queue = [...d.B, ...d.C].sort((a, b) => objectSlot(a) - objectSlot(b));
+  for (const actor of queue) {
+    if ('ty' in actor) {
+      const keep = result ? stepResultBalloon(w, d, actor, result.players) : updateBalloon(w, d, actor);
+      if (keep) continue;
+      d.B.splice(d.B.indexOf(actor), 1);
+      result?.balloons.delete(actor.bid);
+    } else {
+      if (updateCrate(w, d, actor, result?.tick, result?.winner)) continue;
+      d.C.splice(d.C.indexOf(actor), 1);
+      result?.crates.delete(actor.bid);
+    }
+    if (!result) {
+      (d.freeObjectSlots ??= []).push(objectSlot(actor));
+      const body = w.bodies.find(body => body.id === actor.bid);
+      if (body) body.alive = false;
+    }
   }
 }
 
@@ -895,7 +909,7 @@ function advanceOpening(w: World, frames: number) {
   for (let tick = 0; tick < frames; tick++) {
     timers(w, d);
     ring(d);
-    updateBalloons(w, d);
+    updateArenaObjects(w, d);
     sync(w, d);
   }
   w.ev = [];
@@ -906,7 +920,7 @@ export function createRingDingOpening(w: World) {
   const settled = w.data as RingDingData;
   if (settled.openingRng === undefined || w.tick !== 0) return;
   const bodies = w.bodies.filter(b => b.kind === 'player').map(b => ({ ...b }));
-  const d: RingDingData = { ...settled, ...initialArena, B: [], C: [], P: settled.P.map(p => p && { ...p }) };
+  const d: RingDingData = { ...settled, ...initialArena, B: [], C: [], freeObjectSlots: undefined, P: settled.P.map(p => p && { ...p }) };
   const replay = { ...w, rng: settled.openingRng, bodies, data: d, nextId: Math.max(0, ...bodies.map(b => b.id)) + 1, evId: 1, ev: [] };
   let elapsed = 0;
   return {
@@ -1384,12 +1398,7 @@ export const ringDing: MiniGame = {
       trackCrateActor(w, d, p, s, equipped);
     }
 
-    updateBalloons(w, d);
-    d.C = d.C.filter((c) => {
-      const keep = updateCrate(w, d, c);
-      if (!keep) { const b = w.bodies.find((q) => q.id === c.bid); if (b) b.alive = false; }
-      return keep;
-    });
+    updateArenaObjects(w, d);
 
     // mirrors for the client
     for (let s = 0; s < MAX_SEATS; s++) {

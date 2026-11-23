@@ -507,8 +507,9 @@ for (const [initial, recolour] of [[1, 0], [0, 25]]) {
   const { w, d, balloon } = room();
   d.rc = recolour; d.rcO = 2;
   const older = balloon(799), newer = balloon(799);
-  Object.assign(older, { x: 567, z: 1, st: initial, dr: 10, da: 3072 });
-  Object.assign(newer, { x: 0, z: -6 });
+  // L27 placed the second object in an earlier recycled pool slot.
+  Object.assign(older, { x: 567, z: 1, st: initial, dr: 10, da: 3072, objectSlot: 8 });
+  Object.assign(newer, { x: 0, z: -6, objectSlot: 5 });
   const result = createRingDingResult(w, undefined);
   assert.equal(result.balloonSlot(result.balloons.get(older.bid)!), recolour ? 2 : 0);
   for (const [frame, state, positions] of [[1, 1, [[584, 2, 798], [1, -12, 798]]], [2, 9, [[600, 3, 797], [2, -18, 797]]]] as const) {
@@ -588,4 +589,42 @@ for (const [look] of DISC_CHARACTER.entries()) for (let slot = 0; slot < 4; slot
   assert.deepEqual(attacks, [[3, 15], [23, 25], [48, 40], [130, 15], [152, 23]]);
 }
 
-console.log('PASS Ring Ding L27 balloons, knockback, crates, results, spin recovery, interrupts, and roster/seat replay');
+// Two pops queue on the same frame. Whether the black balloon recolours first can decide a point.
+// A crate callback between them must keep its place in both the live and terminal object passes.
+for (const recycledSlot of [false, true]) {
+  const { w, d, balloon, crate, tick } = room();
+  w.rng = 7; // The black effect rolls recolour with or without the preceding crate sound draw.
+  const coloured = balloon(800);
+  Object.assign(crate(550, 550), { st: 9, tc: 1 });
+  const black = balloon(800);
+  if (recycledSlot) {
+    black.objectSlot = coloured.bid;
+    coloured.objectSlot = black.bid;
+  }
+  Object.assign(black, { ty: 12, ow: -1, tc: 1, st: 9, x: -550 });
+  Object.assign(coloured, { tc: 0, st: 9, x: 550 });
+  const snapshot = JSON.stringify(w);
+  const terminal = JSON.parse(snapshot);
+  const replay = createRingDingResult(terminal, undefined);
+  const events = (list: typeof w.ev) => list.filter(e => e.k === 'pop' || e.k === 'cratehit').map(e => [e.k, e.s]);
+  const order = [['pop', recycledSlot ? 1 : 0], ['cratehit', 1], ['pop', recycledSlot ? 0 : 1]];
+  const resultEvents = replay.advance(1);
+  assert.deepEqual(events(resultEvents), order);
+  assert.equal(replay.shown[0], recycledSlot ? 0 : 1);
+  assert.equal(JSON.stringify(terminal), snapshot);
+  tick();
+  assert.deepEqual(events(w.ev), order);
+  assert.equal(d.score[0], recycledSlot ? 0 : 1);
+  assert.equal(d.P[0]?.st === 2, recycledSlot);
+  assert.equal(d.rcO, 1);
+  assert.equal(d.B.length, 0);
+  assert.equal(w.bodies.some(b => b.kind === 'balloon'), false);
+  const recycled = d.freeObjectSlots?.at(-1);
+  assert.equal(recycled, black.bid);
+  d.tk = 0;
+  tick();
+  const spawned = d.B.find(b => b.ty === 12);
+  assert.equal(spawned?.objectSlot, recycled);
+  assert.notEqual(spawned?.bid, recycled);
+}
+console.log('PASS Ring Ding L27 balloons, knockback, crates, results, callback order, spin recovery, interrupts, and roster/seat replay');
