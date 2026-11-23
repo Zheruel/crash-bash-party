@@ -59,4 +59,24 @@ for (const variant of ['desert', 'metal']) {
   if (voice) assert(voice.v >= 0 && voice.v < 4);
 }
 
-console.log('Tank Wars pilot scripts, turn cues, hurt voices and bomb blasts passed.');
+// FUN_800b6c24: the tread loop runs while the tank moves, the turret loop until one tick after the last turn,
+// and Swamp Fox's thrust loop while R1 or up is held.
+{
+  const w = createWorld(tankArena, humans, [], 5, 'desert');
+  const t = w.data.tk[0];
+  step(w, { y: -1 });
+  assert.equal(t.motor, 0x4c2);
+  step(w);
+  assert.equal(t.motor, 0);
+  step(w, { r: true });
+  assert.equal(t.turretSnd, 0x4be);
+  step(w);
+  assert.equal(t.turretSnd, 0);
+  const boat = createWorld(tankArena, humans, [], 5, 'swamp');
+  step(boat, { y: -1 });
+  assert.equal(boat.data.tk[0].motor, 0x50b);
+  step(boat);
+  assert.equal(boat.data.tk[0].motor, 0);
+}
+
+console.log('Tank Wars pilot scripts, turn cues, loop channels, hurt voices and bomb blasts passed.');

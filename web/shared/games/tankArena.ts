@@ -105,6 +105,8 @@ interface Tk {
   vx: number; vz: number; bank: number; wpn: number; ammo: number; cd: number; busy: number; gunFrame: number; gunPose: number;
   mines: number; mcd: number; hp: number; cpu: boolean; skill: number; char: number; speed: number; pad: number; prev: number;
   ghostAt?: number; resultVoiceTicks?: number; anim?: number; animAt?: number; animN?: number; prevSt?: number; rotor?: number;
+  /** FUN_800c8090 / FUN_800c8008 looping channels (sound id or 0) and the manual turret countdown at 0x800cad94. */
+  motor?: number; turretSnd?: number; turretT?: number;
   aim: number; inv: number; shieldCd: number; dodge: boolean; taunt: number; hy: number; hvy: number; kills: number;
   elim: number; hpAt: number; ai: Ai; body: number; bot: number;
 
@@ -935,8 +937,8 @@ function tankStep(w: World, d: Data, p: number, t: Tk, inp: InputState) {
   if (lv !== 5) {
     const previousYaw = t.yaw;
     if (!drv) {
-      if (pad & 0xa00) t.yaw = (t.yaw + 0x40) & 0xfff;
-      else if (pad & 0x500) t.yaw = (t.yaw - 0x40) & 0xfff;
+      if (pad & 0xa00) { t.yaw = (t.yaw + 0x40) & 0xfff; t.turretT = 2; }
+      else if (pad & 0x500) { t.yaw = (t.yaw - 0x40) & 0xfff; t.turretT = 2; }
     } else if (t.aim >= 0) {
       const df = sext(t.aim - t.yaw);
       t.yaw = (t.yaw + (df >> 2)) & 0xfff;
@@ -970,6 +972,14 @@ function tankStep(w: World, d: Data, p: number, t: Tk, inp: InputState) {
   if (lv === 5) boatMove(d, p, t); else if (lv === 7) freeMove(d, p, t); else gridMove(w, d, p, t);
   t.speed = sp0;
   stepGun(w, d, p, t);
+}
+
+/** FUN_800b6c24: the boat thrust or tread loop and the turret loop. FUN_800b5fc4 silences a destroyed tank. */
+function loopChannels(d: Data, p: number, t: Tk, x: number, z: number) {
+  if (t.hp < 1) { t.motor = 0; t.turretSnd = 0; t.turretT = 0; return; }
+  if (L_(d).level === 5) { t.motor = t.pad & 0x800 ? 0x50b + p : 0; return; }
+  t.motor = t.x === x && t.z === z ? 0 : 0x4c2 + p;
+  if (t.turretT) t.turretSnd = --t.turretT ? 0x4be + p : 0;
 }
 
 // ---------------------------------------------------------------- objects
@@ -1202,7 +1212,13 @@ export const tankArena: MiniGame = {
     const d = w.data as Data;
     d.f++;
     d.hum = hasHuman(d) ? 1 : 0;
-    for (let p = 0; p < 4; p++) { const t = d.tk[p]; t.ai.shoot = (((d.hum ? t.skill : 30) * 0x55) >> 5) + 5; tankStep(w, d, p, t, inputs[p] ?? IDLE); }
+    for (let p = 0; p < 4; p++) {
+      const t = d.tk[p];
+      t.ai.shoot = (((d.hum ? t.skill : 30) * 0x55) >> 5) + 5;
+      const x = t.x, z = t.z;
+      tankStep(w, d, p, t, inputs[p] ?? IDLE);
+      loopChannels(d, p, t, x, z);
+    }
     for (const t of d.tk) {
       if (!t.shield) continue;
       const age = d.f - t.shield.start;

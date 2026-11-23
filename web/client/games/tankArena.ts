@@ -10,7 +10,7 @@ import { canvasTexture, catalogInstance, disposeTree, hasProp, Kit, makeCrate, p
 import { ASSET_BASE, getCatalog } from '../crash';
 import type { BlobShadow } from '../fx';
 import { sfx, sfxRate } from '../shell/sound';
-import { TANK_SFX } from './tankArenaSfx';
+import { TANK_SFX, TANK_SFX_LOOP } from './tankArenaSfx';
 /** level sfx bank per variant (the id -> tone table and its pitches are per level) */
 const TANK_BANK: Record<string, string> = { swamp: '0159', desert: '0162', jungle: '0160', metal: '0161' };
 import { arenaClockSprites, barRow, faceSprite, FRUIT_ICON, SLOT_X, type HudSprite } from '../ui/ps1hud';
@@ -322,6 +322,21 @@ export function createTankArenaView(): ClientMiniGame {
   const shields = new Map<number, NonNullable<ReturnType<typeof boatShield>>>();
   /** Object 0x1320 (FUN_800c7074 / FUN_800c6fb8): pack 0774 part 6 on the water under each boat. */
   const wakes = new Map<number, THREE.Object3D>();
+  /** Per-seat looping channels (FUN_800c8090 / FUN_800c8008) and the Swamp Fox ambience (0x50f, FUN_800b5a40). */
+  const loops = new Map<string, { id: number; stop: () => void }>();
+  function startTankSound(id: number) {
+    const file = TANK_SFX[variant]?.[id];
+    if (!file) return () => {};
+    return sfx.startSample(file, TANK_SFX_LOOP[variant]?.[id] ?? null, 0.4, sfxRate(TANK_BANK[variant], id))?.stop ?? (() => {});
+  }
+  function channel(key: string, id: number) {
+    const now = loops.get(key);
+    if ((now?.id ?? 0) === id) return;
+    now?.stop();
+    if (id) loops.set(key, { id, stop: startTankSound(id) });
+    else loops.delete(key);
+  }
+  function stopLoops() { for (const loop of loops.values()) loop.stop(); loops.clear(); }
   const tanks = new Map<number, TankVis>();
   const shells = new Map<number, { art: ReturnType<typeof createTankShell>; born: number }>();
   const lastHp: number[] = [3, 3, 3, 3];
@@ -464,6 +479,8 @@ export function createTankArenaView(): ClientMiniGame {
       }) : undefined;
       metalWalls = variant === 'metal' ? new MetalWallView(kit.root) : null;
       aim(ctx);
+      stopLoops();
+      if (variant === 'swamp') channel('ambience', 0x50f);
       if (!loaded) this.preload!().then(() => { tanks.clear(); kit?.reset(); });
     },
 
@@ -553,6 +570,11 @@ export function createTankArenaView(): ClientMiniGame {
             }
             ghost?.pose(b.x, b.y, b.z, age, ctx.camera);
           } else if (ghost) ghost.root.visible = false;
+          if (tk) {
+            const live = !kit.over.done;
+            channel(`${b.slot}m`, live ? tk.motor ?? 0 : 0);
+            channel(`${b.slot}t`, live ? tk.turretSnd ?? 0 : 0);
+          }
           if (variant === 'swamp' && tk) {
             let wake = wakes.get(b.slot);
             if (!wake) {
@@ -767,6 +789,7 @@ export function createTankArenaView(): ClientMiniGame {
     },
 
     dispose() {
+      stopLoops();
       for (const stop of missileSounds.values()) stop();
       missileSounds.clear();
       for (const ghost of ghosts.values()) ghost.dispose();
