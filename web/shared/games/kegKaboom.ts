@@ -243,6 +243,7 @@ const add = <T extends KObj>(d: KKData, o: T): T | undefined => {
   return o;
 };
 
+/** FUN_800b459c */
 function clampArena(P: KP) {
   if (P.x < -KK_BOX || P.x > KK_BOX || P.z < -KK_BOX || P.z > KK_BOX) {
     const ex = dist(0, 0, P.x, P.z) - KK_ARENA;
@@ -291,12 +292,12 @@ function enter(w: World, d: KKData, i: number, st: number) {
   P.st = st;
   const onState = (s: number) => enter(w, d, i, s);
   switch (st) {
-    case 0x71: P.jc = 0; P.mv = 1; animCall(P, 0x61, onState); break;
-    case 0x72: P.mv = 1; animCall(P, 0x64, onState); break;
-    case 0x73: P.mv = 0; P.shock = 0; animCall(P, 0x68, onState); break;
-    case 0x74: P.mv = 0; P.jc = 0; animCall(P, 0x61, onState); break;
-    case 0x75: P.mv = 0; P.jc = 0; animCall(P, 0x6b, onState); break;
-    case 0x78: {
+    case 0x71: P.jc = 0; P.mv = 1; animCall(P, 0x61, onState); break; // FUN_800bae30
+    case 0x72: P.mv = 1; animCall(P, 0x64, onState); break; // FUN_800badd4
+    case 0x73: P.mv = 0; P.shock = 0; animCall(P, 0x68, onState); break; // FUN_800b67d8 (hit voice: 'stun' v)
+    case 0x74: P.mv = 0; P.jc = 0; animCall(P, 0x61, onState); break; // FUN_800b6f6c
+    case 0x75: P.mv = 0; P.jc = 0; animCall(P, 0x6b, onState); break; // FUN_800b6c84
+    case 0x78: { // FUN_800b6168
       P.mv = 1;
       animCall(P, 0x65, onState);
       emit(w, 'jump', kkX(P.x), kkZ(P.z), i, 1); // anim 0x65 carries a voice (0x8008) on frame 1
@@ -304,8 +305,9 @@ function enter(w: World, d: KKData, i: number, st: number) {
       P.jv = t[0]; P.jc = t[1]; P.ja = t[2]; P.jd = t[3]; P.jr = 1;
       break;
     }
-    case 0x7a: kkStartFall(P); animCall(P, 0x66, onState); break;
-    case 0x7b: P.mv = 1; P.jc = 0; animCall(P, 0x67, onState); emit(w, 'land', kkX(P.x), kkZ(P.z), i, 1); break; // 0x67: voice on frame 1
+    case 0x7a: kkStartFall(P); animCall(P, 0x66, onState); break; // FUN_800b627c
+    case 0x7b: P.mv = 1; P.jc = 0; animCall(P, 0x67, onState); // FUN_800b65b0
+      emit(w, 'land', kkX(P.x), kkZ(P.z), i, 1); break; // 0x67: voice on frame 1
   }
 }
 
@@ -362,14 +364,14 @@ function stateUpdate(w: World, d: KKData, i: number, pressX: boolean) {
   const P = d.p[i]!;
   const onState = (s: number) => enter(w, d, i, s);
   switch (P.st) {
-    case 0x71: { // idle
+    case 0x71: { // idle, FUN_800b5cd0
       if (endFlags(w, d, i)) return;
       if (pressX) { enter(w, d, i, 0x78); return; }
       if (P.spd !== 0) { enter(w, d, i, 0x72); return; }
       animStep(P, onState);
       return;
     }
-    case 0x72: { // run
+    case 0x72: { // run, FUN_800b5e84
       if (endFlags(w, d, i)) return;
       if (pressX) { enter(w, d, i, 0x78); return; }
       if (P.spd === 0) { enter(w, d, i, 0x71); return; }
@@ -379,26 +381,26 @@ function stateUpdate(w: World, d: KKData, i: number, pressX: boolean) {
       if (ev === 8 || ev === 9) emit(w, 'step', kkX(P.x), kkZ(P.z), P.slot, ev - 8);
       return;
     }
-    case 0x73: { // hit
+    case 0x73: { // hit, FUN_800b68b8
       animStep(P, onState);
       return;
     }
-    case 0x74: case 0x75: { // loser / winner
+    case 0x74: case 0x75: { // loser FUN_800b722c / winner FUN_800b6e84
       animStep(P, onState);
       return;
     }
-    case 0x78: { // jump, rising
+    case 0x78: { // jump, rising, FUN_800bada8
       collide(d, i);
       animStep(P, onState);
       return;
     }
-    case 0x7a: { // falling
+    case 0x7a: { // falling, FUN_800b6350
       if (P.y >= 0) { P.y = 0; P.jc = 0; enter(w, d, i, 0x7b); }
       collide(d, i);
       animStep(P, onState);
       return;
     }
-    case 0x7b: { // landing
+    case 0x7b: { // landing, FUN_800b66a4
       if (endFlags(w, d, i)) return;
       if (pressX) { enter(w, d, i, 0x78); return; }
       if (P.spd === 0) { collide(d, i); animStep(P, onState); } else enter(w, d, i, 0x72);
@@ -584,7 +586,7 @@ function playerFrame(w: World, d: KKData, i: number, inp: InputState | null | un
     const dx = P.x - (previous?.x ?? P.nx), dz = P.z - (previous?.z ?? P.nz);
     if (!P.hasN || dx * dx + dz * dz > 0x3ff) layNode(w, d, i, P);
   }
-  // shock wave
+  // shock wave (FUN_800ba694 consumes the charge, FUN_800bb010 stuns in the box)
   if ((pad & 0x2a00) !== 0 && P.y > -0x32 && P.shock !== 0) {
     P.shock = 0;
     emit(w, 'wave', kkX(P.x), kkZ(P.z), i, KK_WAVE / KK_S, -1, undefined, -P.y / KK_S);
@@ -641,6 +643,7 @@ function spawnKeg(w: World, d: KKData) {
   }
 }
 
+/** FUN_800b7364 */
 function kegSpawner(w: World, d: KKData) {
   if (d.over) return;
   if (d.kt === 0) {
@@ -650,6 +653,7 @@ function kegSpawner(w: World, d: KKData) {
   } else d.kt--;
 }
 
+/** FUN_800b8f38 */
 function pickSpawner(w: World, d: KKData) {
   if (d.over) return;
   if (d.pt !== 0) { d.pt--; return; }
@@ -670,6 +674,7 @@ export function kkFlamePosition(angle: number): [number, number] {
   return [(T(angle - 0x400) * 9) >> 4, (T(angle) * 9) >> 4];
 }
 
+/** FUN_800b8368 */
 function flameFrame(w: World, d: KKData, f: number) {
   d.fl[f] = (d.fl[f] + KK_FLAME_STEP) & 0xfff;
   const [fx, fz] = kkFlamePosition(d.fl[f]);
@@ -703,6 +708,7 @@ function sparkScan(d: KKData, s: KSpark) {
   }
 }
 
+/** FUN_800b8114 */
 function sparkFrame(w: World, d: KKData, s: KSpark) {
   const previousOwner = d.p[s.own];
   if (previousOwner) previousOwner.ai.burn = 2;
@@ -723,6 +729,7 @@ function sparkFrame(w: World, d: KKData, s: KSpark) {
   own.fuse = 10;
 }
 
+/** FUN_800b766c */
 function kegFrame(w: World, d: KKData, k: KKeg) {
   for (const P of d.p) {
     if (!P) continue;
@@ -746,6 +753,7 @@ function kegFrame(w: World, d: KKData, k: KKeg) {
   }
 }
 
+/** FUN_800baad4 */
 function nodeFrame(d: KKData, n: KNode) {
   if (n.y !== 0 || n.vy !== 0) {
     n.vy += 12; n.y += n.vy;
@@ -755,6 +763,7 @@ function nodeFrame(d: KKData, n: KNode) {
   if (n.life === 0) kill(d, n);
 }
 
+/** FUN_800b928c */
 function pickFrame(w: World, d: KKData, k: KPick) {
   k.vy += 8; k.y += k.vy;
   if (k.y >= 0) { k.vy = -0x28; k.y = -1 - 0x28; }

@@ -23,6 +23,8 @@ State handler table `0x8009dca0`; anim scripts `0x8009d29c + char*4`; swing reac
 ## Players
 Struct `0x8009d52c + p*0x6c`. Start positions (game) (-1485,-1485) yaw 3584, (-1618,1539) 512, (1572,1606) 1536, (1467,-1509) 2560.
 Look index -> engine char: `[1,2,5,7,3,4,8,6]` (shared/look DISC_CHARACTER; engine 5 tiny, 6 rilla roo, 7 dingodile, 8 koala kong). The earlier `[1,2,8,6,3,4,5,7]` mislabelled 5-8.
+Solid objects (`FUN_800b7b48` object loop): mushrooms and crates carry object flag 0x200. A running player (speed != 0) is pushed out of each one standing at floor height, radius = object shape 0x40 + probe 0x78 (mushroom 181, crate 128, from L29 RAM), newest object first. A push angle that is a multiple of 0x100 is jittered by `rand(16) - 8`. The mallet-head shape (flag 1) does not exist in any L29 player frame, so that branch never runs.
+Shock-wave victims also play one of their four hit voices (`rand(4)` of 0x8009e080) after 0x446. All distances use `FUN_80032490`.
 Walk speed 45 (0x2d), boots 80 for 180 frames. Yaw eases diff>>2/frame. Arena clamp 0x980 minus collision radius (table `[0,219,199,210,184,328,312,259,333]`). Players push each other apart (circle push).
 Per-frame order: bookkeeping (hit/stun/blink) -> lock/blink decrement (hidden iff blink%3==0) -> AI -> input->control -> state -> physics -> clamp -> power timer. Mushrooms/crates update after players; AI pad acts one frame late.
 Pad: Square 0x8000 = mallet; dpad 0x10 up, 0x20 right, 0x40 down, 0x80 left.
