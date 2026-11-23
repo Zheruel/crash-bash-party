@@ -15,7 +15,7 @@ On the default arrow-key layout, Z picks up or throws, X attacks, C jumps empty-
 - Velocity set directly per tick (no accel): walk 45, holding crate 30, boots +20 (chars 5-8 hold at 40). Table 0x8009d318.
 - Facing `[0x18]` quantised to 8 directions; changes only when stick > 0x110 off. Throw / kick use it. Visual yaw turns diff/4 per tick.
 - Snow uses quarter-unit velocity. The walk target is 180, or 45 raw units per update. Ground acceleration is 2 raw units, coasting deceleration is 1, and either rate becomes 32 above the floor. The L2 callback `800b44b0` shifts each signed native axis right by two before adding it to the position. Both velocity components matched 182 consecutive USA updates including a reversal, diagonal steering and a jump.
-- Arena clamp radius `[+0x8a]` = 128/122/132/127/179/119/122/153 in engine character order, from each base model's part 0 shape 0x40. Player-player push moves only the mover. Player vs crate radius 0x78 = 120.
+- Arena clamp radius `[+0x8a]` = 128/122/132/127/179/119/122/153 in engine character order, from each base model's part 0 shape 0x40. Player-player push moves only the mover. Player vs crate (`FUN_800c1a30`, `c284c`): distance 120 + crate radius 128 = 248, crate height 256 (0796 marker 0x40|0x10). The player is pushed only while moving, except on ice (`DAT_8005a5dc` = 3) or while hurt. The Snow elastic exchange is dead code because motion mass `+0x4e` is 0.
 - Jump (`800860d4`, `80087fc0`): human characters 1–4 start at 108 and decelerate by 10. Characters 5–8 start at 72 and decelerate by 6. Releasing jump above velocity 64 subtracts 40. CPUs use the first row and run the full rise. A held jump peaks at 530 or 396 raw units. Fall entry (`800880e0`) resets speed to 8, adds 10 per update and caps at 112. Coco finishes her rise animation one update earlier. Touchdown tests the previous height and starts landing script 8 at frame 1.
 - Across all eight stock characters, tap and hold traces matched the original height, script and render word on 431 samples. The custom characters use Cortex movement with their own jump animations.
 
@@ -49,12 +49,13 @@ Player landing on TNT lights it; landing on nitro explodes it.
 - Knockback (non-ice): (640 - dist) >> 3 away from blast, decays 4/tick. Ice sets velocity vectors.
 - Chain: TNT / nitro (flag 0x100) within 640 and |dy| < 0x80 explode 10 ticks later.
 - Only the largest pending damage per tick applies.
-- Hurt 30 ticks (`d574` = 0x1e, clip 10 ~15 ticks), then 40 ticks flicker invulnerability (`d570`). During invulnerability damage passes only if its class (`d56a & 0x300`) exceeds the previous: crate / explosion 0x200, spin / penguin 0. Held crate is dropped on hurt and breaks.
-- Aku absorbs one hit: no HP loss, effect ends, no invulnerability.
+- Hurt entry (`FUN_800bfd2c`) sets the pad lock `d574` = 30, which zeroes the pad in `80083e8c`. When it expires, the 40-update flicker `d570` starts. Entry ends the boots and empties a Drain weapon. The damage sound `d56c` (0x446 for spin, penguin and ring) plays when damage applies. Hurt script 9 lengths by engine character: 30,30,30,30,30,29,30,34. A lethal hit (`FUN_800bff1c`) stays in script 9 until event 8 (frames 11,14,19,15,19,19,11,10), which sets the out flag and switches to script 0x13; the voice plays at frames 11,14,13,13,19,19,11,10 (Cortex and Brio use event 9). The spirit (`FUN_800898ec`, 0x1c3/0x1c4) starts when script 0x13 ends. During invulnerability damage passes only if its class (`d56a & 0x300`) exceeds the previous: crate / explosion 0x200, spin / penguin 0. Held crate is dropped on hurt and breaks.
+- Aku absorbs one hit: no HP loss, the hurt script runs without a pad lock, the effect ends with 0x421, no invulnerability. The `80084e04` handicap is disabled in versus (`DAT_8005a646&3` = 1).
 
 ## Effects (`FUN_800bef00`, `bede8`, `be9d0`)
 0x12 Aku 300 ticks; 0x13 boots 240 (+20 speed); 0x14 weight 240 (pass by player contact: receiver timer +10, receiver lock 30 ticks, giver cleared; KO at 0); 0x15 slow 240 (player updates every other tick). Fruit +1 HP (cap 20), sfx 0x1c2 = sample 0.
-Power-ups (Space and Snow only): when nobody has an effect, kind 0x12 + rand(4), random cell, falls from the sky; initial timer (rand(10)+10)*30; next 10-20 s after spawn, 5-15 s if someone has an effect; lifetime 120 ticks after landing. Ordinary Wumpa fruit persists until collection. A free reward from a thrown Drain chest expires after 150 updates.
+Weight timeout (`FUN_800c09f4`, `c0bac`): 0x453, the holder is out at once and stays in idle script 1; the weight (0736 part1) drops 4096 raw at 256 per update, plays 0x455 on impact at update 16 and flattens the holder to 1/16 height; the spirit starts at update 44. The 0x452 loop pitch rises with (300-t)*0xf00/300. Passing plays 0x454. The head icon (`FUN_800bef00`) uses the pickup mesh (Aku part12, boots part9, weight part16, slow part8) and spins 0xaa per update.
+Power-ups (Space and Snow only, `FUN_800b7358`): when no power-up is on the floor, kind 0x12 + rand(4), random cell, falls from the sky. If that kind is held by a player or the cell is taken, it retries next update. 0x41f on appearing, 0x420 on landing, then 0x41b Aku / 0x41c boots / 0x41d slow / 0x41a weight. Collection spawns dust 0x207 (0736 parts 37-52 flipbook); initial timer (rand(10)+10)*30; next 10-20 s after spawn, 5-15 s if someone has an effect; lifetime 120 ticks after landing. Ordinary Wumpa fruit persists until collection. A free reward from a thrown Drain chest expires after 150 updates.
 
 ## Spawner (`b710c`, `b7358`, `b7d20`, `b7e74`, `b8040`)
 - 16x16 cell grid, centres -0x780 + 0x100*i, shuffled with 600 swaps (Drain uses the inner 12x12). Deck of 64 shuffled with 600 swaps, start index rand(32)+20.
@@ -81,18 +82,20 @@ Ground Wumpa persist until collected or lost through a hole. `FUN_8008d6c8` laun
 - The pickup and held meshes are 0736 parts 10 (missiles), 14 (orb), and 11 (ring). Weapon icons use the game's character-specific fallback height. Drain bank 0164 pairs sample 23/24/25 with pickup ids `0x437`–`0x439`, sample 26/27/28 with ring/orb/missile launch ids `0x43a`–`0x43c`, and sample 32 with ring hit id `0x446`.
 
 ## Hazards
-- Snow penguin: contact 5 HP (`0x8005`), knock 0x60/tick, pushes and triggers crates.
+- Snow penguin (`FUN_800baa1c`, `b879c`, `b8c9c`; 0798.t29 body 212 raw, height 622): it sleeps in a 60-frame loop (snore 0x424 at 38) until a moving crate (`bf404`) or a spin (`c159c`) strikes it. Touching it or an explosion does not wake it. Waking plays 0x426 and 0x428 at frame 26, cancels a fruit burst and adds 600 to the burst timer; the run starts at frame 73. The run (mesh 0x2002, reach 384) uses t = 0x800 decreasing by 4, r = min(0x500, sin(t)*3>>3), angle += ((0x500-|r|)>>6)+0x28, and loops 0x427. The return script is 54 frames with 0x425 at 14. Contact: 5 HP, class 0, knock 0x60, sound 0x446. Crates are pushed out to 512, nitro explodes, idle and sliding crates are kicked outward with slot 0's kick row, a carried crate breaks.
+- Snow glints (`FUN_800bab04`, `b8694`, type 0x1101): 9 quads of 0707 part0 within ±0x780; each shows rand(3)+1 updates and hides rand(15)+1.
+- A crate struck by a moving crate with no owner: nitro explodes, TNT lights, wood stays. Lit TNT beeps when the fuse reaches 60, 30 and 0 and explodes on the next update.
 - Space: `FUN_800b8314` populates an 8×8 grid of 512-unit floor tiles. The descriptors in `0711.t29` include each label `10*x + z` for `x=1..8`, `z=0..7`, giving 64 intact tiles at round start. Descriptor 5 (`0x5002`) is the caution skirt. `LAB_800bae98`, called by `FUN_8008e27c`, clears the one tile under a floor-height type 5–7 blast (TNT or Nitro). `FUN_800bac5c` returns `0x7fffffff` for that tile and `FUN_800bad70` marks its four spawn cells occupied. `FUN_800b8578` displays a skirt on an intact tile beside a hole along game X or toward game Z−.
 - On dropping below a hole, `FUN_800882dc` snaps the player to its center, releases their crate, plays script 7 and sound `0x410` (Space bank 0166 sample 20), and starts a downward velocity of 8, acceleration 10, cap 112. `FUN_8008a854` advances the out state past 384 units below the floor. The native object integrator also lets crates and pickups descend through holes. The web view hides their floor shadows and the sim discards these objects after they fall below the arena.
 - The Space opening rules screenshot (`docs/reference/crateToss/cc1_r1.png`) shows the intact floor and explains that explosive crates destroy it. The mid-round `assets/stages/placements/L1.json` capture has nine missing tops and 19 visible skirts, all matching the original neighbor rule.
 
-## Sound (`FUN_80022660`; sample numbers of the level bank, Jungle / Space / Snow / Drain)
-- 0x3f0 TNT beep 13/13/12/13; 0x3f9 kick thump 18/18/19/22; 0x3fa 19/19/17/17; 0x409 32/32/33/33; 0x1c2 fruit 0 (all).
-- Wood break list (`e444`: 0x3e8,0x3e8,0x3ea,0x3eb): 9,9,9,10 (all banks).
-- TNT blast (`e424`: 0x3ec-0x3ef): 11,12,11,12; Snow 11,11,11,11; Drain 11,12,13,12.
-- Nitro blast (`e434`: 0x3f1,0x3f1,0x3f3,0x3f4): 14,14,14,15; Snow 13,13,13,14; Drain 14,14,16,17.
-- Break variant (`e454`: 0x3f5,0x3f5,0x3f7,0x3f8): 16,16,16,17; Snow 15,15,17,18; Drain 18,18,20,21.
-- Hit voice per player (`e2b4` 0x442-0x445), Jungle 33-36.
+## Sound (`FUN_80022660`, volume 0x1000, pitch 0x1e00)
+Calls pass a sound id. Each level bank's VAB tones carry their own ids, so the id resolves per bank (0167 Jungle, 0166 Space, 0165 Snow, 0164 Drain); `BANK_IDS` in `web/client/games/crateToss.ts` holds the full tables. An id the bank does not declare is silent. Calls with a position are panned and attenuated.
+- Break lists (`8e27c`, rand(4)): wood `e444` 0x3e8,0x3e8,0x3ea,0x3eb; TNT `e424` 0x3ec-0x3ef; nitro `e434` 0x3f1,0x3f1,0x3f3,0x3f4; Drain crates and chests `e454` 0x3f5,0x3f5,0x3f7,0x3f8.
+- 0x3f0 TNT beep / light, 0x3f9 kick of wood or lit TNT, 0x3fa fruit spawn, 0x409 sky crate, 0x1c2 fruit, 0x1c3/0x1c4 spirit.
+- Kick voice per kicker slot (`e2b4` 0x442-0x445), then 0x3f9 or 0x3f0. Damage 0x446.
+- Power-ups 0x41a-0x421 and 0x452-0x455 (Space, Snow); penguin 0x424-0x428 (Snow bank 0165 declares only 0x426 and 0x427, so the rest are silent); weapons 0x437-0x43c (Drain).
+- There is no throw whoosh, hit thump or dust on jump, land or knockout.
 
 ## Anim clips (char 1)
 0 idle default, 1 idle (loop 22), 5 walk (footsteps 8/9), 6 jump rise, 7 descent, 8 landing, 9 hurt, 10 spin/kick, 11 ghost, 12 winner entry, 13 loaded celebration, 15 pickup, 16 hold idle, 17 hold walk, 18 throw, 19 lethal hit follow-through.

@@ -1,0 +1,175 @@
+addr	status	ours(file:line)	note
+800b3a38	match	crateToss.ts:534	installs the player hooks; each hook is ported at its own row
+800b3a9c	match	crateToss.ts:534	per-stage hooks: Snow d70c=b44b0, Drain d724=b95f0
+800b3dd8	match	crateToss.ts:116	setup constants, spawn points and object types 0x1101/0x1102
+800b432c	match	crateToss.ts:619	
+800b44b0	match	crateToss.ts:62	Snow ice movement hook
+800b46b8	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
+800b478c	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
+800b4848	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
+800b4ab0	match	crateToss.ts:1871	AI hook; covered by test-crate-cpu ROM regressions
+800b53d4	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
+800b5410	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
+800b566c	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
+800b5a40	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
+800b5be0	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
+800b5e28	match	crateToss.ts:2016	
+800b6138	match	crateToss.ts:1983	
+800b627c	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
+800b62ec	match	crateToss.ts:1933	
+800b6da4	match	crateToss.ts:1991	
+800b6f0c	match	crateToss.ts:1912	spectator force victory
+800b6fe0	match	crateToss.ts:1917	AI focus
+800b710c	match	crateToss.ts:114	
+800b7358	fixed	crateToss.ts:322	power-up spawns when none is on the floor; retries when the kind is held or the cell is taken
+800b7d20	match	crateToss.ts:315	spawn timer
+800b7e74	match	crateToss.ts:206	
+800b7ee4	match	crateToss.ts:207	cell grid
+800b8040	match	crateToss.ts:239	free cell search
+800b8098	match	crateToss.ts:233	free cell neighbour check
+800b8314	match	crateToss.ts:558	Space floor tiles
+800b8578	match	crateToss.ts:558	Space floor skirt
+800b8694	added	crateToss.ts:209	glint update: show rand(3)+1, hide rand(15)+1
+800b879c	fixed	crateToss.ts:174	sleeps until a moving crate or spin hits it; wake 73, run 513, return 54; real script words and 0x424-0x428
+800b8b00	fixed	crateToss.ts:1804	run path r=min(0x500,sin*3>>3)
+800b8c9c	fixed	crateToss.ts:1848	damage 5, 0x446; crates pushed to 512, nitro explodes, idle crates kicked out, held crate breaks
+800b8ff0	n/a(sky crate 0x1107 is Jungle adventure option 0x80 only)		
+800b91ec	n/a(sky crate 0x1107 is Jungle adventure option 0x80 only)		
+800b94c4	match	crateToss.ts:52	weapon pickup ids 0x437-0x439
+800b95f0	match	crateToss.ts:1666	Drain fire hook d724
+800b96f4	match	crateToss.ts:1657	shot spawn
+800b97a8	match	crateToss.ts:1688	
+800b9a34	match	crateToss.ts:1757	missile init, 0x43c
+800b9b70	todo(missile update not re-audited this pass)	crateToss.ts:1757	
+800b9dd8	match	crateToss.ts:1673	orb init, 0x43b
+800ba02c	todo(orb update not re-audited this pass)	crateToss.ts:1757	
+800ba354	match	crateToss.ts:1738	ring init, 0x43a
+800ba488	match	crateToss.ts:1737	
+800ba780	match	crateToss.ts:1646	
+800ba830	match	crateToss.ts:1707	blast init
+800ba8a4	match	crateToss.ts:1689	shot contact
+800ba964	n/a(0x1108 object, spawned only by the adventure sky crate)		
+800ba994	n/a(0x1108 object, spawned only by the adventure sky crate)		
+800baa1c	fixed	crateToss.ts:1804	penguin init: body 212, height 622
+800bab04	added	crateToss.ts:205	ice glints 0x1101: 9 quads of 0707 part0
+800bac10	match	crateToss.ts:192	Drain chest helper
+800bac5c	match	crateToss.ts:192	
+800bad70	match	crateToss.ts:225	
+800baf68	match	crateToss.ts:200	Space tile reset
+800bafb4	match	crateToss.ts:200	Space tile state
+800bafdc	match	crateToss.ts:463	Drain chest edge probe
+800bb100	match	crateToss.ts:700	ground check
+800bb184	match	crateToss.ts:700	ground check
+800bb1b4	match	crateToss.ts:1177	arena clamp hook d750
+800bb2bc	match	crateToss.ts:62	ice acceleration
+800bb360	n/a(empty stub)		
+800bb370	match	crateToss.ts:534	level callback install
+800bb3d0	n/a(object type table lookup; engine plumbing)		
+800bb4ac	match	crateToss.ts:713	trajectory prediction
+800bb4fc	match	crateToss.ts:713	trajectory prediction
+800bb64c	match	crateToss.ts:713	trajectory prediction
+800bb7b8	n/a(empty stub)		
+800bb7e8	match	crateToss.ts:320	
+800bba14	match	crateToss.ts:259	crate init, 0x3fa
+800bbd48	match	crateToss.ts:259	crate init 0x201/0x202
+800bc038	fixed	crateToss.ts:779	TNT beeps at 60/30/0 then blast; kick ids 0x442+slot then 0x3f9 or 0x3f0
+800be1d0	match	crateToss.ts:1583	pickup init 0x206
+800be370	fixed	crateToss.ts:367	power-up init, 0x41f
+800be508	fixed	crateToss.ts:367	power-up init, 0x41f
+800be6a0	fixed	crateToss.ts:367	power-up init, 0x41f
+800be838	fixed	crateToss.ts:367	power-up init, 0x41f
+800be9d0	fixed	crateToss.ts:1595	0x420 landing, pickup ids 0x41a-0x41d, 0x452 loop, dust 0x207 flipbook
+800bede8	fixed	crateToss.ts:1281	weight pass, 0x454
+800bef00	fixed	crateToss.ts:976	effect timers, 0x421, head icon meshes and spin
+800bf404	fixed	crateToss.ts:526	moving crate strikes: nitro explodes, TNT lights, wood stays; wakes the penguin
+800bf708	match	crateToss.ts:1543	crate vs crate contact
+800bf928	match	crateToss.ts:1570	crate impact
+800bfac0	match	crateToss.ts:690	fruit drop
+800bfc30	match	crateToss.ts:690	fruit cell reroll
+800bfd2c	fixed	crateToss.ts:1232	hurt entry: 30-update lock, boots and Drain ammo cleared, Aku sets no lock
+800bff1c	fixed	crateToss.ts:88	lethal hit counts out at event 8 per character
+800c013c	todo(effect object d540 not identified)		pickup state 0xe
+800c02d4	todo(effect object d540 not identified)		carry idle 0xf
+800c05a8	todo(effect object d540 not identified)		carry walk 0x10
+800c07f4	todo(effect object d540 not identified)	crateToss.ts:1358	throw 0x11
+800c09f4	fixed	crateToss.ts:968	weight timeout: out at once, 0x453
+800c0bac	fixed	crateToss.ts:92	weight drop 256/update, 0x455 at 16, squash, spirit at 44
+800c0de4	fixed	crateToss.ts:92	in-play spirit after script 0x13
+800c0f14	match	crateToss.ts:739	winner init
+800c1190	match	crateToss.ts:739	winner update
+800c1278	match	crateToss.ts:739	loser init
+800c14d4	match	crateToss.ts:739	loser update
+800c159c	fixed	crateToss.ts:526	spin hits the penguin
+800c1848	match	crateToss.ts:67	pickup reach and cone
+800c1a30	fixed	crateToss.ts:1180	player vs crate push 248, only while moving except on ice
+800c284c	fixed	crateToss.ts:1181	hurt players are pushed out of crates
+800c2b60	n/a(object list finder; engine plumbing)		
+800c2dac	fixed	crateToss.ts:92	knockout update
+800c2e58	match	crateToss.ts:1358	throw init
+800c2ec8	match	crateToss.ts:1326	carry walk init
+800c2f14	match	crateToss.ts:1326	carry idle init
+800c2f60	match	crateToss.ts:1326	pickup state init
+80013c94	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+800142d4	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80015480	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80015758	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80015780	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80015870	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80018430	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80018b08	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8001c3d0	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8001cd04	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8001d390	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+800228a4	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80024e30	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+800250b0	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80025a48	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80025b10	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80025d40	todo(shared on-foot engine player code; not re-audited here)		
+80025e00	match	crateToss.ts:712	
+80025f44	todo(shared on-foot engine player code; not re-audited here)		
+80025fac	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80026540	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80026684	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8002689c	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+800268bc	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8002694c	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80026980	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80026a54	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80026ad8	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80026b70	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80026c38	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+800270b0	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80032490	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8007a26c	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8007a524	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8007a91c	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8007a9d0	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8007b7fc	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8007eb1c	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80084e04	n/a(handicap disabled in versus: DAT_8005a646&3=1)	crateToss.ts:385	
+8008502c	todo(shared on-foot engine player code; not re-audited here)		
+800854c0	todo(shared on-foot engine player code; not re-audited here)		
+80085718	todo(shared on-foot engine player code; not re-audited here)		
+80085890	todo(shared on-foot engine player code; not re-audited here)		
+800860d4	todo(shared on-foot engine player code; not re-audited here)		
+800864cc	match	crateToss.ts:1391	
+80086d88	todo(shared on-foot engine player code; not re-audited here)		
+80086f78	todo(shared on-foot engine player code; not re-audited here)		
+800871e4	todo(shared on-foot engine player code; not re-audited here)		
+800898ec	fixed	crateToss.ts:447	spirit 0x1c3/0x1c4 after script 0x13
+80089be8	todo(shared on-foot engine player code; not re-audited here)		
+80089fa4	todo(shared on-foot engine player code; not re-audited here)		
+8008a200	match	crateToss.ts:878	
+8008a810	todo(shared on-foot engine player code; not re-audited here)		
+8008ab50	todo(shared on-foot engine player code; not re-audited here)		
+8008abf8	todo(shared on-foot engine player code; not re-audited here)		
+8008ac74	todo(shared on-foot engine player code; not re-audited here)		
+8008acf0	todo(shared on-foot engine player code; not re-audited here)		
+8008d6c8	match	crateToss.ts:98	
+8008ddc0	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8008dec8	match	crateToss.ts:399	
+8008e27c	fixed	crateToss.ts:48	sounds by real ids through per-bank tables
+80093038	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+8009440c	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+80095258	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
