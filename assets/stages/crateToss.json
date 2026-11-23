@@ -936,6 +936,19 @@
    ],
    "yaw": 0,
    "parts": [
+    "part16"
+   ]
+  },
+  "ctWeightDrop": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
     "part1"
    ]
   },
@@ -1368,6 +1381,71 @@
     "part47"
    ]
   },
+  "ctDust11": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part48"
+   ]
+  },
+  "ctDust12": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part49"
+   ]
+  },
+  "ctDust13": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part50"
+   ]
+  },
+  "ctDust14": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part51"
+   ]
+  },
+  "ctDust15": {
+   "model": 736,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part52"
+   ]
+  },
   "ctPenguin": {
    "model": 798,
    "scale": 3.6,
@@ -1385,6 +1463,19 @@
     "run": 2,
     "hit": 1
    }
+  },
+  "ctGlint": {
+   "model": 707,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ]
   },
   "ctZ": {
    "model": 798,

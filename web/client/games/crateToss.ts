@@ -1,7 +1,7 @@
 // CRATE CRUSH view (shared/games/crateToss.ts): the real Jungle / Space / Snow / Drain Bash stages, wood / TNT / Nitro crates.
 import * as THREE from 'three';
 import { CT_CHEST_REVEAL, CT_CHEST_SHRINK, CT_FLOOR_N, CT_HP, CT_OPENING_TICKS, CT_RING_COUNT, CT_RING_GAP, CT_RING_TICKS,
-  CT_U, CT_WEAPON_BLAST, ctActionTicks, ctFruitRise, ctRingScale, floorAt, spaceFloorIndex } from '../../shared/games/crateToss';
+  CT_PENGUIN_LOOP, CT_PENGUIN_RETURN, CT_PENGUIN_WAKE, type CtPenguin, CT_U, CT_WEAPON_BLAST, CT_WEIGHT_DROP, CT_WEIGHT_OUT, ctActionTicks, ctHurtTicks, ctFruitRise, ctRingScale, floorAt, spaceFloorIndex } from '../../shared/games/crateToss';
 import type { Body, GameEvent } from '../../shared/types';
 import { ASSET_BASE, getCatalog } from '../crash';
 import type { BlobShadow } from '../fx';
@@ -36,22 +36,24 @@ const LEVELS: Record<string, Level> = {
   drain: { arena: 'crateToss:drainBash', bg: 0x0a1020, pos: [0, 3.2 * S, 5.2 * S], pitch: 28, fov: 50, bank: '0164' },
 };
 /**
- * Real sound ids of the game (FUN_80022660 -> VAB tone) as sample numbers of each level's bank, order jungle / space / snow / drain.
- * `wood` / `tnt` / `nitro` are the lists the game picks from (0x3e8.., 0x3ec.., 0x3f1..); see re/notes/crateCrush.md.
+ * Sound id -> sample of each level bank, read from the VAB tones (each tone carries its id, FUN_8002aca0 fills
+ * table 0x80064508 from them). An id the bank does not declare is silent on the disc.
  */
-const SFX: Record<string, { beep: number; thump: number; whoosh: number; wood: number[]; tnt: number[]; nitro: number[] }> = {
-  jungle: { beep: 13, thump: 18, whoosh: 19, wood: [9, 9, 9, 10], tnt: [11, 12, 11, 12], nitro: [14, 14, 14, 15] },
-  space: { beep: 13, thump: 18, whoosh: 19, wood: [9, 9, 9, 10], tnt: [11, 12, 11, 12], nitro: [14, 14, 14, 15] },
-  snow: { beep: 12, thump: 19, whoosh: 17, wood: [9, 9, 9, 10], tnt: [11, 11, 11, 11], nitro: [13, 13, 13, 14] },
-  drain: { beep: 13, thump: 22, whoosh: 17, wood: [9, 9, 9, 10], tnt: [11, 12, 13, 12], nitro: [14, 14, 16, 17] },
+const BANK_IDS: Record<string, Record<number, number>> = {
+  '0167': {0x1c2: 0, 0x1c3: 1, 0x1c4: 2, 0x3e8: 9, 0x3e9: 10, 0x3ea: 9, 0x3eb: 10, 0x3ec: 11, 0x3ed: 12, 0x3ee: 11, 0x3ef: 12, 0x3f0: 13, 0x3f1: 14, 0x3f2: 15, 0x3f3: 14, 0x3f4: 15, 0x3f5: 16, 0x3f6: 17, 0x3f7: 16, 0x3f8: 17, 0x3f9: 18, 0x3fa: 19, 0x409: 32, 0x442: 33, 0x443: 34, 0x444: 35, 0x445: 36, 0x446: 37},
+  '0166': {0x1c2: 0, 0x1c3: 1, 0x1c4: 2, 0x3e8: 9, 0x3e9: 10, 0x3ea: 9, 0x3eb: 10, 0x3ec: 11, 0x3ed: 12, 0x3ee: 11, 0x3ef: 12, 0x3f0: 13, 0x3f1: 14, 0x3f2: 15, 0x3f3: 14, 0x3f4: 15, 0x3f5: 16, 0x3f6: 17, 0x3f7: 16, 0x3f8: 17, 0x3f9: 18, 0x3fa: 19, 0x410: 20, 0x41a: 21, 0x41b: 22, 0x41c: 23, 0x41d: 28, 0x41e: 29, 0x41f: 30, 0x420: 31, 0x421: 32, 0x442: 33, 0x443: 34, 0x444: 35, 0x445: 36, 0x446: 37, 0x452: 24, 0x453: 25, 0x454: 26, 0x455: 27},
+  '0165': {0x1c2: 0, 0x1c3: 1, 0x1c4: 2, 0x3e8: 9, 0x3e9: 10, 0x3ea: 9, 0x3eb: 10, 0x3ec: 11, 0x3ed: 11, 0x3ee: 11, 0x3ef: 11, 0x3f0: 12, 0x3f1: 13, 0x3f2: 14, 0x3f3: 13, 0x3f4: 14, 0x3f9: 15, 0x3fa: 16, 0x41a: 17, 0x41b: 18, 0x41c: 19, 0x41d: 24, 0x41e: 25, 0x41f: 26, 0x420: 27, 0x421: 28, 0x426: 31, 0x427: 32, 0x442: 35, 0x443: 35, 0x444: 36, 0x445: 36, 0x446: 37, 0x452: 20, 0x453: 21, 0x454: 22, 0x455: 23, 0x456: 34, 0x457: 34, 0x458: 34, 0x459: 34, 0x45a: 34, 0x45b: 34},
+  '0164': {0x1c2: 0, 0x1c3: 1, 0x1c4: 2, 0x3ec: 9, 0x3ed: 10, 0x3ee: 9, 0x3ef: 10, 0x3f0: 11, 0x3f5: 12, 0x3f6: 13, 0x3f7: 12, 0x3f8: 13, 0x3f9: 14, 0x3fa: 15, 0x437: 23, 0x438: 24, 0x439: 25, 0x43a: 26, 0x43b: 27, 0x43c: 28, 0x442: 30, 0x443: 30, 0x444: 31, 0x445: 31, 0x446: 32},
 };
-const FRUIT_SFX = 0; // sound 0x1c2 = sample 0 of every bank
-const SPACE_FALL_SFX = 20; // sound 0x410, bank 0166
-/** the sound ids behind the rand-4 lists above (re/notes/crateCrush.md): some share a sample at a lower pitch (assets/audio/pitch.json) */
+/** FUN_8008e27c's rand(4) lists: 0x8009e444 wood, 0x8009e424 TNT, 0x8009e434 nitro, 0x8009e454 Drain crates and chests */
 const WOOD_IDS = [0x3e8, 0x3e8, 0x3ea, 0x3eb], TNT_IDS = [0x3ec, 0x3ed, 0x3ee, 0x3ef], NITRO_IDS = [0x3f1, 0x3f1, 0x3f3, 0x3f4];
-const WEAPON_SOUND = [[0, 0], [27, 0x43b], [28, 0x43c], [26, 0x43a]]; // Drain bank 0164, orb / missiles / ring
-const WEAPON_PICKUP_SOUND = [[0, 0], [23, 0x437], [24, 0x438], [25, 0x439]];
-const RING_HIT = [32, 0x446];
+const CHEST_IDS = [0x3f5, 0x3f5, 0x3f7, 0x3f8];
+const WEAPON_SOUND = [0, 0x43b, 0x43c, 0x43a]; // FUN_800b9dd8 orb, 800b9a34 missiles, 800ba354 ring
+const WEAPON_PICKUP_SOUND = [0, 0x437, 0x438, 0x439]; // FUN_800b94c4
+/** FUN_800be9d0: boots, slow motion, Aku Aku, weight (sim pickup codes 2..5) */
+const POWER_SOUND: Record<number, number> = { 2: 0x41c, 3: 0x41d, 4: 0x41b, 5: 0x41a };
+/** FUN_800be370..800be838 pickup meshes; FUN_800be9d0 copies them to the effect icon over the head */
+const EFFECT_ICON: Record<number, string> = { 0x12: 'ctMask', 0x13: 'ctBoots', 0x14: 'ctWeight', 0x15: 'ctSlow' };
 
 interface Vis {
   obj: THREE.Group;
@@ -104,23 +106,61 @@ export function createCrateTossView(): ClientMiniGame {
   const tiles: THREE.Object3D[] = [];
   const tileRims: THREE.Object3D[] = [];
   let arena: THREE.Group | null = null;
-  let penguin: { obj: THREE.Group; inst: ReturnType<typeof catalogInstance>; z: THREE.Object3D } | null = null;
+  let penguin: { obj: THREE.Group; inst: ReturnType<typeof catalogInstance> } | null = null;
+  /** Object 0x1102 render words: script entries 0 (sleep), 1 (wake) and 2 (return) of 0x800c3654, mesh 0x2002 while sliding. */
+  function penguinWord(pg: CtPenguin | undefined, opening?: number) {
+    if (!pg) return 0x4015;
+    if (pg.s === 3) return 0x2002;
+    if (pg.s === 2) {
+      const i = Math.min(pg.f, CT_PENGUIN_WAKE - 1);
+      return i < 26 ? 0x4100 + i : i < 30 ? 0x4119 + i - 26 : i < 40 ? 0x411d : i < 57 ? 0x411e + i - 40 : i < 67 ? 0x412e : 0x412f + i - 67;
+    }
+    if (pg.e === 2) { const i = Math.min(pg.f, CT_PENGUIN_RETURN - 1); return i < 14 ? 0x4080 + i : 0x408d + i - 14; }
+    const i = (opening ?? pg.f) % CT_PENGUIN_LOOP;
+    return i < 38 ? 0x4015 + i : 0x4000 + i - 38;
+  }
+  /** 0x427 loops on the penguin's handle while it slides (FUN_800b879c state 3). */
+  let penguinLoop: NonNullable<ReturnType<typeof sfx.startSample>> | undefined;
+  function syncPenguinLoop(at: Body | undefined) {
+    if (!at) { penguinLoop?.stop(); penguinLoop = undefined; return; }
+    const camera = follow?.camera;
+    const stereo = camera ? discStereo(camera, Math.round(at.x / CT_U), -16, -Math.round(at.z / CT_U)) : undefined;
+    if (penguinLoop && !penguinLoop.ended) { if (stereo) penguinLoop.setStereo(stereo); return; }
+    const file = idFile(0x427);
+    const loop = bankIdx?.[lv.bank]?.[BANK_IDS[lv.bank]?.[0x427]]?.loop ?? null;
+    penguinLoop = file ? sfx.startSample(file, loop, 1, sfxRate(lv.bank, 0x427), 0, stereo ?? [1, 1]) ?? undefined : undefined;
+  }
   let builtArena = false;
   /** short-lived effect pieces (the game's own blast / smoke / shard / dust meshes) */
   interface Piece { obj: THREE.Object3D; t: number; life: number; v: THREE.Vector3; g: number; s0: number; s1: number; spin: number; fade: boolean; frames?: THREE.Object3D[] }
   const pieces: Piece[] = [];
 
   // samples are shared between banks on disc, so the file comes from audio/index.json
-  let bankIdx: Record<string, { file?: string | null }[]> | null = null;
+  let bankIdx: Record<string, { file?: string | null; loop?: number | null }[]> | null = null;
   const bankIndexReady = fetch(ASSET_BASE + 'audio/index.json').then((r) => (r.ok ? r.json() : null)).then((j) => {
     bankIdx = {};
-    for (const [k, v] of Object.entries<{ samples: { file?: string | null }[] }>(j?.sfx?.banks ?? {})) bankIdx[k] = v.samples;
+    for (const [k, v] of Object.entries<{ samples: { file?: string | null; loop?: number | null }[] }>(j?.sfx?.banks ?? {})) bankIdx[k] = v.samples;
   }).catch(() => { /* silent */ });
-  const sfxSet = () => SFX[variant];
-  const playSample = (n: number, vol: number, rate = 1, late = false) => { const f = bankIdx?.[lv.bank]?.[n]?.file; if (f) sfx.playFile(f, vol, late, rate); };
-  const fruitSpawnSound = () => playSample(sfxSet().whoosh, 1, sfxRate(lv.bank, 0x3fa), true);
-  /** one of a rand-4 list, at that id's own pitch */
-  const playPick = (l: number[], ids: number[], vol: number) => { const i = Math.floor(Math.random() * l.length); playSample(l[i], vol, sfxRate(lv.bank, ids[i])); };
+  const idFile = (id: number) => { const n = BANK_IDS[lv.bank]?.[id]; return n === undefined ? undefined : bankIdx?.[lv.bank]?.[n]?.file ?? undefined; };
+  /** FUN_80022660(id, handle, pos, 0x1000, 0x1e00): full volume at the tone's pitch, panned and attenuated when it has a position. */
+  const playId = (id: number, at?: GameEvent) => {
+    const file = idFile(id);
+    if (!file) return;
+    if (at) spatialCue(at)(file, 1, sfxRate(lv.bank, id));
+    else sfx.playFile(file, 1, true, sfxRate(lv.bank, id));
+  };
+  /** one of a rand-4 list (presentation only, not the sim rng) */
+  const playPick = (ids: number[], at?: GameEvent) => playId(ids[Math.floor(Math.random() * ids.length)], at);
+  let weightLoop: { slot: number; sound: NonNullable<ReturnType<typeof sfx.startSample>> } | undefined;
+  /** FUN_800bef00 bends the 0x452 loop on handle 0x800c4780 up by (300 - timer) * 0xf00 / 300 pitch units. */
+  function syncWeightLoop(slot: number, ticks: number) {
+    if (slot < 0) { weightLoop?.sound.stop(); weightLoop = undefined; return; }
+    const rate = sfxRate(lv.bank, 0x452) * 2 ** (Math.trunc((300 - Math.min(299, ticks)) * 0xf00 / 300) / 128 / 12);
+    if (weightLoop) { weightLoop.sound.update(rate, 0); return; }
+    const file = idFile(0x452);
+    const sound = file ? sfx.startSample(file, bankIdx?.[lv.bank]?.[BANK_IDS[lv.bank][0x452]]?.loop ?? 0, 1, rate) : null;
+    if (sound) weightLoop = { slot, sound };
+  }
   type Scrape = { id: number; frame: number; sound: NonNullable<ReturnType<typeof sfx.startSample>> };
   const scrapes = new Map<number, Scrape>();
   function syncScrape(slot: number, id?: number, frame = 0) {
@@ -135,11 +175,7 @@ export function createCrateTossView(): ClientMiniGame {
     if (sound) scrapes.set(slot, { id, frame, sound });
   }
   const preloadSfx = () => {
-    const sx = SFX[variant];
-    if (bankIdx) for (const n of [sx.beep, sx.thump, sx.whoosh, FRUIT_SFX, 1, 2, ...sx.wood, ...sx.tnt, ...sx.nitro]) playSample(n, 0);
-    if (variant === 'space') playSample(SPACE_FALL_SFX, 0);
-    if (variant === 'snow') { const file = bankIdx?.['0165']?.[34]?.file; if (file) sfx.preloadFile(file); }
-    if (variant === 'drain') for (const [n] of [...WEAPON_SOUND.slice(1), ...WEAPON_PICKUP_SOUND.slice(1), RING_HIT]) playSample(n, 0);
+    for (const id of Object.keys(BANK_IDS[lv.bank] ?? {})) { const file = idFile(Number(id)); if (file) sfx.preloadFile(file); }
   };
   const pickOf = (l: number[]) => l[Math.floor(Math.random() * l.length)]; // presentation only (not the sim rng)
 
@@ -166,16 +202,47 @@ export function createCrateTossView(): ClientMiniGame {
     }
   }
 
+  /** Object 0x1101 (FUN_800bab04 / 800b8694): nine glints of level part 0x2001 on the ice. Each shows at a random
+   * point within +-0x780 for rand(3) + 1 updates and hides for rand(15) + 1. Presentation randomness only. */
+  const glints: { obj: THREE.Object3D; shown: boolean; t: number }[] = [];
+  let glintTick = -1;
+  function stepGlints(tick: number) {
+    if (glintTick < 0 || tick < glintTick || tick - glintTick > 60) glintTick = tick;
+    for (; glintTick < tick; glintTick++) for (const g of glints) {
+      if (!g.shown) {
+        if (g.t === 0) {
+          g.obj.position.set((Math.floor(Math.random() * 0xf00) - 0x780) * CT_U, 16 * CT_U, -(Math.floor(Math.random() * 0xf00) - 0x780) * CT_U);
+          g.obj.visible = true;
+          g.t = Math.floor(Math.random() * 3);
+          g.shown = true;
+        } else { g.t--; g.obj.visible = false; }
+      } else if (g.t === 0) { g.t = Math.floor(Math.random() * 15); g.shown = false; }
+      else g.t--;
+    }
+  }
+
   function build() {
     buildArena();
+    glints.length = 0;
+    glintTick = -1;
     if (variant === 'snow') {
+      for (let i = 0; i < 9; i++) {
+        const obj = propClone('ctGlint');
+        obj.visible = false;
+        obj.traverse((m) => {
+          const mesh = m as THREE.Mesh;
+          if (mesh.isMesh) mesh.material = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map((q) => {
+            const c = q.clone(); c.blending = THREE.AdditiveBlending; c.depthWrite = false; c.transparent = true; return c;
+          });
+        });
+        kit.root.add(obj);
+        glints.push({ obj, shown: false, t: Math.floor(Math.random() * 15) });
+      }
       const inst = catalogInstance(getCatalog().props.ctPenguin);
       const obj = new THREE.Group();
       if (inst) obj.add(inst.root);
-      const z = propClone('ctZ');
-      billboards.add(z);
-      kit.root.add(obj, z);
-      penguin = { obj, inst, z };
+      kit.root.add(obj);
+      penguin = { obj, inst };
     }
   }
 
@@ -229,9 +296,10 @@ export function createCrateTossView(): ClientMiniGame {
     }
   }
 
-  function dust(x: number, z: number, n = 1) {
-    const f = Array.from({ length: 11 }, (_, i) => `ctDust${i}`);
-    for (let i = 0; i < n; i++) piece(f, x + rnd(0.3), 0.2, z + rnd(0.3), { life: 0.45, s0: 1, s1: 1.2, fade: false });
+  /** Object 0x207 (FUN_8008dd40): 0736 parts 37-52, one per update, spawned 256 raw above a collected power-up. */
+  function dust(x: number, y: number, z: number) {
+    const f = Array.from({ length: 16 }, (_, i) => `ctDust${i}`);
+    piece(f, x, y + 256 * CT_U, z, { life: 16 / 30, fade: false });
   }
 
   /** 0796 uses a fixed mesh for each unlit crate and separate faces for lit TNT. */
@@ -252,22 +320,43 @@ export function createCrateTossView(): ClientMiniGame {
     return propClone(kind === 0x1c ? 'ctRing' : 'ctOrb');
   }
 
-  function updateWeaponIcon(slot: number, weapon: number, char: number, x: number, y: number, z: number, tick: number) {
+  /** The effect object 0x8009d53c: a Drain weapon (0x19 / 0x1b / 0x1c) or a power-up (0x12..0x15) over the head. */
+  function updateWeaponIcon(slot: number, kind: number, char: number, x: number, y: number, z: number, tick: number) {
     let icon = weaponIcons.get(slot);
-    if (icon?.kind !== weapon) {
+    if (icon?.kind !== kind) {
       icon?.obj.removeFromParent();
       weaponIcons.delete(slot);
-      if (!weapon) return;
-      const obj = weaponIcon(weapon === 1 ? 0x1b : weapon === 2 ? 0x19 : 0x1c);
+      if (!kind) return;
+      const obj = new THREE.Group();
+      const mesh = kind >= 0x19 ? weaponIcon(kind) : propClone(EFFECT_ICON[kind]);
+      obj.add(mesh);
       obj.name = 'weapon-icon';
       kit.root.add(obj);
-      icon = { kind: weapon, obj };
+      icon = { kind, obj };
       weaponIcons.set(slot, icon);
     }
     // FUN_800bef00 uses the character head marker, with these base heights when the marker is absent.
-    const height = (char <= 2 ? 384 : char <= 4 ? 512 : 640) + (weapon === 1 ? 96 : 0);
+    // The orb sits 96 higher. Aku Aku is offset by half the height along the spinning icon's Z axis.
+    const height = (char <= 2 ? 384 : char <= 4 ? 512 : 640) + (kind === 0x1b ? 96 : 0);
     icon.obj.position.set(x, y + height * CT_U, z);
+    icon.obj.children[0].position.z = kind === 0x12 ? (height >> 1) * CT_U : 0;
     icon.obj.rotation.y = -(tick * 170 % 4096) * Math.PI / 2048;
+  }
+  const headIcon = (d: { weapon?: number[]; eff?: number[] }, slot: number) => {
+    const weapon = d.weapon?.[slot] ?? 0;
+    if (weapon) return weapon === 1 ? 0x1b : weapon === 2 ? 0x19 : 0x1c;
+    const eff = d.eff?.[slot] ?? 0;
+    return EFFECT_ICON[eff] ? eff : 0;
+  };
+  /** FUN_800c09f4 / 800c0bac: the dropped weight (0736 part 1) falls 4096 raw at 256 per update onto the holder. */
+  const weightDrops = new Map<number, THREE.Object3D>();
+  const spiritCue = new Map<number, number>();
+  function updateWeightDrop(slot: number, age: number | undefined, x: number, z: number) {
+    let obj = weightDrops.get(slot);
+    if (age === undefined || age >= CT_WEIGHT_OUT) { if (obj) obj.visible = false; return; }
+    if (!obj) { obj = propClone('ctWeightDrop'); kit.root.add(obj); weightDrops.set(slot, obj); }
+    obj.visible = true;
+    obj.position.set(x, Math.max(0, 4096 - 256 * age) * CT_U, z);
   }
 
   function itemObj(kind: string, b: { slot: number }): { obj: THREE.Group; frames: THREE.Object3D[] } {
@@ -355,9 +444,9 @@ export function createCrateTossView(): ClientMiniGame {
     vis.pose(b.x, b.y, b.z, age + 1, kit.ctx.camera);
   }
 
-  function playOut() {
-    const take = Math.random() < 0.5 ? 0 : 1;
-    playSample(1 + take, 0.65, sfxRate(lv.bank, 0x1c3 + take), true);
+  /** FUN_800898ec: 0x1c3 or 0x1c4 at the actor when the spirit starts */
+  function playOut(at?: GameEvent) {
+    playId(Math.random() < 0.5 ? 0x1c3 : 0x1c4, at);
   }
 
   function crateEvent(ctx: Parameters<ClientMiniGame['render']>[0], e: GameEvent, audio: boolean) {
@@ -366,41 +455,42 @@ export function createCrateTossView(): ClientMiniGame {
         if (audio) charVoice('c', ctx.seats[e.s]?.look.char, 0x10);
         return true;
       case 'pickup':
+        if (POWER_SOUND[e.v]) dust(e.x, e.y ?? 0, e.z);
         if (!audio) return true;
-        if (e.v === 1) playSample(FRUIT_SFX, 0.45);
-        else if (e.v >= 6 && e.v <= 8) {
-          const [n, id] = WEAPON_PICKUP_SOUND[e.v - 5];
-          playSample(n, 0.7, sfxRate(lv.bank, id), true);
-        }
+        if (e.v === 1) playId(0x1c2, e);
+        else if (POWER_SOUND[e.v]) playId(POWER_SOUND[e.v], e);
+        else if (e.v >= 6 && e.v <= 8) playId(WEAPON_PICKUP_SOUND[e.v - 5]);
+        return true;
+      case 'cue':
+        if (audio) playId(e.v, e.o ? e : undefined);
         return true;
       case 'chestBreak':
         burst('C', e.x, e.z, 0);
-        if (audio) playPick([18, 18, 20, 21], [0x3f5, 0x3f5, 0x3f7, 0x3f8], 1);
+        if (audio) playPick(CHEST_IDS);
         return true;
       case 'smash':
         burst(e.s === 2 ? 'C' : 'W', e.x, e.z, 0);
-        if (audio) playPick(sfxSet().wood, WOOD_IDS, 0.5);
+        // FUN_8008e27c: Drain's kind 3 crates use the 0x8009e454 list, wood the 0x8009e444 list.
+        if (audio) playPick(variant === 'drain' ? CHEST_IDS : WOOD_IDS);
         return true;
       case 'beep':
-        if (audio) playSample(sfxSet().beep, 0.4);
+        if (audio) playId(0x3f0, e);
         return true;
       case 'explode':
         burst(e.s === 1 ? 'N' : 'T', e.x, e.z, Math.max(1, e.v));
         if (audio) {
           kit.shake(0.5);
-          if (e.s === 1) playPick(sfxSet().nitro, NITRO_IDS, 0.7);
-          else playPick(sfxSet().tnt, TNT_IDS, 0.7);
+          playPick(e.s === 1 ? NITRO_IDS : TNT_IDS);
         }
         return true;
       case 'resultLand':
-        dust(e.x, e.z, 2);
-        if (audio) charVoice('c', ctx.seats[e.s]?.look.char, 0xd);
+        if (audio) charVoice('c', ctx.seats[e.s]?.look.char, 0xd, 0, 1, undefined, spatialCue(e)); // script 8 op 0x8009
         return true;
       case 'resultOut':
-        if (audio) playOut();
+        if (audio) playOut(e);
         return true;
       case 'weaponBlast':
-        if (audio && e.o >= 0) playSample(sfxSet().tnt[e.o], 0.65, sfxRate(lv.bank, TNT_IDS[e.o]), true);
+        if (audio && e.o >= 0) playId(TNT_IDS[e.o]);
         return true;
       default:
         return false;
@@ -419,6 +509,7 @@ export function createCrateTossView(): ClientMiniGame {
       lv = LEVELS[variant] ?? LEVELS.jungle;
       void bankIndexReady.then(preloadSfx);
       kit = new Kit(ctx, 'crateToss', { bg: lv.bg, hemi: [0xffffff, 0xaaaaaa, 1.5] });
+      weightDrops.clear(); spiritCue.clear();
       crates.clear(); items.clear(); shots.clear(); weaponIcons.clear(); tiles.length = 0; tileRims.length = 0; pieces.length = 0; billboards.clear(); arena = null; penguin = null; builtArena = false;
       follow = null;
       result = undefined;
@@ -499,7 +590,7 @@ export function createCrateTossView(): ClientMiniGame {
             a.face = b.face;
             a.update(b, dt, result.actor(b, a.inst, !!carriedBody));
             if (b.fall || !floorAt(d, b.x, b.z)) a.shadow.visible = false;
-            if (variant === 'drain') updateWeaponIcon(b.slot, b.alive ? (d.weapon?.[b.slot] ?? 0) : 0, d.char[b.slot], b.x, b.y, b.z, tick);
+            updateWeaponIcon(b.slot, b.alive ? headIcon(d, b.slot) : 0, d.char[b.slot], b.x, b.y, b.z, tick);
             continue;
           }
           const held = !!carriedBody;
@@ -551,15 +642,35 @@ export function createCrateTossView(): ClientMiniGame {
           const inv = (d.inv?.[b.slot] ?? 0) > 0 && b.alive && !b.fall;
           const moving = Math.hypot(b.vx, b.vz) > 0.7;
           const deadAge = b.alive ? 0 : kit.poseTick(b.slot) - d.elim[b.slot];
-          const script = b.fall ? 7 : !b.alive ? 0x13 : stun ? 9 : action === 1 ? 0xf : action === 2 ? 0x12 : action === 3 ? 10
+          // A weight knockout keeps the idle script under the falling weight (FUN_800c09f4). A lethal hit plays 0x13.
+          const crushed = !b.alive && d.outBy?.[b.slot] === 1;
+          const spiritAt = crushed ? CT_WEIGHT_OUT : poseTicks(0x13, character);
+          const script = b.fall ? 7 : crushed ? 1 : !b.alive ? 0x13 : stun ? 9 : action === 1 ? 0xf : action === 2 ? 0x12 : action === 3 ? 10
             : taunt >= 0 ? 2 : held ? (d.cs?.[carriedBody.id]?.gripScript ?? (moving ? 0x11 : 0x10)) : d.air[b.slot] ? (d.jh[b.slot] ? 6 : 7) : ground?.script || (landing ? 8 : moving ? 5 : 1);
-          const frame = !b.alive ? deadAge : action >= 1 && action <= 3 ? ctActionTicks(character, action) - d.stT[b.slot] : taunt >= 0 ? kit.poseTick(b.slot) - taunt : carriedBody ? d.cs?.[carriedBody.id]?.gripFrame
+          const frame = !b.alive ? deadAge : action >= 1 && action <= 3 ? ctActionTicks(character, action) - d.stT[b.slot]
+            : stun ? ctHurtTicks(character) - d.stT[b.slot] - 1 : taunt >= 0 ? kit.poseTick(b.slot) - taunt : carriedBody ? d.cs?.[carriedBody.id]?.gripFrame
             : d.air[b.slot] ? jumpFrame : groundFrame ?? (landing ? landingFrame : undefined);
-          const hidden = !b.alive && (b.fall || deadAge >= poseTicks(0x13, character)) || (inv && (tick & 2) !== 0);
-          a.update(b, dt, { hidden, role: b.fall ? 'jump' : b.alive ? role : 'lose', pose,
+          const hidden = !b.alive && (b.fall || deadAge >= spiritAt) || (inv && (tick & 2) !== 0);
+          if (crushed && !hidden && !anims?.carry) pose = undefined;
+          a.update(b, dt, { hidden, role: b.fall ? 'jump' : b.alive ? role : crushed ? 'idle' : 'lose', pose,
             script: anims?.carry != null || kit.over.done ? undefined : script, scriptFrame: b.fall ? undefined : frame });
+          // FUN_800c0bac flattens the holder to 1/16 height once the weight reaches the floor.
+          if (crushed && deadAge >= CT_WEIGHT_DROP) a.pivot.scale.y /= 16;
+          updateWeightDrop(b.slot, crushed ? deadAge : undefined, b.x, b.z);
+          if (crushed && deadAge === CT_WEIGHT_DROP && spiritCue.get(b.slot) !== -CT_WEIGHT_DROP) {
+            spiritCue.set(b.slot, -CT_WEIGHT_DROP);
+            playId(0x455);
+          }
+          // FUN_800c0de4 / 800898ec: the spirit rises when script 0x13 (or the weight's countdown) ends.
+          if (!b.alive && !b.fall && deadAge >= spiritAt) {
+            ghost(b, deadAge - spiritAt);
+            if (spiritCue.get(b.slot) !== d.elim[b.slot]) {
+              spiritCue.set(b.slot, d.elim[b.slot]);
+              if (deadAge === spiritAt) playOut({ x: b.x, z: b.z, y: b.y } as GameEvent);
+            }
+          }
           if (variant === 'space' && (b.fall || !floorAt(d, b.x, b.z))) a.shadow.visible = false;
-          if (variant === 'drain') updateWeaponIcon(b.slot, b.alive ? (d.weapon?.[b.slot] ?? 0) : 0, character, b.x, b.y, b.z, kit.poseTick(b.slot));
+          updateWeaponIcon(b.slot, b.alive ? headIcon(d, b.slot) : 0, character, b.x, b.y, b.z, kit.poseTick(b.slot));
         } else if (b.kind === 'crate' || b.kind === 'tnt' || b.kind === 'nitro' || (b.kind === 'chest' && !reward)) {
           seenC.add(b.id);
           let v = crates.get(b.id);
@@ -597,7 +708,7 @@ export function createCrateTossView(): ClientMiniGame {
           v.count.forEach((o, i) => (o.visible = lit && i === Math.max(0, Math.min(2, Math.ceil(b.m) - 1))));
         } else if (reward || b.kind === 'fruit' || b.kind === 'boots' || b.kind === 'potion' || b.kind === 'mask' || b.kind === 'weight' || b.kind === 'weapon') {
           if (b.kind === 'fruit' && born !== undefined && openingFrame !== undefined
-            && born > (lastOpeningFrame ?? openingFrame - 1)) fruitSpawnSound();
+            && born > (lastOpeningFrame ?? openingFrame - 1)) playId(0x3fa);
           seenI.add(b.id);
           let o = items.get(b.id);
           if (!o) {
@@ -632,21 +743,23 @@ export function createCrateTossView(): ClientMiniGame {
             if (scale) shot.billboard.scale.set(scale[0] / 4096, scale[1] / 4096, scale[2] / 4096);
           }
         } else if (b.kind === 'penguin' && penguin) {
-          const awake = (d.penguin ?? 0) > 0;
+          const pg = d.peng as CtPenguin | undefined;
           penguin.obj.position.set(b.x, 0, b.z);
           penguin.obj.rotation.y = b.face;
-          penguin.inst?.play(awake ? 'run' : 'idle');
-          penguin.inst?.update(dt);
-          penguin.z.visible = !awake;
-          penguin.z.position.set(b.x + 0.5, 2.2 + ((ctx.time * 0.6) % 1) * 0.8, b.z);
+          const word = penguinWord(pg, openingFrame);
+          if (!penguin.inst?.nativePose(word)) penguin.inst?.play((d.penguin ?? 0) > 0 ? 'run' : 'idle');
+          syncPenguinLoop(!result && pg?.s === 3 ? b : undefined);
         }
       }
+      const weightHolder = result ? -1 : d.weight ?? -1;
+      syncWeightLoop(weightHolder, weightHolder >= 0 ? d.effT?.[weightHolder] ?? 0 : 0);
       kit.prune(seen);
       for (const [id, v] of crates) if (!seenC.has(id)) { kit.root.remove(v.obj); kit.fx.removeShadow(v.shadow); crates.delete(id); }
       for (const [id, o] of items) if (!seenI.has(id)) { kit.root.remove(o.obj); billboards.delete(o.obj); items.delete(id); }
       for (const [id, o] of shots) if (!seenS.has(id)) { removeShot(o); shots.delete(id); }
       if (openingFrame !== undefined) lastOpeningFrame = Math.max(lastOpeningFrame ?? -1, openingFrame);
       if (!result) stepPieces(dt);
+      if (glints.length) stepGlints(tick);
       for (const o of billboards) o.quaternion.copy(ctx.camera.quaternion);
       kit.fx.update(dt);
     },
@@ -656,12 +769,11 @@ export function createCrateTossView(): ClientMiniGame {
       if (kit.baseEvent(e)) return;
       if (crateEvent(ctx, e, true)) return;
       switch (e.k) {
-        case 'throw': case 'kick':
-          playSample(e.k === 'kick' ? sfxSet().thump : sfxSet().whoosh, 0.45);
-          if (e.k === 'kick') spinVoice('c', ctx.seats[e.s]?.look.char);
+        case 'kick':
+          spinVoice('c', ctx.seats[e.s]?.look.char);
           break;
         case 'fruitSpawn':
-          fruitSpawnSound();
+          playId(0x3fa); // FUN_8008d824
           break;
         case 'grab':
           charVoice('c', ctx.seats[e.s]?.look.char, 0xf);
@@ -675,39 +787,32 @@ export function createCrateTossView(): ClientMiniGame {
         case 'step': {
           const play = spatialCue(e);
           if (e.o === 0x41e) {
-            const n = variant === 'space' ? 29 : 25;
-            const file = bankIdx?.[lv.bank]?.[n]?.file;
+            const file = idFile(0x41e);
             if (file) play(file, 1, sfxRate(lv.bank, e.o));
           } else charVoice('c', ctx.seats[e.s]?.look.char, e.v === 0 ? 0xa : 0xb, 0, 1, undefined, play);
           break;
         }
-        case 'bounce': case 'land':
-          if (e.k === 'land') charVoice('c', ctx.seats[e.s]?.look.char, 0xd, 0, 1, undefined, spatialCue(e));
-          dust(e.x, e.z, 2);
+        case 'land':
+          charVoice('c', ctx.seats[e.s]?.look.char, 0xd, 0, 1, undefined, spatialCue(e));
           break;
         case 'hit':
           kit.actorForSlot(e.s)?.hit(1.2);
-          playSample(sfxSet().thump, 0.5);
-          if (e.v > 0) hitVoice('c', ctx.seats[e.s]?.look.char); // hurt enter (ovl 0x800bfd..): rand(4) of 0x8009e080
+          hitVoice('c', ctx.seats[e.s]?.look.char); // FUN_800bfd2c: rand(4) of 0x8009e080, Aku hits included
+          break;
+        case 'thud':
+          charVoice('c', ctx.seats[e.s]?.look.char, 0xd, 0, 1, undefined, spatialCue(e)); // FUN_800bff1c
           break;
         case 'hole':
-          playSample(SPACE_FALL_SFX, 0.65, sfxRate(lv.bank, 0x410));
+          playId(0x410, e);
           break;
         case 'jump':
-          dust(e.x, e.z, 1);
           charVoice('c', ctx.seats[e.s]?.look.char, 0xc);
           break;
         case 'weapon': {
-          const [n, id] = WEAPON_SOUND[e.v] ?? WEAPON_SOUND[0];
-          if (id) playSample(n, 0.7, sfxRate(lv.bank, id), true);
+          const id = WEAPON_SOUND[e.v] ?? 0;
+          if (id) playId(id, e);
           break;
         }
-        case 'weaponHit':
-          playSample(RING_HIT[0], 0.65, sfxRate(lv.bank, RING_HIT[1]), true);
-          break;
-        case 'ko':
-          if (variant !== 'space' || !kit.playerWorld(e.s).bodies.some((b) => b.kind === 'player' && b.slot === e.s && b.fall)) dust(e.x, e.z, 3);
-          break;
       }
     },
 
@@ -737,6 +842,8 @@ export function createCrateTossView(): ClientMiniGame {
 
     dispose() {
       for (const playing of scrapes.values()) playing.sound.stop();
+      syncWeightLoop(-1, 0);
+      syncPenguinLoop(undefined);
       scrapes.clear();
       for (const shot of shots.values()) removeShot(shot);
       crates.clear(); items.clear(); shots.clear(); weaponIcons.clear(); tiles.length = 0; pieces.length = 0; billboards.clear();
