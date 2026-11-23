@@ -35,7 +35,7 @@
 import { attackHull, onFootItemMarker, TAUNT_TICKS } from './onFoot';
 import { CRATE_GRIPS, CT_HULL } from './crateGripData';
 import { DISC_CHARACTER } from '../look';
-import { addBody, emit, rand } from '../physics';
+import { addBody, discRandomState, drawDiscRandom, emit, rand } from '../physics';
 import { atan2g } from '../ps1Angle';
 import { ps1SqrtQ6 } from '../ps1Sqrt';
 import { IDLE, type Body, type GameEvent, type InputState, type MiniGame, type World } from '../types';
@@ -134,6 +134,8 @@ interface CS { kc?: number; homing?: boolean; touchable?: boolean; fruitFrame?: 
 interface Data {
   char: number[];
   cpu?: CrushBot[];
+  /** Skill and target weight per slot (0x8009d87c rows) and the CPU's FUN_80015590 state */
+  cpuSkill?: number[]; cpuWeight?: number[]; cpuRandom?: [number, number];
   humanSlots?: number;
   cpuOnly?: boolean;
   cpuFocus?: number;
@@ -577,7 +579,10 @@ export const crateToss: MiniGame = {
       tChest: 30, lastBy: [-1, -1, -1, -1], lastByTick: [-99, -99, -99, -99],
     };
     w.data = d;
-    d.cpu = [0, 1, 2, 3].map((slot) => newCrushBot(variant, slots.find((s) => s.slot === slot)?.level));
+    d.cpu = [0, 1, 2, 3].map(newCrushBot);
+    d.cpuSkill = crushSkills(d, [0, 1, 2, 3].map((slot) => slots.find((s) => s.slot === slot)?.level));
+    d.cpuWeight = [16, 16, 16, 16];
+    d.cpuRandom = discRandomState(w.rng);
     d.humanSlots = slots.reduce((mask, s) => s.bot ? mask : mask | (1 << s.slot), 0);
     d.cells = buildCells(w, variant);
     const deck: number[] = [];
@@ -619,11 +624,7 @@ export const crateToss: MiniGame = {
     const d = D(w);
     const ps = players(w);
     const live = ps.filter((p) => p.alive);
-    const contestants = crushContestants(live);
-    const focus = crushFocus(w, d, contestants);
-    d.cpu = [0, 1, 2, 3].map((slot) => planCrushBot(w, slot, contestants, focus).state);
-    // FUN_800b432c clears an eliminated focus this tick and draws its replacement next tick.
-    d.cpuFocus = contestants.some((p) => p.slot === focus) ? focus : undefined;
+    crushCpuPass(w, true);
     stepSpawners(w, d, live.length);
 
     // ---- players ----
@@ -1079,6 +1080,10 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
       taunt[slot] = w.tick;
       emit(w, 'taunt', p.x, p.z, slot);
     }
+  }
+  // FUN_800859d4: with no direction held, a CPU's L2 / R2 turns its yaw by 0x100 (the web heading turns the other way).
+  if (free && !moving && isCpuSlot(d, slot) && (inp.l || inp.r)) {
+    d.f8[slot] += ((inp.l ? 1 : 0) - (inp.r ? 1 : 0)) * 0x100 * TAU / 4096;
   }
   // facing (8-way, re-snaps when the stick is more than 24 degrees away)
   if (free && moving && Math.abs(angDiff(d.f8[slot], sang)) > AIM) d.f8[slot] = snap8(sang);
@@ -1875,331 +1880,674 @@ function penguinContacts(w: World, d: Data, live: Body[], g: Body) {
 }
 
 // ---------- AI (FUN_800b4ab0) ----------
-type CrushRoute = 'object' | 'opponent' | 'station' | 'retreat';
+// The CPU works in game units and 12-bit angles. Game X is world X and game Z is minus world Z. FUN_8001463c(dx, dz)
+// gives the bearing a with (sin a, cos a) along (dx, dz). The motion yaw at +0x14 and the facing at +0x18 are that
+// bearing plus 0x800.
 
-interface CrushBot {
-  skill: number;
-  target: number;
-  resumeFrom?: CrushRoute;
-  throwAt: number;
-  retreatUntil: number;
-  retreatAngle: number;
-  jumpUntil: number;
-  tauntAt: number;
-  taunting?: boolean;
+/** The controller block at 0x8009d54c. */
+export interface CrushBot {
+  /** +0x20 route state and +0x22 the state FUN_800b6138 interrupted */
+  state: number; saved: number;
+  /** +0x0c object id (0 = none) and +0x10 target: -1 none, 0..3 a slot, 6 the penguin, 7..15 a station */
+  obj: number; tgt: number;
+  /** +0x24 back-off, +0x26 taunt cooldown, +0x30 and +0x32 general timers */
+  t24: number; t26: number; t30: number; t32: number;
+  /** +0x2a pad heading and motion yaw +0x14 (-1 until the first update reads the player's facing) */
+  heading: number; yaw14: number;
+  /** pad bits FUN_80013c94 wrote, and whether they held a direction */
+  pad: number; dir: boolean;
 }
 
-interface CrushPlan { state: CrushBot; input: InputState }
+const newCrushBot = (): CrushBot => ({ state: 1, saved: 0, obj: 0, tgt: -1, t24: 0, t26: 0, t30: 0, t32: 0, heading: 0, yaw14: -1, pad: 0, dir: false });
 
-/** Party difficulty rows at 0x800c302c / 30a0 / 3114 / 3188. */
+/** Party skill rows at 0x800c302c / 30a0 / 3114 / 3188 (Easy, Normal, Hard). */
 const CRUSH_SKILLS: Record<string, number[]> = {
   jungle: [1, 16, 32], space: [1, 16, 32], snow: [1, 16, 32], drain: [1, 16, 28],
 };
+const CRUSH_LEVEL: Record<string, number> = { jungle: 0, space: 1, snow: 2, drain: 3 }; // DAT_8005a648
 const STANDOFF = [0x500, 0x400, 0x400, 0x600]; // 0x800c39f0, by slot
 const FRUIT_INTEREST = [100, 20, 15, 10, 8, 5, 4, 3, 3, 2, 2, 1, 1, 1, 0, 0, -1, -2, -4, -8, -10]; // 0x800c3ac4
-const ROAM_CHANCE: Record<string, number> = { jungle: 6, space: 3, snow: 4, drain: 8 };
-const ROAM_VALUE: Record<string, number> = { jungle: 0x4000, space: 0x2000, snow: 0x3000, drain: 0x4000 };
-/** Edge stations from 0x800c3a58, with the PS1 Z axis converted to the web arena. */
-const EDGE_STATIONS = [[0, 0], [-1920, 1920], [0, 1920], [1920, 1920], [-1920, 0], [1920, 0],
-  [-1920, -1920], [0, -1920], [1920, -1920]];
-const STATION_CLEARANCE_SQ = 0x7fffff;
+/** Station IDs 7..15 at 0x800c3a58, in game coordinates. */
+const CRUSH_STATIONS: [number, number][] = [[0, 0], [-1920, -1920], [0, -1920], [1920, -1920], [-1920, 0], [1920, 0],
+  [-1920, 1920], [0, 1920], [1920, 1920]];
+const PAD_L2 = 0x100, PAD_R2 = 0x200, PAD_TRIANGLE = 0x1000, PAD_CIRCLE = 0x2000, PAD_CROSS = 0x4000, PAD_SQUARE = 0x8000;
 
-function newCrushBot(variant: string, level = 2): CrushBot {
-  const skills = CRUSH_SKILLS[variant] ?? CRUSH_SKILLS.jungle;
-  return { skill: skills[level] ?? skills[2], target: 0, throwAt: -1, retreatUntil: 0, retreatAngle: 0, jumpUntil: 0, tauntAt: 0 };
+const gameX = (b: { x: number }) => Math.round(b.x / U);
+const gameZ = (b: { z: number }) => Math.round(-b.z / U);
+/** Game yaw (+0x18 convention) of a web movement heading. */
+const yawOf = (heading: number) => -Math.round(heading * 4096 / TAU) & 0xfff;
+/** FUN_80015480 */
+const angleGap = (a: number, b: number) => { const u = (b - a) & 0xfff; return u > 0x800 ? 0x1000 - u : u; };
+const rawDist = (d2: number) => ps1SqrtQ6(d2) >> 6;
+
+interface CrushPass {
+  w: World; d: Data; level: number;
+  /** Players by slot. Eliminated players keep their last position. */
+  ps: (Body | undefined)[];
+  cpu: CrushBot[]; skill: number[]; weight: number[];
+  /** FUN_80015590's state for the CPU slots. Human slots plan on a copy. */
+  random: [number, number];
+  grid: Uint8Array;
+  objects: Body[];
+  focus: number;
 }
 
-/** A deterministic stand-in for the original AI's random draws. Asking for input never advances world RNG. */
-function crushDraw(w: World, slot: number, salt: number, limit: number): number {
-  const h = Math.imul(w.tick + 1, 0x9e3779b1) ^ Math.imul(slot + 1, 0x85ebca6b) ^ Math.imul(salt + 1, 0xc2b2ae35) ^ w.rng;
-  return ((Math.imul(h ^ h >>> 16, 0x7feb352d) ^ h >>> 15) >>> 0) % limit;
-}
+interface CrushPad { bits: number; heading?: number; clearCircle?: boolean }
 
-function crushContestants(ps: Body[]): Body[] {
-  return ps.filter((p) => p.alive && !p.fall).sort((a, b) => a.slot - b.slot);
-}
+const inPlay = (p?: Body): p is Body => !!p && p.alive;
+const isCpuSlot = (d: Data, slot: number) => d.humanSlots !== undefined && !(d.humanSlots & (1 << slot));
 
-/** FUN_80084788 arms the override after an elimination leaves only CPUs in play. */
-function crushFocus(w: World, d: Data, live: Body[]): number | undefined {
-  if (!d.cpuOnly || !live.length) return undefined;
-  return d.cpuFocus ?? live[crushDraw(w, 4, 6, live.length)].slot;
-}
-
-const rawDistanceSq = (a: Pick<Body, 'x' | 'z'>, b: Body) => ((a.x - b.x) / U) ** 2 + ((a.z - b.z) / U) ** 2;
-const rawDistance = (a: Body, b: Body) => Math.round(Math.hypot(a.x - b.x, a.z - b.z) / U);
-const headingTo = (a: Body, b: Pick<Body, 'x' | 'z'>) => Math.atan2(b.x - a.x, b.z - a.z);
-const nearAngle = (a: number, b: number, t: number) => Math.abs(angDiff(a, b)) < t;
-
-function crateBotTarget(d: Data, obj: Body): boolean {
-  if (!obj.alive || !floorAt(d, obj.x, obj.z)) return false;
-  if (isCrate(obj)) return obj.y <= 0.01 && obj.kind !== 'nitro' && obj.cd === 0 && d.cs[obj.id]?.s === C_IDLE && !obj.fall;
-  return isPickup(obj) && obj.kind !== 'weight' && obj.kind !== 'potion';
-}
-
-/** FUN_800b62ec scans native station IDs 7–15, including the center at ID 7. */
-function crushStation(w: World, slot: number): number {
-  const others = players(w).filter((p) => p.slot !== slot);
-  // A station inside any other slot's clearance radius falls back to the current best score.
-  // The score can only rise from zero to 0x7fffff, so the first qualifying station wins.
-  const station = EDGE_STATIONS.findIndex(([x, z]) =>
-    others.every((p) => rawDistanceSq({ x: x * U, z: z * U }, p) >= STATION_CLEARANCE_SQ));
-  return station < 0 ? 0 : -station - 1;
-}
-
-/** Undefined means the search failed. Zero is a successful roaming branch with no qualifying station. */
-function chooseCrushTarget(w: World, d: Data, me: Body, foes: Body[], nearest: number, skill: number,
-  resumeFrom?: CrushRoute): number | undefined {
-  const slot = me.slot;
-  const bias = crushDraw(w, slot, 0, 0x1000);
-  const armed = d.ammo[slot] > 0;
-  const ring = armed && d.weapon[slot] === 3;
-  const weight = d.eff[slot] === EFF_WEIGHT;
-  const close = weight ? 512 : armed ? (ring ? 10 : 0) : nearest < 0x300 ? 0 : 8;
-  const far = weight ? 0 : armed ? (ring ? 0 : 10) : nearest < 0x300 ? 8 : 0;
-  const hp = Math.max(0, Math.min(CT_HP, Math.floor(d.hp[slot])));
-  const fruit = weight ? 0 : FRUIT_INTEREST[hp] + (16 - skill) * 4;
-  let objectScore = 0, objectTarget = 0;
-  for (const obj of w.bodies) {
-    if (!crateBotTarget(d, obj)) continue;
-    const dist = rawDistance(me, obj);
-    let value = 0;
-    if (obj.kind === 'crate' || obj.kind === 'tnt') value = (0x1000 - Math.abs(dist - bias)) * (weight ? 8 : 40);
-    else if (obj.kind === 'chest') value = Math.abs(dist - bias) * 400 / (armed || d.eff[slot] ? 256 : 1);
-    else if (obj.kind === 'fruit') value = Math.max(0, 0xe00 - dist) * (close + fruit);
-    else if (!weight) value = Math.abs(dist - bias) * 250;
-    if (value > objectScore) { objectScore = value; objectTarget = obj.id; }
-  }
-  let opponentScore = 0, opponentTarget = 0;
-  let interest = weight ? 512 : (skill - 16) * 2 | 1;
-  for (const foe of foes) {
-    const cargo = holdingCrate(w, foe.slot);
-    if (!weight) {
-      if (!cargo) interest = 0;
-      else if (d.variant === 'space') interest += cargo.fall ? 1 : 5;
-      else interest += cargo.fall ? 8 : 16;
-    }
-    if (d.air[foe.slot]) interest += 32;
-    const dist = rawDistance(me, foe);
-    const effect = armed || weight ? 160 : 0;
-    const value = Math.max(Math.max(0, 0x800 - dist) * (close + interest + effect), dist * (far - interest - effect));
-    if (value > opponentScore) { opponentScore = value; opponentTarget = foe.id; }
-  }
-  const roam = resumeFrom !== 'station' && crushDraw(w, slot, 1, ROAM_CHANCE[d.variant]) === 0
-    ? (0x180 - (16 - skill) * 0x10) * fruit + ROAM_VALUE[d.variant] : 0;
-  // FUN_800b6138 saves the interrupted route category at +0x22. The scorer zeros that category.
-  if (resumeFrom === 'object') objectScore = 0;
-  if (resumeFrom === 'opponent') opponentScore = 0;
-  if (roam > objectScore && roam > opponentScore) return crushStation(w, slot);
-  if (objectScore > opponentScore) return objectTarget;
-  return opponentScore >= 0x15 ? opponentTarget : undefined;
-}
-
-/** FUN_800b6da4 weights the focus slot 48 and the other slots 16. */
-function carryCrushTarget(w: World, d: Data, slot: number, foes: Body[], focus?: number, penguin?: Body): number {
-  if (penguin && d.penguin <= 0 && crushDraw(w, slot, 2, 10) === 0) return penguin.id;
-  if (!foes.length) return 0;
-  const weight = (foe: Body) => foe.slot === focus ? 48 : 16;
-  let draw = crushDraw(w, slot, 3, foes.reduce((total, foe) => total + weight(foe), 0));
-  for (const foe of foes) {
-    draw -= weight(foe);
-    if (draw < 0) return foe.id;
+/** The object kind at +0x14 of the object's state block. */
+function crushKind(d: Data, b: Body): number {
+  switch (b.kind) {
+    case 'crate': return CFG[d.variant]?.spawnWood ?? 4;
+    case 'tnt': return b.fall ? 7 : 5;
+    case 'nitro': return 6;
+    case 'chest': { const s = d.cs[b.id]; return s?.s === CT_CHEST_REVEAL ? s.item || 0x11 : 2; }
+    case 'fruit': return 0x11;
+    case 'mask': return EFF_AKU;
+    case 'boots': return EFF_BOOTS;
+    case 'weight': return EFF_WEIGHT;
+    case 'potion': return EFF_SLOW;
+    case 'weapon': return b.slot;
+    case 'penguin': return 0xe;
   }
   return 0;
 }
 
-function botFloor(d: Data, x: number, z: number): boolean {
-  return Math.abs(x) < CT_HALF && Math.abs(z) < CT_HALF && floorAt(d, x, z);
+/** State +0x1a reads 1 for a resting crate or a sleeping penguin. */
+function crushResting(d: Data, b: Body): boolean {
+  if (b.kind === 'penguin') return d.peng?.s === 1;
+  if (b.kind === 'chest' && d.cs[b.id]?.s === CT_CHEST_REVEAL) return true; // the reward rising out of an opened chest
+  if (isCrate(b)) return b.cd === 0 && d.cs[b.id]?.s === C_IDLE;
+  return true;
 }
 
-function evadeCrushHeading(d: Data, me: Body, angle: number): number {
-  for (const turn of [0, 1, -1, 2, -2, 3, -3, 4]) {
-    const heading = snap8(angle) + turn * TAU / 8;
-    if (botFloor(d, me.x + Math.sin(heading) * 180 * U, me.z + Math.cos(heading) * 180 * U)) return heading;
-  }
-  return angle;
+/** The power at 0x8009d584: a Drain weapon while it has ammunition, otherwise the effect. */
+function crushPower(d: Data, slot: number): number {
+  if (d.ammo[slot] > 0) return d.weapon[slot] === 2 ? W_MISSILE : d.weapon[slot] === 1 ? W_ORB : W_RING;
+  return d.eff[slot] ?? 0;
 }
 
-/** FUN_800b5e28 / 800b6138: parallel cell probes 120 units either side of the current heading. */
-function crushDanger(d: Data, me: Body, heading: number, hazards: Body[]) {
-  const x = Math.sin(heading), z = Math.cos(heading);
-  return [352, 608, 864].map((run) => [-120, 120].some((side) => {
-    const px = me.x + (run * x + side * z) * U, pz = me.z + (run * z - side * x) * U;
-    if (!botFloor(d, px, pz)) return true;
-    const col = Math.floor(px / U / 256), row = Math.floor(pz / U / 256);
-    return hazards.some((obj) => Math.floor(obj.x / U / 256) === col && Math.floor(obj.z / U / 256) === row);
-  }));
+/** Player state 0x8009d558 as the controller reads it: 0 idle, 2 taunt, 3 walk, 0xd hurt, 0xf/0x10 carry, 0x13 out. */
+function crushPlayerState(w: World, d: Data, slot: number, bot: CrushBot): number {
+  if (d.st[slot] === ST_HURT) return (d.dying?.[slot] ?? -2) !== -2 ? 0x13 : 0xd;
+  if (d.st[slot] === ST_PICK) return 0xe;
+  if (d.st[slot] === ST_THROW) return 0x11;
+  if (d.st[slot] === ST_SPIN) return 0xa;
+  if (d.air[slot]) return d.jh[slot] ? 4 : 5;
+  if ((d.tauntAt?.[slot] ?? -1) >= 0) return 2;
+  const walking = bot.dir && !(d.lock?.[slot]);
+  if (holdingCrate(w, slot)) return walking ? 0x10 : 0xf;
+  return walking ? 3 : 0;
 }
 
-const crushRouteBlocked = ([near, mid, far]: boolean[]) => near && (mid || far);
-
-function planCrushBot(w: World, slot: number, contestants: Body[], focus: number | undefined): CrushPlan {
-  const d = D(w), now = w.tick;
-  const state = { ...(d.cpu?.[slot] ?? newCrushBot(d.variant)) };
-  const me = contestants.find((b) => b.slot === slot);
-  const result = (input: InputState = IDLE): CrushPlan => ({ input, state });
-  if (!me) return result();
-  if (d.st[slot] !== ST_MOVE) {
-    if (d.st[slot] === ST_HURT) {
-      state.target = 0;
-      delete state.taunting;
-      state.throwAt = -1;
-      state.retreatUntil = now + 20;
-      state.retreatAngle = d.f8[slot] + Math.PI;
+/** FUN_800b432c builds the 20x20 cell grid at 0x8009d90c: FUN_80086f78, 800bb7e8, 80086d88, then the stage layer. */
+function crushGrid(d: Data, ps: (Body | undefined)[], objects: Body[]): Uint8Array {
+  const grid = new Uint8Array(400);
+  const clamp = (n: number) => Math.max(0, Math.min(19, n));
+  // The object list runs newest first, so the oldest object in a cell writes last.
+  for (const o of objects) grid[clamp(9 - (gameZ(o) >> 8)) * 20 + clamp((gameX(o) >> 8) + 10)] = crushKind(d, o) & 0xff;
+  ps.forEach((p, slot) => {
+    if (!p) return;
+    const col = (gameX(p) >> 8) + 10, row = 9 - (gameZ(p) >> 8);
+    if (col < 0 || col > 19 || row < 0 || row > 19) return;
+    const mark = slot << 5 | 0x80;
+    for (const r of [row > 0 ? row - 1 : row, row, row < 19 ? row + 1 : row]) {
+      for (const c of [col > 0 ? col - 1 : col, col, col < 19 ? col + 1 : col]) grid[r * 20 + c] |= mark;
     }
-    return result();
-  }
-  const foes = contestants.filter((p) => p.slot !== slot);
-  if (!foes.length) return result();
-  const skill = focus === undefined ? state.skill : focus === slot ? 8 : 26;
-  const face = d.f8[slot], held = holdingCrate(w, slot), weight = d.eff[slot] === EFF_WEIGHT;
-  const nearest = Math.min(...foes.map((foe) => rawDistance(me, foe)));
-  const penguin = w.bodies.find((b) => b.kind === 'penguin' && b.alive);
-  const dangerFoe = foes.find((foe) => d.eff[foe.slot] === EFF_WEIGHT && rawDistance(me, foe) < 1024)
-    ?? (penguin && d.penguin > 0 && rawDistance(me, penguin) < 1536 ? penguin : undefined);
-  const hazards = w.bodies.filter((obj) => obj.alive && obj !== held && obj.y < CRATE_H * U
-    && (obj.kind === 'nitro' || (obj.kind === 'tnt' && obj.fall) || d.cs[obj.id]?.s === C_DELAY
-      || obj.kind === 'weight' || obj.kind === 'potion'));
-  const steer = (angle: number, buttons: Partial<InputState> = {}) => {
-    const heading = snap8(angle);
-    return result({ x: Math.sin(heading), y: Math.cos(heading), a: false, b: false, ...buttons });
-  };
-  const byId = (id: number) => w.bodies.find((b) => b.id === id && b.alive && !b.fall);
-  // FUN_800b4848: the ring (0x1c) needs a live player within 0x51000 squared. The orb and missile pick the player with the
-  // smallest bearing error under 0x800 among all other slots, so they always have a target. Firing clears the route.
-  const canFire = () => !d.air[slot] && !d.prevB[slot] && d.wcd[slot] <= 1 && d.ammo[slot] > 0
-    && (d.weapon[slot] !== 3 || foes.some((foe) => rawDistanceSq(me, foe) < 0x51000));
-  const fire = () => { state.target = 0; delete state.resumeFrom; return result({ ...IDLE, b: true }); };
-  const startRetreat = (route: CrushRoute) => {
-    state.resumeFrom = route;
-    state.retreatUntil = now + 30;
-    state.target = 0;
-    state.retreatAngle = me.face + Math.PI - 0x31c * TAU / 4096;
-  };
-
-  if (now < state.jumpUntil) {
-    if (d.air[slot]) return steer(state.retreatAngle, { c: !!d.jh[slot] });
-    state.jumpUntil = 0;
-  }
-
-  // Like the native controller, steer away from a rolling penguin or an opponent with the weight.
-  // FUN_800b46b8 replaces the route heading; the route state still runs FUN_800b4848 (Drain weapons).
-  if (dangerFoe) return !held && canFire() ? fire() : steer(evadeCrushHeading(d, me, headingTo(me, dangerFoe) + Math.PI));
-  if (now < state.retreatUntil) {
-    if (state.resumeFrom && crushRouteBlocked(crushDanger(d, me, me.face, hazards))) startRetreat('retreat');
-    return steer(evadeCrushHeading(d, me, state.retreatAngle));
-  }
-  if (now === state.retreatUntil && state.resumeFrom) return result();
-
-  const taunt = () => {
-    const target = carryCrushTarget(w, d, slot, foes, focus, penguin);
-    if (!target) return result();
-    state.tauntAt = now + 300;
-    state.taunting = true;
-    state.target = target;
-    return result({ ...IDLE, d: true });
-  };
-  // The Triangle branch is available at long range, then waits four ticks before reassessing.
-  if (state.taunting) {
-    if (now < state.tauntAt - 296) return result();
-    const target = byId(state.target);
-    if ((d.tauntAt?.[slot] ?? -1) >= 0 && target) {
-      if (foes.some((foe) => !((d.humanSlots ?? 0) & (1 << foe.slot))
-        && d.cpu?.[foe.slot]?.target === me.id && rawDistanceSq(me, foe) < 0x240000)) {
-        state.target = 0;
-        delete state.taunting;
-      }
-      return steer(headingTo(me, target));
+  });
+  if (d.variant === 'space') { // FUN_800bad70
+    for (let col = 2; col < 18; col++) for (let row = 2; row < 18; row++) {
+      if (!floorAt(d, ((col - 10) * 256 + 128) * U, -((9 - row) * 256 + 128) * U)) grid[row * 20 + col] = 0xff;
     }
-    state.target = 0;
-    delete state.taunting;
-    return result();
-  }
-  if (!held && !weight && !d.air[slot] && now >= state.tauntAt && state.target === 0
-    && nearest > skill * 32 + 0x400) {
-    return taunt();
-  }
-
-  let target = byId(state.target);
-  if (held) {
-    if (target?.kind !== 'player' && !(target && target === penguin && d.penguin <= 0)) {
-      state.target = carryCrushTarget(w, d, slot, foes, focus, penguin);
-      state.throwAt = -1;
-      target = byId(state.target);
+  } else if (d.variant === 'snow') { // FUN_800b8b00
+    for (let col = 8; col < 12; col++) for (let row = 8; row < 12; row++) grid[row * 20 + col] = 0xf0;
+    const g = objects.find((o) => o.kind === 'penguin');
+    if (g) {
+      const cols = [((gameX(g) - 0x80) >> 8) + 10, ((gameX(g) + 0x80) >> 8) + 10];
+      const rows = [9 - ((gameZ(g) - 0x80) >> 8), 9 - ((gameZ(g) + 0x80) >> 8)];
+      for (const c of cols) for (const r of rows) if (c >= 0 && c < 20 && r >= 0 && r < 20) grid[r * 20 + c] |= 0x40;
     }
+  }
+  return grid;
+}
+
+/** FUN_800b5e28 samples two lanes 120 units either side of the motion yaw, from 352 units ahead in 256-unit steps. */
+function crushLanes(slot: number, me: Body, yaw: number, grid: Uint8Array): number[][] {
+  const c = cos12(yaw), s = cos12(yaw + 0x400), back = cos12(yaw + 0x800);
+  const sideX = (c * 15) >> 9, sideZ = (s * 15) >> 9, aheadX = (s * 11) >> 7, aheadZ = (back * 11) >> 7;
+  const own = slot << 5 | 0x80;
+  const lane = (x: number, z: number) => {
+    const cells: number[] = [];
+    while (cells.length < 8 && ((x + 0x7ff) >>> 0) < 0xfff && z < 0x800 && z > -0x800) {
+      let cell = grid[(9 - (z >> 8)) * 20 + (x >> 8) + 10];
+      if ((cell & 0xf0) === own) cell &= 0x1f;
+      cells.push(cell);
+      x += s >> 4;
+      z += back >> 4;
+    }
+    while (cells.length < 8) cells.push(0xfe);
+    return cells;
+  };
+  const x = gameX(me), z = gameZ(me);
+  return [lane(x + sideX + aheadX, z + sideZ + aheadZ), lane(x - sideX + aheadX, z - sideZ + aheadZ)];
+}
+
+/** Nitro, lit TNT, the weight and the slow potion block a lane. */
+const laneHazard = (cell: number) => { const k = cell & 0x3f; return k > 5 && (k < 8 || (k < 0x16 && k > 0x13)); };
+
+/** FUN_800b6138 */
+function crushRouteCheck(bot: CrushBot, lanes: number[][], carrying: boolean, pad: CrushPad): boolean {
+  const blocked = [0, 1, 2].map((i) => {
+    const [a, b] = [lanes[0][i], lanes[1][i]];
+    return a === 0xff || b === 0xff || a === 0xfe || b === 0xfe || laneHazard(a) || laneHazard(b);
+  });
+  if (!blocked[0]) return false;
+  if (carrying) { bot.state = 13; return true; }
+  if (blocked[1] || blocked[2]) {
+    bot.yaw14 = (bot.yaw14 + 0x31c) & 0xfff;
+    bot.saved = bot.state;
+    bot.state = 5;
+    bot.t32 = 30;
+    bot.tgt = -1;
+    bot.obj = 0;
+    return true;
+  }
+  pad.bits |= PAD_CROSS; // +0x1d holds the jump through its full rise
+  return false;
+}
+
+/** FUN_800bb100 ignores the off-grid marker. */
+function crushTurnBlocked(lanes: number[][]): boolean {
+  return [0, 1, 2].some((i) => {
+    const [a, b] = [lanes[0][i], lanes[1][i]];
+    return a === 0xff || b === 0xff || laneHazard(a) || laneHazard(b);
+  });
+}
+
+/** FUN_800b6fe0: nearest live opponent, or 0 when none is within 0x7fffff squared units. */
+function crushNearest(ai: CrushPass, slot: number): number {
+  const me = ai.ps[slot]!;
+  let best = 0x7fffff;
+  ai.ps.forEach((p, i) => {
+    if (i === slot || !inPlay(p)) return;
+    const dx = gameX(me) - gameX(p), dz = gameZ(me) - gameZ(p);
+    best = Math.min(best, dx * dx + dz * dz);
+  });
+  return best === 0x7fffff ? 0 : rawDist(best);
+}
+
+/** FUN_800b6da4: the resting penguin on one draw in ten, else a live slot drawn by weight. */
+function crushVictim(ai: CrushPass, slot: number): number {
+  let total = 0;
+  ai.ps.forEach((p, i) => { if (i !== slot && inPlay(p)) total += ai.weight[i]; });
+  if (slot < 4 && ai.objects.some((o) => o.kind === 'penguin') && ai.d.peng?.s === 1
+    && drawDiscRandom(ai.random, 10) === 0) return 6;
+  if (total) {
+    const pick = drawDiscRandom(ai.random, total);
+    let sum = 0;
+    for (let i = 0; i < ai.ps.length; i++) {
+      if (i === slot || !inPlay(ai.ps[i])) continue;
+      sum += ai.weight[i];
+      if (pick < sum) return i;
+    }
+  }
+  return -1;
+}
+
+/** FUN_800b46b8: flee an opponent holding the weight within 1024 units, then the running penguin within 1536. */
+function crushFlee(ai: CrushPass, slot: number): number {
+  const me = ai.ps[slot]!;
+  for (let i = 0; i < ai.ps.length; i++) {
+    const p = ai.ps[i];
+    if (i === slot || !inPlay(p) || crushPower(ai.d, i) !== EFF_WEIGHT) continue;
+    const dx = gameX(me) - gameX(p), dz = gameZ(me) - gameZ(p);
+    if (dx * dx + dz * dz <= 0xfffff) return atan2g(dx, dz);
+  }
+  const g = ai.objects.find((o) => o.kind === 'penguin');
+  if (!g || ai.d.peng?.s !== 3) return 0;
+  const dx = gameX(g) - gameX(me), dz = gameZ(g) - gameZ(me);
+  return dx * dx + dz * dz < 0x240000 ? atan2g(-dx, -dz) : 0;
+}
+
+/** FUN_800b4848 fires a Drain weapon: the ring needs a live player within 0x51000 squared, the others aim at any slot. */
+function crushFire(ai: CrushPass, slot: number, heading: number, bot: CrushBot, pad: CrushPad) {
+  const d = ai.d, me = ai.ps[slot]!;
+  if (!(d.ammo[slot] > 0) || d.wcd[slot] > 0) return;
+  let pick = -1;
+  if (crushPower(d, slot) !== W_RING) {
+    let best = 0x800;
+    ai.ps.forEach((p, i) => {
+      if (i === slot || !p) return;
+      const gap = angleGap(heading, atan2g(gameX(p) - gameX(me), gameZ(p) - gameZ(me)));
+      if (gap < best) { best = gap; pick = i; }
+    });
   } else {
-    state.throwAt = -1;
-    if ((!target && state.target > 0) || (target && target.kind !== 'player' && !crateBotTarget(d, target))) state.target = 0;
-    if (state.target === 0) {
-      const next = chooseCrushTarget(w, d, me, foes, nearest, skill, state.resumeFrom);
-      if (next !== undefined) { state.target = next; delete state.resumeFrom; }
-      return canFire() ? fire() : result();
-    }
+    let best = 0x51000;
+    ai.ps.forEach((p, i) => {
+      if (i === slot || !inPlay(p)) return;
+      const dx = gameX(me) - gameX(p), dz = gameZ(me) - gameZ(p), d2 = dx * dx + dz * dz;
+      if (d2 < best) { best = d2; pick = i; }
+    });
   }
-
-  const station = state.target < 0 ? EDGE_STATIONS[-state.target - 1] : undefined;
-  const at = target ?? (station ? { x: station[0] * U, z: station[1] * U } : undefined);
-  if (!at) return result();
-  const angle = headingTo(me, at);
-  const danger = crushDanger(d, me, me.face, hazards);
-  const closeFoe = foes.find((foe) => rawDistance(me, foe) < SPIN_R + PLAYER_R
-    && Math.abs(me.y - foe.y) < PLAYER_H * U);
-
-  if (held && target) {
-    const dist = rawDistance(me, target);
-    const range = STANDOFF[slot] + (16 - skill) * 32;
-    const panic = held.kind === 'tnt' && held.fall && (d.cs[held.id]?.fuse ?? FUSE) < crushDraw(w, slot, 4, 4);
-    const obstruction = crates(w).some((obj) => obj !== held && obj.cd === 0 && d.cs[obj.id]?.s === C_IDLE
-      && Math.hypot(obj.x - me.x - Math.sin(face) * 256 * U, obj.z - me.z - Math.cos(face) * 256 * U) < 256 * U);
-    const atEdge = Math.max(Math.abs(me.x), Math.abs(me.z)) >= Math.min(0x780 * U, CT_HALF - me.r - 4 * U);
-    if (state.throwAt < 0 && (closeFoe || danger[0] || obstruction || panic || atEdge && dist <= range
-      || (dist > range && dist < range + 256))) state.throwAt = now + 5;
-    if (state.throwAt >= 0) {
-      if (now >= state.throwAt && nearAngle(face, angle, 0x155 * TAU / 4096) && !d.prevA[slot]) {
-        state.target = 0;
-        state.throwAt = -1;
-        return result({ ...IDLE, a: true });
-      }
-      return steer(angle);
-    }
-    if (dist <= range) {
-      state.retreatUntil = now + 10;
-      state.retreatAngle = angle + Math.PI;
-      return steer(evadeCrushHeading(d, me, state.retreatAngle));
-    }
-    return steer(angle);
-  }
-
-  if (crushRouteBlocked(danger)) {
-    startRetreat(station ? 'station' : target?.kind === 'player' ? 'opponent' : 'object');
-    return steer(angle);
-  }
-  if (station && rawDistanceSq(at, me) < 0x4000) return taunt();
-
-  if (canFire()) return fire();
-
-  if (!d.air[slot] && !d.prevB[slot] && closeFoe && !weight && !guarded(d, closeFoe.slot)) {
-    const char = d.char[slot] ?? 1;
-    const inRange = (char !== 3 && char !== 4) || nearAngle(face, headingTo(me, closeFoe), Math.PI / 4);
-    if (inRange && (station || target === closeFoe || crushDraw(w, slot, 5, 3) === 0)) {
-      state.target = 0;
-      return result({ ...IDLE, b: true });
-    }
-  }
-
-  if (!d.air[slot] && !d.prevA[slot] && target && isCrate(target) && findPick(w, d, me) === target) {
-    state.target = 0;
-    return result({ ...IDLE, a: true });
-  }
-
-  if (danger[0] && !d.air[slot] && !d.prevC?.[slot]) {
-    state.jumpUntil = now + 18;
-    state.retreatAngle = angle;
-    return steer(angle, { c: true });
-  }
-  return steer(angle);
+  if (pick < 0) return;
+  bot.tgt = -1;
+  bot.state = 1;
+  pad.bits |= PAD_SQUARE;
 }
 
+/** FUN_800864cc: the first live player whose hull overlaps ours. */
+function crushContact(ai: CrushPass, slot: number): number {
+  const d = ai.d, me = ai.ps[slot]!, hull = CT_HULL[d.char[slot] - 1];
+  for (let i = 0; i < ai.ps.length; i++) {
+    const p = ai.ps[i];
+    if (i === slot || !inPlay(p)) continue;
+    if (!bodyOverlapsHeight(d, p, me.y + hull[1] * U, me.y + hull[2] * U)) continue;
+    if (dist2(me.x, me.z, p.x, p.z) < me.r + p.r) return i;
+  }
+  return -1;
+}
+
+/** FUN_800c2b60(p, 3): the first touchable object within 256 units of the point 256 units ahead. */
+function crushAhead(ai: CrushPass, me: Body): Body | undefined {
+  const yaw = yawOf(me.face);
+  const x = gameX(me) - (cos12(yaw - 0x400) >> 4), z = gameZ(me) - (cos12(yaw) >> 4);
+  return ai.objects.find((o) => {
+    if (o.kind === 'chest' && ai.d.cs[o.id]?.s === CT_CHEST_SHRINK) return false;
+    const dx = gameX(o) - x, dz = gameZ(o) - z;
+    return dx * dx + dz * dz < 0x10000;
+  });
+}
+
+/** FUN_800b62ec scores objects, opponents and roaming. Returns false when nothing qualifies. */
+function crushSearch(ai: CrushPass, slot: number, bot: CrushBot): boolean {
+  const { d, w } = ai;
+  const me = ai.ps[slot]!;
+  const skill = ai.skill[slot];
+  const power = crushPower(d, slot);
+  drawDiscRandom(ai.random, 0x100);
+  let [close, far] = crushNearest(ai, slot) < 0x300 ? [0, 8] : [8, 0];
+  let bias = drawDiscRandom(ai.random, 0x1000);
+  let armed = 0;
+  if (d.ammo[slot] > 0) {
+    armed = 0xa0;
+    [close, far] = power === W_ORB || power === W_MISSILE ? [0, 10] : [10, 0];
+  }
+  let crateWeight = 0x20;
+  let interest = (skill - 16) * 2 | 1;
+  let fruit = (FRUIT_INTEREST[Math.max(0, Math.min(20, Math.trunc(d.hp[slot])))] + (16 - skill) * 4) << 16 >> 16;
+  if (power === EFF_WEIGHT) {
+    armed = 0xa0; interest = 0x200; crateWeight = 0; close = 0x200; far = 0; fruit = 0;
+  }
+  const roamBase = (0x180 - (16 - skill) * 0x10) << 16 >> 16;
+  const roamRow = [[6, 0x4000], [3, 0x2000], [4, 0x3000], [8, 0x4000]][ai.level] ?? [6, 0x4000];
+  let roam = drawDiscRandom(ai.random, roamRow[0]) === 0 ? Math.imul(roamBase, fruit) + roamRow[1] : 0;
+  if (bot.t30) {
+    bias = drawDiscRandom(ai.random, 0x400);
+    interest = 0; close = 0; far = 0;
+  }
+  const x = gameX(me), z = gameZ(me);
+  const distTo = (o: Body) => rawDist((x - gameX(o)) ** 2 + (z - gameZ(o)) ** 2);
+  let objectScore = 0, objectId = 0;
+  const offer = (o: Body, value: number) => { if (objectScore < value) { objectScore = value; objectId = o.id; } };
+  for (const o of ai.objects) {
+    const current = bot.obj === o.id;
+    const kind = crushKind(d, o);
+    switch (kind) {
+      case 1: case 3: case 4: case 5:
+        if (crushResting(d, o)) offer(o, Math.imul(0x1000 - Math.abs(distTo(o) - bias), crateWeight + 8) >> (current ? 8 : 0));
+        break;
+      case 2: {
+        let value = Math.abs(distTo(o) - bias) * 400;
+        if (power) value >>= 8;
+        offer(o, value >> (current ? 4 : 0));
+        break;
+      }
+      case 0xe:
+        if (crushResting(d, o)) {
+          const dist = distTo(o), shift = current ? 8 : 0;
+          offer(o, Math.imul(Math.max(0, 0x800 - dist), close + crateWeight) >> shift);
+          offer(o, Math.imul(dist, far | crateWeight) >> shift);
+        }
+        break;
+      case 0x11:
+        offer(o, Math.imul(Math.max(0, 0xe00 - distTo(o)), close + fruit) >> (current ? 12 : 0));
+        break;
+      case 0x12: case 0x13: case W_MISSILE: case W_ORB: case W_RING:
+        offer(o, Math.abs(distTo(o) - bias) * 250 >> (current ? 8 : 0));
+        break;
+    }
+  }
+  let opponentScore = 0, opponentSlot = -1;
+  ai.ps.forEach((p, i) => {
+    if (i === slot || !inPlay(p)) return;
+    if (power !== EFF_WEIGHT) {
+      const cargo = holdingCrate(w, i);
+      if (!cargo) interest = 0;
+      else if (ai.level === 1) interest += crushKind(d, cargo) === 7 ? 1 : 5;
+      else interest += crushKind(d, cargo) === 7 ? 8 : 16;
+    }
+    if ((d.tauntAt?.[i] ?? -1) >= 0) interest += 0x20;
+    const dist = distTo(p), share = interest << 16 >> 16, shift = bot.tgt === i ? 6 : 0;
+    const near = Math.imul(Math.max(0, 0x800 - dist), close + share + armed) >> shift;
+    const away = Math.imul(dist, far - share - armed) >> shift;
+    if (opponentScore < near) { opponentScore = near; opponentSlot = i; }
+    if (opponentScore < away) { opponentScore = away; opponentSlot = i; }
+  });
+  if (bot.saved === 3) opponentScore = 0;
+  else if (bot.saved === 2) objectScore = 0;
+  else if (bot.saved === 4) roam = 0;
+  let target = -1;
+  if (!(objectScore < roam) || roam <= opponentScore) {
+    if (opponentScore < objectScore) { bot.obj = objectId; bot.tgt = -1; return true; }
+    if (opponentScore < 0x15) return false;
+    target = opponentSlot;
+  } else {
+    // The first station farther than 0x7fffff squared from every other slot, eliminated ones included.
+    let best = 0;
+    CRUSH_STATIONS.forEach(([sx, sz], i) => {
+      let clear = 0x7fffff;
+      ai.ps.forEach((p, j) => { if (j !== slot && p && (sx - gameX(p)) ** 2 + (sz - gameZ(p)) ** 2 < clear) clear = 0; });
+      if (best < clear) { best = clear; target = i + 7; }
+    });
+  }
+  bot.tgt = target;
+  bot.obj = 0;
+  return true;
+}
+
+/** FUN_800b4ab0 for one CPU slot. */
+function crushController(ai: CrushPass, slot: number): CrushPad {
+  const { w, d } = ai;
+  const bot = ai.cpu[slot], me = ai.ps[slot];
+  const pad: CrushPad = { bits: 0 };
+  if (!inPlay(me)) return pad;
+  if (bot.yaw14 < 0) bot.yaw14 = yawOf(me.face);
+  if (bot.t30) bot.t30--;
+  if (bot.t32) bot.t32--;
+  if (bot.t24) bot.t24--;
+  if (bot.t26) bot.t26--;
+  const state = crushPlayerState(w, d, slot, bot);
+  if (state === 0xd || state === 0x13) { bot.tgt = -1; bot.t32 = 5; bot.obj = 0; bot.state = 6; }
+  let dist2 = 0;
+  let heading = yawOf(d.f8[slot]);
+  const roll = drawDiscRandom(ai.random, 0x100);
+  const x = gameX(me), z = gameZ(me);
+  let obj = bot.obj ? ai.objects.find((o) => o.id === bot.obj) : undefined;
+  if (bot.obj) {
+    if (obj && crushResting(d, obj)) {
+      const dx = gameX(obj) - x, dz = gameZ(obj) - z;
+      dist2 = dx * dx + dz * dz;
+      heading = atan2g(dx, dz);
+    } else { obj = undefined; bot.obj = 0; bot.state = 1; }
+  }
+  if (bot.tgt !== -1) {
+    let at: [number, number] | undefined;
+    if (bot.tgt < 4) {
+      const p = ai.ps[bot.tgt];
+      if (inPlay(p)) at = [gameX(p), gameZ(p)];
+    } else if (bot.tgt === 6) {
+      const g = ai.objects.find((o) => o.kind === 'penguin');
+      if (g && d.peng?.s === 1) at = [gameX(g), gameZ(g)];
+    } else at = CRUSH_STATIONS[bot.tgt - 7];
+    if (at) {
+      const dx = at[0] - x, dz = at[1] - z;
+      dist2 = dx * dx + dz * dz;
+      heading = atan2g(dx, dz);
+    } else { bot.tgt = -1; bot.state = 1; }
+  }
+  const lanes = crushLanes(slot, me, bot.yaw14, ai.grid);
+  const held = holdingCrate(w, slot);
+  const air = d.air[slot];
+  const go = (h = heading): CrushPad => { bot.heading = h & 0xfff; pad.heading = bot.heading; return pad; };
+  const flee = () => { const h = crushFlee(ai, slot); if (h) heading = h; };
+  const taunt = (victim: number): CrushPad => {
+    bot.state = 21; bot.t32 = 4; bot.tgt = victim; bot.t26 = 300;
+    pad.bits |= PAD_TRIANGLE;
+    return pad;
+  };
+  /** The obstacle switch shared by the opponent, station and retreat routes. */
+  const obstacle = (o: Body | undefined): boolean => {
+    if (!o) return false;
+    const kind = crushKind(d, o);
+    if (kind === 3 || kind === 4 || kind === 5 || kind === 7 || kind === 0xe) pad.bits |= PAD_SQUARE;
+    else if (kind < 0x11 || kind > 0x13) pad.bits |= PAD_CROSS;
+    return true;
+  };
+
+  switch (bot.state) {
+    case 2: {
+      if (air) return go();
+      if (bot.tgt !== -1) { bot.state = 3; return pad; }
+      if (!obj) { bot.state = 1; return pad; }
+      if (held) { bot.state = 10; return pad; }
+      flee();
+      if (obj.cd === slot + 1) { bot.state = 1; return pad; }
+      if (crushRouteCheck(bot, lanes, false, pad)) return go();
+      if (ai.level === 3) crushFire(ai, slot, heading, bot, pad);
+      const touch = crushContact(ai, slot);
+      if (touch !== -1 && !d.inv[touch] && !d.lock?.[touch] && drawDiscRandom(ai.random, 3) === 0) pad.bits |= PAD_SQUARE;
+      const ahead = crushAhead(ai, me);
+      if (!ahead) return go();
+      pad.clearCircle = true;
+      const kind = crushKind(d, ahead), targetKind = crushKind(d, obj);
+      const sameKind = kind === targetKind;
+      if (ahead === obj || sameKind) {
+        if (kind === 2) pad.bits |= PAD_SQUARE;
+        else if ([3, 4, 5, 0x11, 0x12, 0x13].includes(kind)) { bot.state = 1; pad.bits |= PAD_CIRCLE; }
+        else if (kind === 7 || kind === 0xe) { bot.state = 1; pad.bits |= PAD_SQUARE; }
+        else pad.bits |= PAD_CROSS;
+      } else if ([2, 3, 4, 5, 7, 0xe].includes(kind)) { bot.state = 1; pad.bits |= PAD_SQUARE; }
+      else if (kind < 0x11 || kind > 0x13) pad.bits |= PAD_CROSS;
+      return go();
+    }
+    case 3: {
+      if (air) return go();
+      if (obj) { bot.state = 2; return pad; }
+      if (bot.tgt === -1) { bot.state = 1; return pad; }
+      if (bot.tgt > 4) { bot.state = 4; return pad; }
+      flee();
+      if (crushRouteCheck(bot, lanes, false, pad)) return go();
+      crushFire(ai, slot, heading, bot, pad);
+      const touch = crushContact(ai, slot);
+      if (touch === bot.tgt) { bot.tgt = -1; bot.state = 1; pad.bits |= PAD_SQUARE; }
+      else if (touch !== -1 && (holdingCrate(w, touch) || (roll & 0x10) === 0)) pad.bits |= PAD_SQUARE;
+      const ahead = crushAhead(ai, me);
+      if (ahead) pad.clearCircle = true;
+      obstacle(ahead);
+      return go();
+    }
+    case 4: {
+      if (bot.tgt === -1) { bot.state = 1; return pad; }
+      flee();
+      if (crushRouteCheck(bot, lanes, false, pad)) return go();
+      crushFire(ai, slot, heading, bot, pad);
+      if (dist2 < 0x4000) {
+        const victim = crushVictim(ai, slot);
+        if (victim !== -1) return taunt(victim);
+        bot.state = 1; bot.tgt = -1; bot.obj = 0;
+      }
+      if (crushContact(ai, slot) !== -1) { bot.tgt = -1; bot.state = 1; pad.bits |= PAD_SQUARE; }
+      obstacle(crushAhead(ai, me));
+      return go();
+    }
+    case 5: {
+      if (bot.t32 === 0) { bot.tgt = -1; bot.obj = 0; bot.state = 1; return pad; }
+      flee();
+      if (crushRouteCheck(bot, lanes, false, pad)) return pad;
+      crushFire(ai, slot, heading, bot, pad);
+      if (crushContact(ai, slot) !== -1) { bot.tgt = -1; bot.state = 1; pad.bits |= PAD_SQUARE; }
+      obstacle(crushAhead(ai, me));
+      return go(bot.yaw14 + 0x800);
+    }
+    case 6:
+      if (bot.t32 === 0 && state === 0) { bot.t32 = 5; bot.state = 7; }
+      return pad;
+    case 7:
+      if (!crushTurnBlocked(lanes)) {
+        if (state === 0) { bot.t26 = 0xb4; bot.t32 = 0x14; bot.tgt = -1; bot.obj = 0; bot.state = 5; }
+        return pad;
+      }
+      pad.bits |= PAD_L2;
+      return pad;
+    case 10: {
+      if (!held) bot.state = 1;
+      const victim = crushVictim(ai, slot);
+      if (victim !== -1) { bot.tgt = victim; bot.obj = 0; bot.state = 12; }
+      return pad;
+    }
+    case 12: {
+      if (bot.tgt === -1 || obj) { bot.state = 10; return pad; }
+      if (!held) { bot.state = 1; bot.tgt = -1; bot.obj = 0; return pad; }
+      flee();
+      if (crushRouteCheck(bot, lanes, true, pad)) return go();
+      if (crushContact(ai, slot) !== -1) { bot.state = 13; bot.t32 = 5; }
+      if (crushAhead(ai, me)) { bot.state = 13; bot.t32 = 5; }
+      if (bot.t32 !== 0) return go();
+      const dist = rawDist(dist2);
+      if (bot.t24 === 0) {
+        const range = STANDOFF[slot] + (16 - ai.skill[slot]) * 32;
+        if (range < dist) {
+          if (dist < range + 0x100) { bot.state = 13; bot.t32 = 5; }
+        } else if (((x + 0x780) >>> 0) < 0xf01 && z < 0x781 && z > -0x781) {
+          heading = (heading + 0x800) & 0xfff;
+          bot.t24 = 10;
+        } else if (angleGap(atan2g(x, z), bot.yaw14) > 0x400) { bot.state = 13; bot.t32 = 5; }
+      } else heading = (heading + 0x800) & 0xfff;
+      if (crushKind(d, held) === 7 && (d.cs[held.id]?.fuse ?? FUSE) < drawDiscRandom(ai.random, 4)) { bot.state = 13; bot.t32 = 5; }
+      return go();
+    }
+    case 13: {
+      const facing = (yawOf(d.f8[slot]) + 0x800) & 0xfff;
+      if (!(d.ammo[slot] > 0)) {
+        if (!held) { bot.state = 1; bot.tgt = -1; bot.obj = 0; return pad; }
+      } else if (!held) {
+        if (bot.t32 !== 0) return go();
+        const power = crushPower(d, slot);
+        if ((power !== W_MISSILE && power !== W_ORB) || angleGap(facing, heading) < 0x155) pad.bits |= PAD_SQUARE;
+        return go();
+      }
+      if (bot.t32 === 0 && (state === 0xf || state === 0x10) && angleGap(facing, heading) < 0x155) pad.bits |= PAD_CIRCLE;
+      return go();
+    }
+    case 21: {
+      const h = crushFlee(ai, slot);
+      if (h) { bot.state = 4; return go(h); }
+      if (bot.t32 !== 0) return pad;
+      if (state === 2) {
+        ai.ps.forEach((p, i) => {
+          if (i === slot || !p || !isCpuSlot(d, i) || ai.cpu[i].tgt !== slot) return;
+          if ((gameX(p) - x) ** 2 + (gameZ(p) - z) ** 2 < 0x240000) { bot.tgt = -1; bot.state = 1; }
+        });
+        return go();
+      }
+      bot.tgt = -1; bot.state = 1; pad.bits = 0;
+      return pad;
+    }
+    default: {
+      pad.bits = 0;
+      if (held) bot.state = 10;
+      if (state !== 0) return pad;
+      if (bot.t30 === 0 && bot.t26 === 0 && ai.skill[slot] * 0x20 + 0x400 < crushNearest(ai, slot)) {
+        const victim = crushVictim(ai, slot);
+        if (victim !== -1) return taunt(victim);
+      }
+      if (ai.level === 3) crushFire(ai, slot, heading, bot, pad);
+      if (bot.t32 === 0 && crushSearch(ai, slot, bot)) {
+        bot.state = bot.obj ? 2 : 3;
+        bot.saved = 0;
+      }
+      return pad;
+    }
+  }
+}
+
+/** FUN_800b5be0 / FUN_80013c94: the pad bits, and DAT_80051370's exact heading whenever a direction is held. */
+function crushInput(pad: CrushPad): InputState {
+  const input: InputState = { ...IDLE };
+  if (pad.heading !== undefined) {
+    input.x = sin12(pad.heading) / 4096;
+    input.y = -cos12(pad.heading) / 4096;
+  }
+  if (pad.bits & PAD_SQUARE) input.b = true;
+  if (pad.bits & PAD_CIRCLE) input.a = true;
+  if (pad.bits & PAD_CROSS) input.c = true;
+  if (pad.bits & PAD_TRIANGLE) input.d = true;
+  if (pad.bits & PAD_L2) input.l = true;
+  if (pad.bits & PAD_R2) input.r = true;
+  return input;
+}
+
+/** Snapshots from before this port carry a different controller layout. */
+function crushBots(d: Data): CrushBot[] {
+  return [0, 1, 2, 3].map((slot) => {
+    const bot = d.cpu?.[slot];
+    return bot && typeof bot.state === 'number' ? bot : newCrushBot();
+  });
+}
+
+function crushSkills(d: Data, levels: (number | undefined)[]): number[] {
+  const row = CRUSH_SKILLS[d.variant] ?? CRUSH_SKILLS.jungle;
+  return levels.map((level) => row[level ?? 2] ?? row[2]);
+}
+
+/**
+ * One update of CPU control: the FUN_800b432c hook (grid, Party focus), then FUN_800b4ab0 for each slot in seat order.
+ * CPU seats draw from the shared CPU stream. Human seats run the same controller on a copy of the stream so a seat that
+ * drops to bot control keeps its route without changing the CPUs' draws. With commit false, everything runs on copies.
+ */
+function crushCpuPass(w: World, commit: boolean): InputState[] {
+  const d = D(w);
+  const random: [number, number] = d.cpuRandom ? [...d.cpuRandom] : discRandomState(w.rng);
+  const ps = [0, 1, 2, 3].map((slot) => players(w).find((p) => p.slot === slot));
+  const objects = w.bodies.filter((b) => b.alive && (isCrate(b) || isPickup(b) || b.kind === 'penguin')).reverse();
+  const ai: CrushPass = {
+    w, d, level: CRUSH_LEVEL[d.variant] ?? 0, ps,
+    cpu: crushBots(d).map((bot) => ({ ...bot })),
+    skill: [...(d.cpuSkill ?? crushSkills(d, [2, 2, 2, 2]))],
+    weight: [...(d.cpuWeight ?? [16, 16, 16, 16])],
+    random, grid: new Uint8Array(0), objects, focus: d.cpuFocus ?? -1,
+  };
+  // FUN_800b432c: once only CPUs remain, every slot gets skill 26 and weight 16, and one live slot is drawn as the
+  // focus with skill 8 and weight 48. An eliminated focus is cleared and redrawn on the following update.
+  if (d.cpuOnly) {
+    if (ai.focus === -1) {
+      ai.skill = [26, 26, 26, 26];
+      ai.weight = [16, 16, 16, 16];
+      const focus = crushVictim(ai, 99);
+      ai.focus = focus < 0 || focus > 3 ? -1 : focus;
+      if (ai.focus >= 0) { ai.weight[ai.focus] = 48; ai.skill[ai.focus] = 8; }
+    } else if (!inPlay(ps[ai.focus])) ai.focus = -1;
+  }
+  ai.grid = crushGrid(d, ps, objects);
+  const inputs = [0, 1, 2, 3].map((slot) => {
+    const cpu = isCpuSlot(d, slot);
+    const pass = cpu ? ai : { ...ai, random: [...ai.random] as [number, number] };
+    const pad = crushController(pass, slot);
+    const bot = ai.cpu[slot];
+    if (inPlay(ps[slot]) && !d.lock?.[slot]) {
+      if (pad.heading !== undefined) bot.yaw14 = (pad.heading + 0x800) & 0xfff;
+      else if (pad.bits & PAD_L2) bot.yaw14 = (bot.yaw14 - 0x100) & 0xfff;
+      else if (pad.bits & PAD_R2) bot.yaw14 = (bot.yaw14 + 0x100) & 0xfff;
+    }
+    bot.pad = pad.bits;
+    bot.dir = pad.heading !== undefined;
+    // The obstacle check clears the previous Circle bit, so a held Circle presses again.
+    if (commit && cpu && pad.clearCircle) d.prevA[slot] = false;
+    return crushInput(pad);
+  });
+  if (commit) {
+    d.cpu = ai.cpu;
+    d.cpuSkill = ai.skill;
+    d.cpuWeight = ai.weight;
+    d.cpuRandom = ai.random;
+    d.cpuFocus = ai.focus < 0 ? undefined : ai.focus;
+  }
+  return inputs;
+}
+
+/** Polling replays the update's CPU pass on copies. It never advances world or CPU state. */
 function botInput(w: World, slot: number): InputState {
-  const contestants = crushContestants(players(w));
-  return planCrushBot(w, slot, contestants, crushFocus(w, D(w), contestants)).input;
+  return crushCpuPass(w, false)[slot] ?? IDLE;
 }

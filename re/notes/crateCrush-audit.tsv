@@ -2,24 +2,24 @@ addr	status	ours(file:line)	note
 800b3a38	match	crateToss.ts:534	installs the player hooks; each hook is ported at its own row
 800b3a9c	match	crateToss.ts:534	per-stage hooks: Snow d70c=b44b0, Drain d724=b95f0
 800b3dd8	match	crateToss.ts:116	setup constants, spawn points and object types 0x1101/0x1102
-800b432c	match	crateToss.ts:619	
+800b432c	fixed	crateToss.ts:2500	hook order per update: grid (86f78/bb7e8/86d88 + stage layer), then the Party focus: skill 26 / weight 16 for all, focus drawn by FUN_800b6da4(99) gets 8 / 48; skills and weights persist in d.cpuSkill / d.cpuWeight
 800b44b0	match	crateToss.ts:62	Snow ice movement hook
-800b46b8	match	crateToss.ts:2085	danger heading: first live player with effect 0x14 within 1024, else the running penguin (state 3) within 1536; heads away
+800b46b8	match	crateToss.ts:2100	danger heading: first live player with power 0x14 within dist2 <= 0xfffff, else the running penguin (state 3) within 0x240000; atan2 of me minus it; a zero heading means none
 800b478c	match	crateToss.ts:2085	tail of 800b46b8: penguin branch
-800b4848	fixed	crateToss.ts:2067	Drain fire check: ring needs a live player within 0x51000 sq; orb and missile always find a slot (bearing < 0x800 over all other slots); firing clears the route target
-800b4ab0	match	crateToss.ts:1871	AI hook; covered by test-crate-cpu ROM regressions
+800b4848	fixed	crateToss.ts:2115	Drain fire: needs ammo and no cooldown; ring needs a live player within 0x51000 sq; orb and missile take the smallest bearing gap under 0x800 over all other slots; firing sets state 1, target -1 and Square
+800b4ab0	fixed	crateToss.ts:2261	full native state machine: states 1,2,3,4,5,6,7,10,12,13,21, timers +0x24/+0x26/+0x30/+0x32, preamble FUN_80015590(0x100), object/target validation, lane scan, pad bits Square/Circle/Cross/Triangle/L2 and the exact 12-bit pad heading; replaces the earlier approximation and its hash draws. CPU slots update in seat order, not the shuffled dispatch order
 800b53d4	match	crateToss.ts:2189	fragment of 800b4ab0 state 2: touching the target object presses Circle
 800b5410	n/a(tail call to 800b5be0)		
 800b566c	n/a(jump-table dispatch inside 800b4ab0)		
 800b5a40	match	crateToss.ts:2150	fragment of 800b4ab0 state 0xc: a lit TNT is thrown when its fuse is below rand(4)
-800b5be0	match	crateToss.ts:2062	AI pad tail: heading to 8-way direction bits
-800b5e28	match	crateToss.ts:2016	
-800b6138	match	crateToss.ts:1983	
+800b5be0	fixed	crateToss.ts:2467	pad tail: v0 = bits | 0x8000 / 0x4000 / 0x2000, resolved from the jump tables at 0x800b34b8..0x800b3620; direction plus the DAT_80051370 heading
+800b5e28	fixed	crateToss.ts:2017	two lanes +-120 from 352 ahead in 256 steps along motion yaw +0x14 over the 0x8009d90c grid; own mark stripped when (cell & 0xf0) matches; off-grid samples read 0xfe
+800b6138	fixed	crateToss.ts:2041	first three samples; 0xff / 0xfe / kinds 6,7,0x14,0x15 block; carrying -> state 13; a later sample too -> yaw +0x31c, saved = state, state 5, 30 updates; else Cross
 800b627c	match	crateToss.ts:2072	tail of 800b6138: blocked route turns 0x31c, state 5 for 30 updates, saves the route at +0x22; otherwise presses Cross
-800b62ec	match	crateToss.ts:1933	
-800b6da4	match	crateToss.ts:1991	
+800b62ec	fixed	crateToss.ts:2164	draw order 0x100, 0x1000, stage roam (6/3/4/8), [0x400 when +0x30]; object kinds 1/3/4/5, 2, 0xe (penguin), 0x11, 0x12/0x13/weapons with the current-target shifts; opponent interest accumulates across slots and a taunting opponent adds 0x20; saved state 2/3/4 zeroes one score
+800b6da4	fixed	crateToss.ts:2082	resting penguin on draw(10) == 0, then draw(sum of live weights)
 800b6f0c	match	crateToss.ts:1912	spectator force victory
-800b6fe0	match	crateToss.ts:1917	AI focus
+800b6fe0	fixed	crateToss.ts:2070	nearest live opponent; 0 when none is within 0x7fffff squared
 800b710c	match	crateToss.ts:114	
 800b7358	fixed	crateToss.ts:322	power-up spawns when none is on the floor; retries when the kind is held or the cell is taken
 800b7d20	match	crateToss.ts:315	spawn timer
@@ -54,11 +54,11 @@ addr	status	ours(file:line)	note
 800bab04	added	crateToss.ts:205	ice glints 0x1101: 9 quads of 0707 part0
 800bac10	match	crateToss.ts:192	Drain chest helper
 800bac5c	match	crateToss.ts:192	
-800bad70	match	crateToss.ts:225	
+800bad70	match	crateToss.ts:225	missing Space tiles read 0xff in both grids
 800baf68	match	crateToss.ts:200	Space tile reset
 800bafb4	match	crateToss.ts:200	Space tile state
 800bafdc	match	crateToss.ts:463	Drain chest edge probe
-800bb100	match	crateToss.ts:700	ground check
+800bb100	fixed	crateToss.ts:2062	state 7 turn check: first three samples, 0xff and hazard kinds only (0xfe ignored)
 800bb184	match	crateToss.ts:700	ground check
 800bb1b4	match	crateToss.ts:1177	arena clamp hook d750
 800bb2bc	match	crateToss.ts:62	ice acceleration
@@ -69,7 +69,7 @@ addr	status	ours(file:line)	note
 800bb4fc	match	crateToss.ts:713	trajectory prediction
 800bb64c	match	crateToss.ts:713	trajectory prediction
 800bb7b8	n/a(empty stub)		
-800bb7e8	match	crateToss.ts:320	
+800bb7e8	match	crateToss.ts:320	object kinds into the grid (AI grid: crushGrid, the oldest object in a cell wins); counts feed the spawn caps
 800bba14	match	crateToss.ts:259	crate init, 0x3fa
 800bbd48	match	crateToss.ts:259	crate init 0x201/0x202
 800bc038	fixed	crateToss.ts:779	TNT beeps at 60/30/0 then blast; kick ids 0x442+slot then 0x3f9 or 0x3f0
@@ -103,7 +103,7 @@ addr	status	ours(file:line)	note
 800c1848	match	crateToss.ts:67	pickup reach and cone
 800c1a30	fixed	crateToss.ts:1180	player vs crate push 248, only while moving except on ice
 800c284c	fixed	crateToss.ts:1181	hurt players are pushed out of crates
-800c2b60	n/a(object list finder; engine plumbing)		
+800c2b60	fixed	crateToss.ts:2153	first touchable object within 256 of the point 256 ahead of the entity yaw (object list order, newest first); includes the bot's own carried crate, as the native carry flags suggest (inferred)
 800c2dac	fixed	crateToss.ts:92	knockout update
 800c2e58	match	crateToss.ts:1358	throw init
 800c2ec8	match	crateToss.ts:1326	carry walk init
@@ -153,9 +153,9 @@ addr	status	ours(file:line)	note
 80085718	match	crateTossResult.ts:41	winner clip load
 80085890	match	crateTossResult.ts:18	winner clip switch to 0x0d
 800860d4	match	crateToss.ts:1100	jump integrator: 108/10 or 72/6, cut 40 above 64; 431 traced samples in crateCrush.md
-800864cc	match	crateToss.ts:1391	
-80086d88	fixed	crateToss.ts:229	players mark their 3x3 grid cells; crate, fruit and power-up spawns no longer land beside a player
-80086f78	match	crateToss.ts:224	grid clear: occupancy is rebuilt from live bodies on every query
+800864cc	fixed	crateToss.ts:2141	AI contact: first live player whose hull overlaps (height and radii); its weight-passing side effects stay in the player bump
+80086d88	fixed	crateToss.ts:229	players mark their 3x3 grid cells (spawner occupancy here, AI grid in crushGrid at crateToss.ts:1986)
+80086f78	match	crateToss.ts:1986	grid clear; spawner occupancy is rebuilt from live bodies on every query, the AI grid once per update
 800871e4	match	crateToss.ts:1217	loss of floor sends ground, carry and action states to the fall entry
 800898ec	fixed	crateToss.ts:447	spirit 0x1c3/0x1c4 after script 0x13
 80089be8	match	client crateToss.ts:477	spirit update through the shared knockout ghost
@@ -173,3 +173,4 @@ addr	status	ours(file:line)	note
 80093038	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
 8009440c	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
 80095258	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
+800859d4	fixed	crateToss.ts:1084	a CPU holding L2/R2 with no direction turns its yaw by 0x100 per update (state 7 recovery turn)
