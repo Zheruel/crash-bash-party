@@ -15,11 +15,13 @@ Sources: `disc/dat/NNNN.t10|t14|t0c.bin` (format: `docs/formats/arenas.md` secti
   tracks between levels (e.g. 0298 = meltPanic + drainBash, 0286 = nballism + pogoAGogo, 0283 = swampFox + dantesDash + dragonDrop,
   0285 = dotDash + splashDash + oxideRide, 0290 = papuPummel + tieBreaker, 0280 = metalFox + bigBadFox, 0279 = tiltPanic + ringDing,
   0292 = malletMash + kegKaboom). Requested names have their own file copies; extras alias the primary file in the index.
-* `sfx/<bank>/<n>.mp3` - one mono mp3 per VAG of each t0c bank (132 banks, 1649 samples, 755 unique files, ~10 MB). Samples that are
+* `sfx/<bank>/<n>.mp3` - one mono mp3 per VAG of each t0c bank (132 banks, 1649 samples, 755 unique files, ~12 MB), 44.1 kHz,
+  64 kbps, rendered as an SPU voice plays it (see "SFX rendering"). Samples that are
   byte-identical to one in an earlier bank have `file` pointing at that earlier file (so a path in the index may name another bank's
   directory). Silent/stub VAGs (e.g. vag0, 84 samples) have `file: null`.
-  Per sample the index gives duration, assumed playback rate, peak, loop start (seconds; null = one-shot).
-* `voices.characters.<name>.banks[0..3]` = 4 voice sets per character; `voices.setByFamily` maps minigame family -> set index.
+  Per sample the index gives duration, playback rate at note 60, peak, loop start (seconds; null = one-shot).
+* `voices.characters.<name>.banks[0..3]` = 4 voice sets per character; `voices.setByFamily` maps minigame family -> set index
+  (informational; the client reads `voices.json`).
 
 ## How music is rendered
 1. `parseSoundBank` (web/client/disc/sound.ts) decodes ADPCM, VAB, SEQ. Extra VAB tone bytes (reverb flag = mode 4, pitch-bend range) read directly.
@@ -38,30 +40,134 @@ Checks done: pitch pipeline (rendered a note at a tone's root and measured f0: w
 no silent tracks, no clipping; lengths 28-149 s plausible for bpm / tick counts (e.g. crashball 160 bpm 6/4, 105216 ticks = 102.7 s).
 Nothing was listened to by a human.
 
-## SFX / voice caveats
-* Playback rate is not stored. Banks are played by the game with explicit pitch; assumed note 60: `rate = 44100 * 2^((60 - root)/12)`.
-  This gives round rates (11025, 22050, 12000...) and round durations (the 10.0 s / 20.0 s single-sample banks 0226-0271 come out at
-  exactly 22050 Hz), so it is likely right, but unverified by ear. `rate` is in the index so a client can resample.
-* Banks 0214-0271 are single long samples (10-20 s, tone center 72/73): probably narration/commentary or long ambience; not identified.
+## SFX rendering
+* A sample's rate is `44100 * 2^((60 - centre + fine/128) / 12)` of the first tone that uses it (the index `rate`; other tones on
+  the same sample are in `pitch.json`, below). `render_music.ts sfx` steps the decoded ADPCM at that rate through the SPU's four-point
+  Gaussian interpolation (`spuVoice`; the hardware table as listed in the PSX-SPX hardware documentation, "4-Point Gaussian
+  Interpolation") and encodes the 44.1 kHz result. Against a band-limited resample this rolls off the top octave (-1.7 dB at a
+  quarter of the source rate, about -7 dB at half) and keeps the images above it (7-28 dB down), which is how the console plays
+  its 6-22 kHz voices and effects. Durations are unchanged (60 files checked: max 0.5 ms).
+  The old files were Catmull-Rom resamples at 8-32 kHz: flat to their Nyquist and empty above it.
+* Emulator check (2026-11-23, pcsx_rearmed in EmulatorJS, music option poked to 0, OpenAL gain node -> ScriptProcessor PCM):
+  "one" / "GO" from bank 0278 correlate 0.98 / 0.91 with our files. The capture has energy above the sample's Nyquist (33 / 27 /
+  25 dB in 6-8 / 8-10 / 10-12 kHz against 58 dB in 500-1000 Hz for "one") where the old files had none. That core uses its
+  "simple" interpolation, which is brighter than the hardware's Gaussian (no top-octave droop, stronger images), so the rendered
+  files sit between the old ones and that capture above 6 kHz and 2-6 dB under it in 3-6 kHz.
+* Tone ADSR is not applied (all voice and announcer tones are 0x800f / 0x1fc4: instant attack, full sustain).
 * UI sounds (`sfx.ui.guesses`) are guesses from duration/spectrum only (short sharp one-shots in 0272/0273).
 * Level SFX banks are in `sfx.levelBanks[<level name>]`; global banks: 0153, titles 0273, warp rooms 0272, podium 0181.
+* Banks 0214-0271 are single 10-20 s samples: the Aku Aku / Uka Uka narration of the adventure mode (warp-room progress lines and
+  the intro / ending dialogue; transcribed with faster-whisper, e.g. 0217 "...you must defeat the mighty Papu Papu", 0268 "Crash,
+  Cortex, welcome..."). Nothing in them names an arena.
 
-## Character voices (partial)
-Banks 0182-0213 are 4 sets x 8 voices: set k = banks `182+8k .. 189+8k`; voice id i uses offset `[6,7,5,4,1,0,3,2][i]` inside a set
-(the exe record at 0x80058b88+20*45 is 14 rows of 8 banks in this order; row = minigame family 0x101..0x10e, set per row:
-4,4,4,4,4,1,2,2,3,2,3,1,4,4). Pitch analysis confirms 8 distinct speakers consistent across all 4 sets. **Which id is which character is
-not established**: names in the index (crash, coco, tiny, dingodile, cortex, nbrio, kongKoala, rillaRoo) are assigned in that assumed
-order and the rough f0 per voice (115-384 Hz) does not match expectations (e.g. id 5 = 115 Hz would be N. Brio), so treat names as
-unverified and listen once to fix the mapping (edit `CHAR_ORDER` / `offs` in cmdIndex).
+## How a sound id is played (exe)
+* `FUN_80022660(id, handle, pos, volume, pitch, flags)` queues a sound; `FUN_8002235c` keys it on the next sound update through
+  `FUN_8002b5b0` -> `SsUtKeyOn(vab, program, tone, note = pitch >> 7, fine = pitch & 0x7f, voll, volr)` (`FUN_800374cc`).
+  Table `0x80064508 + id*2` = {VAB slot, program << 4 | tone}; `FUN_8002aca0` fills it from every loaded VAB, whose tones carry their
+  own id in the min / max note bytes. 0xff = not loaded = silent.
+* Volume: `voll = volume * effectsOption(0x8005a608, 0-100) * 0x7f / 0x64000`, so 0x1000 at option 100 = 127. `FUN_80042b4c`
+  (SpuVmKeyOnNow) turns it into the SPU level `0x3fff * voll/127 * VAB master/127 * program volume/127 * tone volume/127`, with
+  tone / program / call pan. It is linear for `SsUtKeyOn` voices; only sequence notes are squared. Every voice and announcer tone
+  has volume 127 and pan 64, so all of them play at one level.
+* With a position (`pos != 0`) `FUN_8002b210` scales the volume by distance from the camera target (box `0x80064478`) and, in stereo
+  (`0x8005a60c`), pans by screen x. Without one both channels get `volume`.
+* Pitch: `FUN_80042a20` = `2^((note - centre + (fine + shift) / 128) / 12)` from two tables. Every announcer and voice call passes
+  0x1e00 (note 60, fine 0); the only other pitch found in the arena overlays is the Polar Push engine loop (`0x1d80 + speed`).
+* Anim script ops (`FUN_8008502c`): `0x8008 id` plain, `0x8009 id` at the player's position, `0x800a id` on the player's handle
+  (a new one stops the previous), `0x800b` stop the handle; all at 0x1000 / 0x1e00.
+* Options defaults read from RAM at the game options screen: music 70, effects 100, stereo on.
+
+## Character voices
+* Engine character ids: 1 Crash, 2 Coco, 3 Cortex, 4 N. Brio, 5 Tiny, 6 Koala Kong, 7 Dingodile, 8 Rilla Roo. Proof:
+  * The title overlay's character-select table (`0x800b9b44`, 0x28 per cell, read from a title-screen RAM dump) lists engine ids
+    1, 2, 5, 7 / 3, 4, 6, 8 for the two rows the game shows as Crash, Coco, Tiny, Dingodile / Cortex, Brio, Koala Kong (grey koala
+    portrait), Rilla Roo (pink face, brown quiff). Confirming the eighth cell writes 8 to `0x8005a664` and puts the ape in striped
+    trunks on the pedestal; a CPU with id 6 is the grey koala in the red vest (emulator screenshots).
+  * The announcer's name call of each voice block (`FUN_8008a200` case 0: engine 1-8 -> ids 1, 0x33, 0x65, 0x97, 0x12d, 0x15f, 0xfb,
+    0xc9) transcribes as Crash, Coco, Cortex, Brio, Tiny, "Kong", Dingodile, "Rilla Roo" (faster-whisper large-v3).
+  * Model slots (`assets/arenas.json`): engine 6 = model 976, engine 8 = model 978.
+
+  The roster ids `koala` (model 978, engine 8) and `rilla` (976, engine 6) were named the wrong way round; `shared/look.ts` now
+  gives them the right display names (the ids stay as asset keys).
+* Voice block of an engine character = id / 0x32: 1 -> 0, 2 -> 1, 3 -> 2, 4 -> 3, 5 -> 6, 6 -> 7, 7 -> 5, 8 -> 4 (the name-call switch
+  above and the hit table `0x8009e080 + char*8`, identical in all 15 level dumps).
+* Bank per family and character: `FUN_80022140` loads `0x80058f0c[(family - 0x101) * 8 + char - 1]` for each of the four players
+  (families 0x101 titles and 0x102 warp / podium load none). Rows: 0x103 Ring Ding, 0x104 Crate Crush, 0x105, 0x10d Keg Kaboom,
+  0x10e Mallet Mash = 0206-0213 (`c`); 0x106 Tank Wars, 0x10c = 0182-0189 (`tank`); 0x107 Pogo, 0x108 Ballistix, 0x10a Crash Dash =
+  0190-0197 (`a2`); 0x109 Polar Push, 0x10b Dragon Drop = 0198-0205 (`b`). Inside a set the order is Koala Kong, Tiny, Rilla Roo,
+  Dingodile, Brio, Cortex, Crash, Coco. The loaded id table of every level dump agrees (L28 Dragon Drop holds ids 0x14-0x1a, L43
+  podium holds no voice ids).
+* The same function loads the announcer: 0276 for titles / warp / podium, 0278 in versus (mode word `0x8005a646 & 0x1e0 == 0`),
+  0277 otherwise, next to the level bank.
+* Ids a bank holds (n = id - block*0x32), and who keys them:
+
+  | n | sound | family | keyed by |
+  |---|---|---|---|
+  | 1 | announcer: the character's name | all | `FUN_8008a200` case 0, 31 updates after the winner's entry |
+  | 2 | taunt | all | generic script 2 (`0x800a`); Tank Wars table `0x800c94a8[char - 1]` at the tank; Ballistix taunt |
+  | 3-6 | hit: two takes at two pitches (5 / 6 = 3 / 4 at x0.95-0.96; Tank bank: one take at 1, 1.011, 0.95, 0.947) | all | rand(4) of `0x8009e080` (Crate Crush hurt, Polar bump, Crash Dash, Dragon Drop); Tank `0x800c9428` and Keg `0x800bb95c` (same ids, at the player); n 3 alone from Ring Ding script 0x2b and the Pogo stun |
+  | 7 | win reaction | all | `FUN_8008a200` case 2 |
+  | 0xa, 0xb | footsteps | c | Crate Crush hold-walk script 0x11; Keg Kaboom steps |
+  | 0xc | jump | c | generic script 6, Ring Ding 0x2c, Keg 0x65 |
+  | 0xd | land / spin swish | c | generic script 8 (`0x8009`), Keg 0x67 |
+  | 0xe | spin | c | generic script 10 |
+  | 0xf | pick-up | c | Crate Crush script 0xf |
+  | 0x10 | throw | c | Crate Crush script 0x12 (Pogo asks for it too, but the `a2` banks have no such tone) |
+  | 0x11 | swish (unvoiced) | c | not found in a script |
+  | 0x14, 0x15, 0x1a | the polar bear's steps (one sample at 1, 0.871, 0.667) | b | Polar script 0x43 |
+  | 0x16 | dash start | b | Polar script 0x3e, engine 8 only (tick 1) |
+  | 0x17 | short call | b | not found in a script |
+  | 0x18 | dash | b | Polar script 0x3e at tick 15, 14, 30, 30, 23, 12, 16, 16 for engine 1-8; script 0x46 |
+  | 0x19 (0x1a, 0x1b for Cortex) | teeter yelps | b | Polar script 0x46 |
+
+  All tones: volume 127, pan 64, no reverb. `tools/sfx_pitch.py` writes `voices.json` and `pitch.json` from the VABs and the exe table.
+* Scripts can name another character's id (Keg Kaboom: Cortex's jump is Tiny's 0x138, Dingodile's landing is Tiny's 0x139).
+
+## Announcer
+* Banks 0276 (menus), 0277 (adventure), 0278 (versus) share ids 0x190-0x195 (menu blips), 0x19b-0x19f (horn, cup jingles) and
+  0x1a4-0x1a7 = "one", "two", "three", "GO". 0277 adds 0x1b8-0x1bb "you", "win", "lose", "time up"; 0278 adds 0x1ae "team", 0x1af
+  "tie" (the draw call), 0x1b0 "wins", 0x1b1, 0x1b2. Transcribed with faster-whisper; there is no other speech in them.
+* Countdown (`FUN_80082d90`): 0x1a6, 0x1a5, 0x1a4 with the numeral meshes 0x2004-0x2002, then 0x1a7 with GO. Emulator capture of
+  Jungle Bash: "three" / "two" / "one" / "GO" on frames +18 / +46 / +74 / +103 after the rules card (28 updates apart), each at the
+  same level (gain 0.19 per channel against the sample; the character lines on the title screen measure the same).
+* Winner (`FUN_80089fa4` / `FUN_8008a200`): name on update 31, "wins" (0x1b0) after 24-27 further updates by character (the switch
+  stores 0x17 / 0x18 / 0x1a), the win reaction 31 later. Headless capture of `winnerVoice` at 30 Hz for six characters: name /
+  "wins" / reaction on frames 31 / 31 + wait / 62 + wait within 0.4 of a frame, all at one level.
+* Character select (title overlay 0717.t67, `FUN_800b5ca8`): moving the cursor keys `0x800b9cb4[seat]` = 901-904, a human confirm
+  keys the cell's line `0x800b9b64 + cell*0x28` and the seat's `0x800b9ca4[seat]` = 905-908 on the same update, a taken cell keys
+  0x38d. CPUs get the seat sound only. The line is the character's own voice from the titles bank 0273, not the announcer:
+  engine 1-8 -> ids 910, 911, 913, 912, 916, 917, 914, 915 = the win reaction of Crash, Coco, Tiny and Koala Kong and the taunt of
+  Cortex, Brio, Dingodile and Rilla Roo. Emulator captures of all eight confirms match these samples (correlation 0.4-0.75 under the
+  menu music, on the press); `confirmHero` plays them, and the capture of our app correlates 0.69-0.77 with the emulator's.
+* Stage names: the disc has no recording of an arena name. The arena is named in text on the CHOOSE LEVEL screen and the rules
+  card. A 40 s capture from the game options screen through loading to the rules card contains no speech. `announceStage` (TTS in
+  `sfx/custom/stages`) is ours.
+* Podium (family 0x102): no character bank is loaded. The winner's crowd cheer is 0x352 (engine 1, 2), 0x354 (3, 4, 6, 8) or 0x353
+  (5, 7) from bank 0181.
+
+## Mix
+* Emulator captures at the disc's default options: a full-level effect measures 0.19 per channel against its sample; the music of
+  Pogo Painter, Crashball, Tilt Panic and Jungle Bash measures 0.025, 0.023, 0.021 and 0.030-0.037 RMS. Against that ratio our
+  default sliders (music 0.6, effects 0.8) had the music 1.3-7.5 dB low (mean 3.9 dB), so `sound.ts` trims the buses by 1.25 and 0.8.
+  The spread between tracks is real: the tracks are normalised to one RMS when rendered.
+* `VOICE_VOL` is the one level of every voice and announcer cue in `voice.ts`.
+
+## Custom characters (Big Stein, Top G)
+Both run Cortex's scripts (engine 3). `CUSTOM_VOICES` gives them a recording for every voiced id of the table above: 1 name, 2 taunt,
+3-6 hit (two takes; 5 / 6 replay them at Cortex's 0.96 pitch), 7 win, 0xc-0x10 and 0x16-0x1b the effort take (Top G: his dash take
+for 0x16 / 0x18, his pick-up take for 0xf). Foley ids (0xa, 0xb, 0x11, 0x14, 0x15, 0x1c) come from Cortex's bank. `level` brings the
+hit, taunt and win takes to the stock roster's mean level for that cue (they were 1.5-4 dB under it). On the title screen they play
+their taunt, as Cortex does. Not recorded: a separate jump, land, throw or teeter take, a third and fourth hit take, and for Big
+Stein a dash and a pick-up take.
 
 ## Not rendered / unknown
 * seq0 of every t10/t14 (identical 786-event single-channel sequence, program 0 of each bank, 12384 ticks): purpose unknown.
 * Bank 0301 (SCRIPT STUFF music) is empty (1 stub sample).
-* Real PS1 SPU reverb, Gaussian interpolation and exact volume curve are approximated, so timbre/level balance differ slightly from hardware.
+* Music: the real SPU reverb is approximated and the voices are Catmull-Rom resampled (the SFX use the SPU's Gaussian kernel), so the music's timbre differs slightly from hardware.
 
 ## Per-id pitch (tools/sfx_pitch.py -> assets/audio/pitch.json)
 Every effect and voice id is keyed at note 60 (FUN_80022660 pitch 0x1e00 >> 7) against its VAB tone's centre note and fine
-tune, which raises the pitch: SPU rate = 44100 * 2^((60 - centre + fine/128) / 12). The game often reuses one sample for
+tune (`FUN_80042a20`), which raises the pitch: SPU rate = 44100 * 2^((60 - centre + fine/128) / 12). The game often reuses one sample for
 several ids at different pitches (504 ids in 70 banks are not at x1, e.g. the last two of every hit voice at ~0.956, mushroom
 explosions 1 / 0.919 / 0.844 / 0.782). `sfxRate(bank, id)` in web/client/shell/sound.ts returns the rate; voices apply it in
 `playVoiceId`, the games pass it where they know the id (Tank, Dash, Ballistix, Pogo, Ring Ding, Dragon Drop, Mallet, Polar Push, Crate Crush, podium).
