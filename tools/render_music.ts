@@ -415,8 +415,6 @@ function cmdMusic(only: Set<number> | null): Record<string, any> {
 
 // ---------------------------------------------------------------- sfx
 
-const MP3_RATES = [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100];
-
 function stats(x: Float32Array, rate: number) {
   let pk = 0, sq = 0, zc = 0;
   for (let i = 0; i < x.length; i++) { const a = Math.abs(x[i]); if (a > pk) pk = a; sq += x[i] * x[i]; if (i && (x[i] >= 0) !== (x[i - 1] >= 0)) zc++; }
@@ -424,14 +422,45 @@ function stats(x: Float32Array, rate: number) {
   return { peak: +pk.toFixed(3), rms: +Math.sqrt(sq / Math.max(1, x.length)).toFixed(4), zcrHz: +(zc / 2 / Math.max(dur, 1e-6)).toFixed(0) };
 }
 
-function resample(x: Float32Array, from: number, to: number): Float32Array {
-  if (from === to) return x;
-  const n = Math.max(1, Math.round((x.length * to) / from));
-  const out = new Float32Array(n), r = from / to, last = x.length - 1;
-  for (let i = 0; i < n; i++) {
-    const p = i * r, k = p | 0, f = p - k;
-    const y0 = x[k > 0 ? k - 1 : 0], y1 = x[Math.min(k, last)], y2 = x[Math.min(k + 1, last)], y3 = x[Math.min(k + 2, last)];
-    out[i] = (((0.5 * (y3 - y0) + 1.5 * (y1 - y2)) * f + (y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3)) * f + 0.5 * (y2 - y0)) * f + y1;
+/**
+ * A sample as an SPU voice outputs it: stepped at `from` / 44100 through the SPU's four-point Gaussian interpolation
+ * (`out = g[255 - i] * oldest + g[511 - i] * older + g[256 + i] * old + g[i] * new`, i = the top eight bits of the
+ * fraction; the hardware table). It rolls the top octave off (about -1.7 dB at a quarter of the source rate, -7 at
+ * half) and leaves the images above it 7 to 28 dB down, which is the console's sound for its 6-22 kHz samples. A
+ * band-limited resample has neither.
+ */
+const SPU_GAUSS = [
+  -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,0,0,0,0,0,0,0,1,1,1,1,2,2,2,3,3,3,4,4,5,5,6,7,7,8,9,9,10,11,12,13,
+  14,15,16,17,18,19,21,22,24,25,27,28,30,32,33,35,37,39,41,44,46,48,51,53,56,58,61,64,67,70,73,77,80,84,87,91,95,99,
+  103,107,111,116,120,125,130,135,140,145,150,156,161,167,173,179,186,192,199,205,212,219,227,234,242,250,257,266,274,
+  283,291,300,309,319,328,338,348,358,369,379,390,401,412,424,436,448,460,473,485,498,512,525,539,553,567,582,597,612,
+  627,643,659,675,692,708,726,743,761,779,797,816,835,854,874,894,914,935,956,977,999,1020,1043,1066,1089,1112,1136,
+  1160,1184,1209,1234,1260,1286,1312,1339,1366,1394,1422,1450,1479,1508,1537,1567,1598,1628,1660,1691,1723,1756,1789,
+  1822,1856,1890,1924,1959,1995,2031,2067,2104,2141,2179,2217,2256,2295,2334,2374,2415,2456,2497,2539,2582,2624,2668,
+  2712,2756,2801,2846,2892,2938,2985,3032,3079,3128,3176,3225,3275,3325,3376,3427,3479,3531,3584,3637,3691,3745,3799,
+  3855,3910,3967,4023,4081,4138,4197,4255,4315,4374,4435,4495,4557,4619,4681,4744,4807,4871,4935,5000,5065,5131,5197,
+  5264,5332,5399,5468,5536,5606,5676,5746,5817,5888,5959,6032,6104,6177,6251,6325,6400,6475,6550,6626,6702,6779,6856,
+  6934,7012,7091,7170,7249,7329,7409,7490,7571,7653,7735,7817,7900,7983,8066,8150,8234,8319,8404,8489,8575,8661,8748,
+  8834,8922,9009,9097,9185,9273,9362,9451,9541,9630,9720,9811,9901,9992,10083,10174,10266,10358,10450,10542,10635,
+  10727,10820,10913,11007,11100,11194,11288,11382,11476,11571,11665,11760,11855,11950,12045,12140,12236,12331,12427,
+  12522,12618,12714,12809,12905,13001,13097,13193,13289,13385,13481,13577,13673,13769,13865,13961,14056,14152,14248,
+  14343,14439,14534,14630,14725,14820,14915,15010,15104,15199,15293,15387,15481,15575,15669,15762,15855,15948,16041,
+  16133,16226,16317,16409,16500,16592,16682,16773,16863,16953,17042,17131,17220,17308,17396,17484,17571,17658,17744,
+  17830,17916,18001,18086,18170,18254,18337,18420,18502,18584,18665,18746,18826,18905,18985,19063,19141,19219,19295,
+  19372,19447,19522,19597,19671,19744,19816,19888,19959,20030,20100,20169,20238,20306,20373,20439,20505,20570,20634,
+  20698,20760,20822,20884,20944,21004,21063,21121,21178,21235,21290,21345,21399,21452,21505,21556,21607,21657,21706,
+  21754,21801,21848,21893,21938,21982,22025,22066,22107,22148,22187,22225,22262,22299,22334,22369,22402,22435,22467,
+  22498,22527,22556,22584,22611,22637,22662,22686,22709,22731,22752,22772,22791,22809,22826,22842,22857,22872,22885,
+  22897,22908,22918,22927,22935,22942,22948,22953,22957,22960,22962,22963,
+];
+function spuVoice(x: Float32Array, from: number): Float32Array {
+  const step = from / SR, last = x.length - 1;
+  const n = Math.max(1, Math.ceil(x.length / step));
+  const out = new Float32Array(n);
+  const at = (j: number) => (j < 0 || j > last ? 0 : x[j]);
+  for (let o = 0; o < n; o++) {
+    const p = o * step, k = Math.floor(p), i = Math.floor((p - k) * 256);
+    out[o] = (SPU_GAUSS[255 - i] * at(k - 1) + SPU_GAUSS[511 - i] * at(k) + SPU_GAUSS[256 + i] * at(k + 1) + SPU_GAUSS[i] * at(k + 2)) / 0x8000;
   }
   return out;
 }
@@ -462,14 +491,14 @@ function cmdSfx(): Record<string, any> {
       const hash = createHash('sha1').update(Buffer.from(pcm.buffer)).update(String(Math.round(rate))).digest('hex');
       let rel = sfxDone.get(hash);
       if (!rel) {
-        const target = MP3_RATES.find((r) => r >= rate * 0.97) ?? 44100;
-        const x = resample(pcm, rate, target);
-        const gain = st.peak > 0.97 ? 0.97 / st.peak : 1;
-        if (gain !== 1) for (let i = 0; i < x.length; i++) x[i] *= gain;
+        const x = spuVoice(pcm, rate);
+        let pk = 0;
+        for (let i = 0; i < x.length; i++) pk = Math.max(pk, Math.abs(x[i]));
+        if (pk > 0.97) for (let i = 0; i < x.length; i++) x[i] *= 0.97 / pk;
         rel = `sfx/${id}/${v}.mp3`;
-        encodeMp3([x], target, path.join(OUT, rel), target >= 22050 ? 56 : 40);
+        encodeMp3([x], SR, path.join(OUT, rel), 64);
         sfxDone.set(hash, rel);
-        entry.mp3Rate = target;
+        entry.mp3Rate = SR;
       } else entry.dupOf = rel;
       entry.file = rel;
       samples.push(entry);
@@ -483,7 +512,8 @@ function cmdSfx(): Record<string, any> {
 
 // ---------------------------------------------------------------- index
 
-const CHAR_ORDER = ['crash', 'coco', 'tiny', 'dingodile', 'cortex', 'nbrio', 'kongKoala', 'rillaRoo'];
+// Voice bank of a character inside a set of eight (182 + 8k + offset): exe table 0x80058f0c, names from the announcer's calls.
+const VOICE_BANK_OFFSET: Record<string, number> = { crash: 6, coco: 7, cortex: 5, brio: 4, tiny: 1, koalaKong: 0, dingodile: 3, rillaRoo: 2 };
 
 function cmdIndex(): void {
   const levels = loadLevels();
@@ -504,14 +534,9 @@ function cmdIndex(): void {
   }
   const levelsOut: Record<string, any> = {};
   for (const l of levels) if (l.name) levelsOut[l.name] = { musicFile: l.music, sfxBanks: l.sfx.map((x) => String(x).padStart(4, '0')) };
-  // voice banks: 8 characters x 4 sets (182-189, 190-197, 198-205, 206-213). Position of a character inside the
-  // 8-entry voice record is [212,213,211,210,207,206,209,208] = offsets [6,7,5,4,1,0,3,2] (character order assumed).
-  const offs = [6, 7, 5, 4, 1, 0, 3, 2];
-  const f0 = [278, 296, 183, 384, 280, 115, 333, 227]; // median f0 (Hz) measured per voice id, rough
+  // voice banks: 8 characters x 4 sets (182-189, 190-197, 198-205, 206-213), FUN_80022140 / table 0x80058f0c
   const voices: Record<string, any> = {};
-  CHAR_ORDER.forEach((c, i) => {
-    voices[c] = { voiceId: i, confidence: 'low (name assumed from record order; ids 0-7 are certain)', medianF0Hz: f0[i], banks: [182, 190, 198, 206].map((b) => String(b + offs[i]).padStart(4, '0')) };
-  });
+  for (const [c, off] of Object.entries(VOICE_BANK_OFFSET)) voices[c] = { banks: [182, 190, 198, 206].map((b) => String(b + off).padStart(4, '0')) };
   const families = ['titles', 'warpPodium', 'ringDing', 'crateCrush', 'papuPummel', 'tankWars', 'pogoPainter', 'ballistix', 'polarPush', 'crashDash', 'dragonDrop', 'oxideRide', 'kegKaboom', 'malletMash'];
   const voiceSetOfFamily: Record<string, number> = {};
   const setSeq = [4, 4, 4, 4, 4, 1, 2, 2, 3, 2, 3, 1, 4, 4];
@@ -528,7 +553,7 @@ function cmdIndex(): void {
         guesses: Object.fromEntries(Object.entries({ cursorMove: 7, cursorSelect: 9, cursorBack: 8, thudSmall: 19, tickSmall: 25, tickSmall2: 26 }).map(([k, n]) => [k, sfxMeta['0272'].samples[n].file])),
       },
     },
-    voices: { characters: voices, setByFamily: voiceSetOfFamily, note: 'banks[i] = voice set i+1 (182-189, 190-197, 198-205, 206-213). Character names are an ASSUMPTION (see docs/audio.md); groups of 4 banks per character are certain.' },
+    voices: { characters: voices, setByFamily: voiceSetOfFamily, note: 'banks[i] = voice set i+1 (182-189, 190-197, 198-205, 206-213); the client reads voices.json (tools/sfx_pitch.py). See docs/audio.md.' },
   };
   writeFileSync(path.join(OUT, 'index.json'), JSON.stringify(idx, null, 1));
   console.log('index.json written', Object.keys(music).length, 'music keys', Object.keys(sfxMeta).length, 'sfx banks');

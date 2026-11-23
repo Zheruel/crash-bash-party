@@ -14553,9 +14553,6 @@
  "voices": {
   "characters": {
    "crash": {
-    "voiceId": 0,
-    "confidence": "low (name assumed from record order; ids 0-7 are certain)",
-    "medianF0Hz": 278,
     "banks": [
      "0188",
      "0196",
@@ -14564,9 +14561,6 @@
     ]
    },
    "coco": {
-    "voiceId": 1,
-    "confidence": "low (name assumed from record order; ids 0-7 are certain)",
-    "medianF0Hz": 296,
     "banks": [
      "0189",
      "0197",
@@ -14574,10 +14568,7 @@
      "0213"
     ]
    },
-   "tiny": {
-    "voiceId": 2,
-    "confidence": "low (name assumed from record order; ids 0-7 are certain)",
-    "medianF0Hz": 183,
+   "cortex": {
     "banks": [
      "0187",
      "0195",
@@ -14585,10 +14576,7 @@
      "0211"
     ]
    },
-   "dingodile": {
-    "voiceId": 3,
-    "confidence": "low (name assumed from record order; ids 0-7 are certain)",
-    "medianF0Hz": 384,
+   "brio": {
     "banks": [
      "0186",
      "0194",
@@ -14596,10 +14584,7 @@
      "0210"
     ]
    },
-   "cortex": {
-    "voiceId": 4,
-    "confidence": "low (name assumed from record order; ids 0-7 are certain)",
-    "medianF0Hz": 280,
+   "tiny": {
     "banks": [
      "0183",
      "0191",
@@ -14607,10 +14592,7 @@
      "0207"
     ]
    },
-   "nbrio": {
-    "voiceId": 5,
-    "confidence": "low (name assumed from record order; ids 0-7 are certain)",
-    "medianF0Hz": 115,
+   "koalaKong": {
     "banks": [
      "0182",
      "0190",
@@ -14618,10 +14600,7 @@
      "0206"
     ]
    },
-   "kongKoala": {
-    "voiceId": 6,
-    "confidence": "low (name assumed from record order; ids 0-7 are certain)",
-    "medianF0Hz": 333,
+   "dingodile": {
     "banks": [
      "0185",
      "0193",
@@ -14630,9 +14609,6 @@
     ]
    },
    "rillaRoo": {
-    "voiceId": 7,
-    "confidence": "low (name assumed from record order; ids 0-7 are certain)",
-    "medianF0Hz": 227,
     "banks": [
      "0184",
      "0192",
@@ -14657,6 +14633,6 @@
    "kegKaboom": 3,
    "malletMash": 3
   },
-  "note": "banks[i] = voice set i+1 (182-189, 190-197, 198-205, 206-213). Character names are an ASSUMPTION (see docs/audio.md); groups of 4 banks per character are certain."
+  "note": "banks[i] = voice set i+1 (182-189, 190-197, 198-205, 206-213); the client reads voices.json (tools/sfx_pitch.py). See docs/audio.md."
  }
 }
