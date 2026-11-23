@@ -1,0 +1,120 @@
+addr	status	ours	note
+800b33a4	match		hook table: input 717c, turn 70c4, clamp 9054, push 7b48, Square 8e64, power 6e1c, end 6238, AI 5ba0; state ids 0x42/0x47/0x48
+800b347c	match	web/shared/games/malletMash.ts:607	spawner reset: n, cooldown, golds 0, gold timer 600, stage timer 15 s
+800b34f8	match	web/shared/games/malletMash.ts:607	spawner: cooldown, gold timer (golds<4), free state-1 slots, stage advance, spawn every 0x14 below cap
+800b3668	fixed	web/shared/games/malletMash.ts:511	mushroom update; added the up flag (model at floor y) that makes it solid; explosion sound take now from the sim RNG after the wave
+800b3a9c	n/a(decompiler fragment of 800b3668)		
+800b3d28	fixed	web/shared/games/malletMash.ts:161	spot search; distances now use the PS1 square root (FUN_80032490)
+800b3f10	match	web/shared/games/malletMash.ts:573	crate init: timer idx*0x5a+0x1e, word 0x200f, solid flag 0x200
+800b4038	match	web/shared/games/malletMash.ts:573	crate update; solid while state 10/0xc/4/6 (y at floor)
+800b4454	fixed	web/shared/games/malletMash.ts:174	nearest target; PS1 square root
+800b478c	n/a(decompiler fragment of 800b4454)		
+800b47c8	match	web/shared/games/malletMash.ts:195	points 2/3/5, gold 10/15/20; 0x71d+p and 0x72b (view BANK 10+p, 19)
+800b4910	fixed	web/shared/games/malletMash.ts:213	shock wave; added the victim hit voice (rand(4) of 0x8009e080) with sim RNG; PS1 sqrt; control-mode 2/3 velocity branch n/a
+800b4bc8	n/a(adventure mode flag 0x80 ranking)		
+800b5050	n/a(adventure mode flag 0x20 ranking)		
+800b53d4	n/a(team ranking fragment)		
+800b5410	n/a(team ranking fragment)		
+800b54d8	n/a(countdown mode flag 0x40: first to zero)		
+800b566c	n/a(ranking fragment of 800b54d8)		
+800b5820	match	web/shared/games/malletMash.ts:681	versus ranking: highest score, ties to lower slot, top two equal = draw; team branch n/a
+800b5a40	n/a(team ranking fragment)		
+800b5ba0	match	web/shared/games/malletMash.ts:416	AI: flee sum within 0x1000, target modes 2-5 (frame parity), reach table, Square rules; FUN_800b60fc team-only
+800b60fc	n/a(team mode partner distance)		
+800b61b0	match		AI target query 0x301
+800b61f8	match		AI reset (mode 1, cooldown 0)
+800b6238	match		end dispatcher; only the versus branch FUN_800b5820 is reachable in party play
+800b627c	n/a(decompiler fragment of 800b6238)		
+800b62c8	match	web/shared/games/malletMash.ts:81	squared distance
+800b62ec	n/a(object-type hook stub)		
+800b630c	n/a(stage prop anim init, view stage)		
+800b6380	match	web/client/games/malletMash.ts:268	shock ring scale/yaw (view)
+800b6414	match		shock ring init (view, word 0x2014 part 19)
+800b64b4	fixed	web/shared/games/malletMash.ts:406	crate smash: rand(2) power then rand(4) of 0x3f5-0x3f8; sound take now from the sim RNG
+800b6560	n/a(empty)		
+800b6568	match	web/shared/games/malletMash.ts:573	two crates at init
+800b65f0	match	web/shared/games/malletMash.ts:511	mushroom init scale 0xc00, solid flag
+800b66c8	match	web/shared/games/malletMash.ts:511	spawn into slot n, timer rand(10)+n*5
+800b6774	match		CPU skill from the last CPU slot (default 0x10)
+800b67c4	match	web/shared/games/malletMash.ts:607	per-frame hook: spawner then skill
+800b67f4	match		AI tables (versus 22/25/30)
+800b6868	n/a(HUD sprite setup)		
+800b688c	n/a(HUD sprite setup)		
+800b68bc	n/a(adventure HUD)		
+800b68ec	n/a(countdown mode start scores)		
+800b69a0	n/a(adventure HUD)		
+800b69d0	match		camera constants (LEVEL_CAMS 29)
+800b6a1c	match		level init order, floor -16
+800b6aac	n/a(overlay hook registration)		
+800b6afc	n/a(empty)		
+800b6b04	match	web/client/games/malletMash.ts:303	floating score number + add to score
+800b6cd8	match	web/shared/games/malletMash.ts:204	power-up pickup: boots 180 frames 0x41c, shock 0x72e
+800b6e1c	match	web/shared/games/malletMash.ts:507	held icon follows head, spins 0x38; boots timer
+800b6efc	match	web/shared/games/malletMash.ts:254	wave: tag 1 centre, ring 0x1a03, 0x72d + radius 0x600 + mushrooms for shock power, else 0x380; 0x72f+p
+800b70c4	match	web/shared/games/malletMash.ts:492	turn diff>>2 when unlocked or in windup
+800b717c	match	web/shared/games/malletMash.ts:479	pad to heading/speed; CPU speed tables 0x800b9440/94e0 = 45/80 + max(0, skill-15), capped 62/97
+800b72fc	match	web/shared/games/malletMash.ts:236	enter idle
+800b738c	match	web/shared/games/malletMash.ts:325	idle
+800b747c	match	web/shared/games/malletMash.ts:333	run: push, footsteps on markers 8/9 (char bank +10/+11); effect 0x15 branch n/a
+800b76cc	match	web/shared/games/malletMash.ts:348	windup: face target, event 8 -> charge/swing
+800b77fc	match	web/shared/games/malletMash.ts:360	charge until event 8 and release
+800b7908	match	web/shared/games/malletMash.ts:367	swing: 0x721+p at event 0xc; event 8 wave/target/0x710+p
+800b7b48	fixed	web/shared/games/malletMash.ts:54	added the push out of solid objects (mushrooms r181, crates r128, + probe 0x78, rand(16) jitter on 0x100 angles, mover only); PS1 sqrt; mallet-head shape 1 absent in L29 models; held-crate and 0x8009d748 callback n/a
+800b7ee4	fixed		decompiler fragment of 800b7b48 (object loop)
+800b8098	fixed		decompiler fragment of 800b7b48 (object loop)
+800b8550	match	web/shared/games/malletMash.ts:394	loser shrink 0x80/frame, puff script 1 at 0, shadow off
+800b8714	match	web/shared/games/malletMash.ts:268	draw flag -> idle
+800b876c	match	web/shared/games/malletMash.ts:244	enter lose
+800b8814	match	web/shared/games/malletMash.ts:268	lose flag -> 0x48
+800b886c	match	web/shared/games/malletMash.ts:387	winner: lock 2, heading 0, cheer sequence
+800b8918	match	web/shared/games/malletMash.ts:243	enter win
+800b89d8	match	web/shared/games/malletMash.ts:268	win flag -> 0x47
+800b8a30	match	web/shared/games/malletMash.ts:381	recovery until event 9
+800b8af4	match	web/shared/games/malletMash.ts:241	enter swing
+800b8b3c	match	web/shared/games/malletMash.ts:240	enter charge
+800b8ba0	match	web/shared/games/malletMash.ts:239	enter windup: 0x719+p
+800b8c3c	match	web/shared/games/malletMash.ts:343	stun: push while knocked back
+800b8cb4	match	web/shared/games/malletMash.ts:238	enter stun: 0x1e frames
+800b8d3c	match	web/shared/games/malletMash.ts:237	enter run
+800b8d88	match	web/shared/games/malletMash.ts:325	idle -> run when moving
+800b8e08	match	web/shared/games/malletMash.ts:333	run -> idle when stopped
+800b8e64	match	web/shared/games/malletMash.ts:325	Square held -> windup
+800b8ef0	n/a(empty)		
+800b8ef8	match	web/shared/games/malletMash.ts:204	drop power-up
+800b8f64	match	web/shared/games/malletMash.ts:511	spawn clamp 0x880
+800b9054	match	web/shared/games/malletMash.ts:506	arena clamp 0x980 - radius
+800b9144	match		clamp + shadow follow
+800b91bc	match		player reset
+800b9264	match		reset all players
+800b96f4	match	web/client/scene/podiumCam.ts:1	podium camera (podiumCam.ts)
+80013c94	match		pad feed: CPU pad acts next frame
+800142d4	n/a(matrix setup for shape 1, unused)		
+80015480	match	web/shared/games/malletMash.ts:79	unsigned angle difference
+80015758	n/a(GTE transform for shape 1, unused)		
+80015780	match		tag 1 position (MALLET_HEAD table)
+8001cd04	n/a(shape 1 transform, unused)		
+80024e30	n/a(stage prop animation)		
+800250b0	n/a(stage prop animation)		
+80025a48	match		shape 0x40 lookup: player override radius, mushroom 181, crate 128 (L29 RAM)
+80026540	n/a(shadow sprite)		
+80026684	n/a(object collision registration)		
+8002694c	n/a(object flag set)		
+80026980	match		loser leaves camera tracking (view)
+80026ad8	n/a(object collision registration)		
+80028018	todo(owner rumble of 5 frames on a power wave needs web/client/shell/rumble.ts; victim 15 frames matches)		
+80032490	fixed	web/shared/games/malletMash.ts:81	now used for every distance (ps1SqrtQ6)
+8007b120	n/a(team totals)		
+8007b7fc	n/a(HUD)		
+8007d144	n/a(countdown mode HUD)		
+8007eb1c	n/a(HUD)		
+80084e04	match		hit request with 0x446 (view BANK 27)
+8008502c	match	web/shared/games/malletMash.ts:115	anim script interpreter
+800854c0	match	web/shared/games/malletMash.ts:115	anim start
+80086fcc	match		action hook (Square) first; generic jump/attack paths unused
+800871e4	n/a(fall/ground check; the floor is flat)		
+80089fa4	match	web/client/shell/voice.ts:198	winner sequence start (voice.ts)
+8008a200	match	web/shared/games/malletMash.ts:67	winner cheer sequence (voice.ts)
+8008ab04	n/a(pad bit clear hook)		
+8008ab48	n/a(empty)		
+8008abf8	match	web/shared/games/malletMash.ts:268	end flags in idle/run
+8008d5d4	match		floating number (realFx)
