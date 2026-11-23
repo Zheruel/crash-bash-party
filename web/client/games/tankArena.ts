@@ -4,7 +4,6 @@ import { JungleStatueView } from './tankJungleStatues';
 import { initialMetalWalls } from '../../shared/games/tankArenaMetalWalls';
 import { TANK_STOCK_WEAPON, tankGunIdle } from '../../shared/games/tankWeaponPose';
 import { CHARACTERS, DISC_CHARACTER } from '../../shared/look';
-import { poseTicks } from './playerPose';
 import { createCharacter } from '../characters';
 import type { ActorParts } from './kit';
 import { canvasTexture, catalogInstance, disposeTree, hasProp, Kit, makeCrate, preloadCatalogFor, propObject } from './kit';
@@ -524,8 +523,9 @@ export function createTankArenaView(): ClientMiniGame {
           const tk = d.tk?.[b.slot];
           const st = tk?.st ?? 0x6e;
           const tick = nativeResult ? w.tick : kit.playerWorld(b.slot).tick;
-          const age = tick - (tk?.animAt ?? 0);
-          const action = tk?.anim && age < poseTicks(tk.anim, tk.char) ? tk.anim : 0x59;
+          // The sim restarts the pilot script as the overlay does (FUN_800854c0 / FUN_800b6ed8).
+          const age = Math.max(0, tick - (tk?.animAt ?? 0));
+          const action = tk?.anim ?? 0x59;
           // FUN_800babcc / FUN_800bacd4: the winner spins the pilot and turret;
           // on the tracked tanks the hull counter-rotates to keep its bearing.
           const win = nativeResult ? nativeResult.winner === b.slot && nativeResult.poseAt !== undefined
@@ -570,7 +570,7 @@ export function createTankArenaView(): ClientMiniGame {
           const hit = damageState === 0x69 || damageState === 0x6a;
           a.update(b, dt, { hidden: damageState === 0x6b, role: hit ? 'hit' : 'idle', freeze: true, keepYaw: win,
             script: win ? (winAge < loadTicks ? leadScript : 0x5c) : damageState === 0x69 ? 0x57 : damageState === 0x6a ? 0x58 : action,
-            scriptFrame: win ? (winAge < loadTicks ? winAge : winAge - loadTicks) : hit ? damageFrame : action !== 0x59 ? age : undefined });
+            scriptFrame: win ? (winAge < loadTicks ? winAge : winAge - loadTicks) : hit ? damageFrame : tk?.anim !== undefined ? age : undefined });
           if (win) { a.yaw.rotation.y = face - spin; a.holder.position.y = 0; }
           if (variant === 'swamp') a.pivot.rotation.z = -(tk?.bank ?? 0) * 2 * Math.PI / 4096;
           const t = tanks.get(b.slot);
@@ -673,10 +673,6 @@ export function createTankArenaView(): ClientMiniGame {
         return;
       }
       switch (e.k) {
-        case 'shoot':
-          kit.actorForSlot(e.s)?.squash.kick(0.12);
-          kit.shake(e.s === ctx.mySlot ? 0.05 : 0.015);
-          break;
         case 'statueSlam':
           kit.real.play(776, 0, e.x, e.v, e.z);
           break;
@@ -685,28 +681,26 @@ export function createTankArenaView(): ClientMiniGame {
           break;
         case 'floatingMineBlast':
           kit.real.play(PACK, 16, e.x, e.v, e.z);
-          kit.shake(0.35);
           break;
-        case 'explode':
-          // mine: script 16 (FUN_800bd384); thrown bomb: script 1 (FUN_800bc27c)
-          kit.real.play(PACK, e.v > 1.3 ? 1 : 16, e.x, 0, e.z);
-          kit.shake(0.35);
+        case 'explode': // timed mine: script 16
+          kit.real.play(PACK, 16, e.x, 0, e.z);
+          break;
+        case 'bombBlast': // FUN_800bc27c: script 1 at the bomb
+          kit.real.play(PACK, 1, e.x, e.v, e.z);
           break;
         case 'trapCatch':
           if (variant !== 'swamp') kit.real.sprite(SMOKE, SMOKE_FRAMES, e.x, e.v, e.z, { life: 9 / 30, add: true });
           kit.real.play(PACK, 3, e.x, e.v, e.z);
           break;
         case 'crateBreak':
-        case 'land':
+        case 'crateLand':
           kit.real.play(PACK, 3, e.x, e.v, e.z);
           break;
         case 'taunt': // Triangle taunt (clip 0x5a): voice id 0x800c94a8[char-1] = block*0x32 + 2, from the Tank Wars voice banks
           charVoice('tank', ctx.seats[e.s]?.look.char, 2);
           break;
-        case 'hit':
-          hitVoice('tank', ctx.seats[e.s]?.look.char);
-          kit.actorForSlot(e.s)?.hit(0.8);
-          kit.shake(0.25);
+        case 'hitVoice': // FUN_800ba964: 0x800c9428[char][rand(4)]
+          hitVoice('tank', ctx.seats[e.s]?.look.char, undefined, e.v);
           break;
         case 'shellMuzzle':
           kit.real.play(PACK, e.o, e.x, e.v, e.z, { yaw: e.yaw, add: true });
@@ -730,7 +724,6 @@ export function createTankArenaView(): ClientMiniGame {
           const take = e.id % 2;
           sfx.playFile('sfx/0154/' + (23 + take) + '.mp3', 0.65, true, sfxRate(TANK_BANK[variant], 0x1c3 + take));
           kit.real.play(PACK, 14, e.x, 0, e.z); // the wreck blows up when the dying clip ends (script 14, sfx 0x4f0)
-          kit.shake(0.7);
           break;
         }
       }
