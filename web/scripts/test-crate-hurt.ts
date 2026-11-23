@@ -117,4 +117,30 @@ for (const [char, disc] of DISC_CHARACTER.entries()) {
   assert.equal(blast, 91);
 }
 
-console.log('Crate Crush hurt, knockout, power-up and crate cue timing passed.');
+{
+  // FUN_800b879c: touching the sleeping penguin does nothing; a thrown crate wakes it.
+  const { w, p } = fixture('snow');
+  const g = w.bodies.find(b => b.kind === 'penguin')!;
+  Object.assign(p, { x: 300 * CT_U, z: 0 });
+  for (let i = 0; i < 10; i++) step(w, { x: -1 });
+  assert.equal(w.data.peng.s, 1);
+  assert.ok(Math.hypot(p.x, p.z) >= 332 * CT_U - 1e-9);
+  const c = { ...p, id: w.nextId++, kind: 'crate', slot: -1, x: 400 * CT_U, z: 0, y: 200 * CT_U, cd: 0, dash: 1, r: 120 * CT_U };
+  w.bodies.push(c);
+  w.data.cs[c.id] = { s: 3, t: 0, hv: 60, vv: 0, up: false, dx: -1, dz: 0, own: 1, fuse: 0, kt: 0, item: 0 };
+  Object.assign(p, { x: -1500 * CT_U, z: -1500 * CT_U });
+  step(w);
+  const woke = step(w);
+  assert.equal(w.data.peng.s, 2);
+  assert.ok(cues(woke).includes(0x426));
+  let wake = 0;
+  while (w.data.peng.s === 2) { step(w); wake++; }
+  assert.equal(wake, 73);
+  let run = 0, far = 0;
+  while (w.data.peng.s === 3) { step(w); run++; far = Math.max(far, Math.hypot(g.x, g.z) / CT_U); }
+  assert.equal(run, 513);
+  assert.ok(far > 1270 && far < 1282, String(far));
+  assert.equal(w.data.peng.e, 2);
+}
+
+console.log('Crate Crush hurt, knockout, power-up, penguin and crate cue timing passed.');

@@ -1464,6 +1464,19 @@
     "hit": 1
    }
   },
+  "ctGlint": {
+   "model": 707,
+   "scale": 3.6,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "yaw": 0,
+   "parts": [
+    "part0"
+   ]
+  },
   "ctZ": {
    "model": 798,
    "scale": 3.6,

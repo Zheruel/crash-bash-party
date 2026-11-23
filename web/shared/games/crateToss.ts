@@ -129,7 +129,7 @@ const DRAIN_WEAPONS = [25, 27, 28, 25, 28, 27, 28, 25, 27, 28, 27, 25, 27, 28, 2
 /** crate sub state */
 const C_GROW = 0, C_IDLE = 1, C_HELD = 2, C_THROWN = 3, C_SLIDE = 4, C_DELAY = 5, C_FALL = 7, C_DROP = 8;
 export const CT_CHEST_REVEAL = 6, CT_CHEST_SHRINK = 9;
-interface CS { homing?: boolean; touchable?: boolean; fruitFrame?: number; releasedAt?: number; gripScript?: number; gripFrame?: number; walking?: boolean; pitch?: number; s: number; t: number; hv: number; vv: number; up: boolean; dx: number; dz: number; own: number; fuse: number; kt: number; item: number }
+interface CS { kc?: number; homing?: boolean; touchable?: boolean; fruitFrame?: number; releasedAt?: number; gripScript?: number; gripFrame?: number; walking?: boolean; pitch?: number; s: number; t: number; hv: number; vv: number; up: boolean; dx: number; dz: number; own: number; fuse: number; kt: number; item: number }
 
 interface Data {
   char: number[];
@@ -155,6 +155,7 @@ interface Data {
   floor: number[];
   drainWeaponIndex?: number;
   openingSpawns?: Record<number, number>;
+  /** 1 while the penguin runs (native state 3) */
   penguin: number;
   cs: Record<number, CS>;
   cells: number[]; cur: number; deck: number[]; di: number;
@@ -166,7 +167,16 @@ interface Data {
   dying?: number[];
   /** cause of the knockout per slot: 1 = the weight went off (state 0x12) */
   outBy?: number[];
+  /** Snow penguin (objects 0x1102): native state, animation entry and frame, run timer and orbit angle */
+  peng?: CtPenguin;
 }
+
+/** FUN_800b879c state 1 sleeps (entry 0, or entry 2 on the way back), 2 wakes (entry 1), 3 runs. */
+export interface CtPenguin { s: number; e: number; f: number; t: number; a: number; hit?: boolean }
+/** Penguin script 0x800c3654: wake event 8 after 73 updates, sleep loop 60, return 54; sounds per entry frame. */
+export const CT_PENGUIN_WAKE = 73, CT_PENGUIN_LOOP = 60, CT_PENGUIN_RETURN = 54;
+// Marker 0x50 of mesh 0x2001 (copied at init) and marker 0x400 of the running mesh 0x2002 in 0798.t29.
+const PENGUIN_BODY = 212, PENGUIN_REACH = 384, PENGUIN_H = 622;
 
 const players = (w: World) => w.bodies.filter((b) => b.kind === 'player');
 const CRATE_KINDS = ['crate', 'tnt', 'nitro', 'chest'];
@@ -422,7 +432,6 @@ function destroy(w: World, d: Data, c: Body, skip: number, chain = true) {
       const os = csOf(d, o);
       if (os.s !== C_DELAY) { os.s = C_DELAY; os.t = CHAIN_DELAY; os.own = -1; if (o.cd) o.cd = 0; }
     }
-    if (d.variant === 'snow' && d.penguin <= 0 && dist2(c.x, c.z, 0, 0) / U < BLAST_R + 300) wakePenguin(w, d);
   }
   if (s.own >= 0) { /* score credit is given on the hit events */ }
   delete d.cs[c.id];
@@ -514,11 +523,12 @@ function stepChestReveal(w: World, d: Data, c: Body, s: CS) {
   }
 }
 
-function wakePenguin(w: World, d: Data) {
-  d.penguin = 210;
-  const g = w.bodies.find((b) => b.kind === 'penguin');
-  if (g) emit(w, 'penguinWake', g.x, g.z, -1, 1);
+/** Flag 2 on the penguin (a moving crate, FUN_800bf404, or a spin, FUN_800c159c). Only a sleeping penguin reacts. */
+function hitPenguin(d: Data) {
+  if (d.peng) d.peng.hit = true;
 }
+const sin12 = (a: number) => Math.round(4096 * Math.sin((a & 0xfff) * TAU / 4096));
+const cos12 = (a: number) => Math.round(4096 * Math.cos((a & 0xfff) * TAU / 4096));
 
 // ---------- setup ----------
 export const crateToss: MiniGame = {
@@ -573,7 +583,11 @@ export const crateToss: MiniGame = {
     d.deck = deck;
     if (variant === 'drain') d.drainWeaponIndex = Math.floor(rand(w) * DRAIN_WEAPONS.length);
     d.di = Math.floor(rand(w) * 32) + 20;
-    if (variant === 'snow') { const g = addBody(w, 'penguin', -1, 0, 0, 1.1, 8); g.face = 0; }
+    if (variant === 'snow') {
+      const g = addBody(w, 'penguin', -1, 0, 0, PENGUIN_BODY * U, 8);
+      g.face = -0xe3 * TAU / 4096;
+      d.peng = { s: 1, e: 0, f: CT_OPENING_TICKS, t: 0, a: 0 };
+    }
     for (const s of slots) {
       d.char[s.slot] = DISC_CHARACTER[s.char ?? s.slot] ?? 1;
       const [x, z] = SPAWN[s.slot];
@@ -1180,6 +1194,15 @@ function clampPlayer(w: World, d: Data, p: Body) {
     const nx = dd > 1e-6 ? (p.x - c.x) / dd : 1, nz = dd > 1e-6 ? (p.z - c.z) / dd : 0;
     p.x = c.x + nx * (m + 1 * U); p.z = c.z + nz * (m + 1 * U);
   }
+  // The penguin is in the same collidable list, with its 212-unit marker.
+  const g = w.bodies.find((b) => b.kind === 'penguin');
+  if (g && pushed && bodyOverlapsHeight(d, p, g.y, g.y + PENGUIN_H * U)) {
+    const dd = dist2(p.x, p.z, g.x, g.z), m = (CRATE_R + PENGUIN_BODY) * U;
+    if (dd < m) {
+      const nx = dd > 1e-6 ? (p.x - g.x) / dd : 1, nz = dd > 1e-6 ? (p.z - g.z) / dd : 0;
+      p.x = g.x + nx * (m + 1 * U); p.z = g.z + nz * (m + 1 * U);
+    }
+  }
   const lim = ARENA * U - p.r;
   p.x = Math.max(-lim, Math.min(lim, p.x));
   p.z = Math.max(-lim, Math.min(lim, p.z));
@@ -1374,12 +1397,14 @@ function spinHit(w: World, d: Data, p: Body) {
     const direction = Math.atan2(c.x - p.x, c.z - p.z);
     if (char >= 3 && char <= 6 && Math.abs(angDiff(p.face, direction)) >= PICK_CONE) continue;
     kickCrate(w, d, c, s, slot, direction);
-    break; // FUN_800c159c signals one crate.
+    return; // FUN_800c159c signals one object.
   }
+  const g = w.bodies.find((b) => b.kind === 'penguin');
+  if (g && bottom < g.y + PENGUIN_H * U && dist2(g.x, g.z, cx, cz) < (hit.radius + PENGUIN_BODY) * U) hitPenguin(d);
 }
 
 /** the crate was hit (flag 2): it slides away along one of 8 directions; nitro goes off, tnt is lit */
-function kickCrate(w: World, d: Data, c: Body, s: CS, by: number, ang: number) {
+function kickCrate(w: World, d: Data, c: Body, s: CS, by: number, ang: number, kickChar = d.char?.[by] ?? 1) {
   if (c.kind === 'chest') {
     s.s = CT_CHEST_REVEAL; s.t = -3; s.homing = true; s.own = by; s.hv = 0;
     c.face = snap8(ang);
@@ -1390,7 +1415,7 @@ function kickCrate(w: World, d: Data, c: Body, s: CS, by: number, ang: number) {
   // FUN_800bc038: the kicker's id from 0x8009e2b4, then state 9 plays 0x3f9 (wood, lit TNT) or lights the TNT (0x3f0).
   if (by >= 0 && by < 4) cue(w, 0x442 + by, c.x, c.z, true, c.y);
   const lit = c.kind === 'tnt' && c.fall;
-  s.s = C_SLIDE; s.own = by; s.hv = longKick(d.char?.[by] ?? 1) ? 112 : 80; s.dx = Math.sin(a); s.dz = Math.cos(a); s.kt = 2; s.t = 0;
+  s.s = C_SLIDE; s.own = by; s.kc = kickChar; s.hv = longKick(kickChar) ? 112 : 80; s.dx = Math.sin(a); s.dz = Math.cos(a); s.kt = 2; s.t = 0;
   c.dash = 2;
   if (c.kind === 'tnt' && !lit) lightTnt(w, d, c, s);
   else cue(w, 0x3f9, c.x, c.z, true, c.y);
@@ -1479,7 +1504,7 @@ function stepCrate(w: World, d: Data, c: Body) {
     case C_SLIDE: {
       s.t++;
       if (s.kt > 0) s.kt--;
-      s.hv = Math.max(0, s.hv - (d.variant === 'snow' ? 2 : longKick(d.char?.[s.own] ?? 1) ? 4 : 3));
+      s.hv = Math.max(0, s.hv - (d.variant === 'snow' ? 2 : longKick(s.kc ?? d.char?.[s.own] ?? 1) ? 4 : 3));
       c.x += s.dx * s.hv * U; c.z += s.dz * s.hv * U;
       c.face += 0.1;
       const hitWall = clampCrate(c);
@@ -1513,23 +1538,29 @@ function clampCrate(c: Body): boolean {
   return hit;
 }
 
-/** flying / sliding crate against players (and other crates): returns true on contact */
+/** FUN_800bf404: a moving crate (shape radius 128) against players, then the collidable objects. */
 function strike(w: World, d: Data, c: Body, s: CS): boolean {
   for (const p of players(w)) {
     if (!p.alive || p.slot === s.own) continue;
     if (!bodyOverlapsHeight(d, p, c.y, c.y + CRATE_H * U)) continue;
-    if (dist2(p.x, p.z, c.x, c.z) < p.r + CRATE_R * U) return true;
+    if (dist2(p.x, p.z, c.x, c.z) < p.r + 128 * U) return true;
   }
   for (const o of crates(w)) {
     if (o === c || o.cd !== 0) continue;
     const os = d.cs[o.id];
     if (!os || os.s !== C_IDLE) continue;
     if (Math.abs(o.y - c.y) >= CRATE_H * U) continue;
-    if (dist2(o.x, o.z, c.x, c.z) < 2 * CRATE_R * U) {
-      // the target reacts (nitro blows up, others are shoved away), the projectile breaks as well
-      kickCrate(w, d, o, os, s.own, Math.atan2(o.x - c.x, o.z - c.z));
+    if (dist2(o.x, o.z, c.x, c.z) < 256 * U) {
+      // The struck crate gets flag 8 or 2 without an owner: nitro explodes, TNT lights, wood stays put.
+      if (o.kind === 'nitro') destroy(w, d, o, -1);
+      else if (o.kind === 'tnt') lightTnt(w, d, o, os);
       return true;
     }
+  }
+  const g = w.bodies.find((b) => b.kind === 'penguin');
+  if (g && c.y < g.y + PENGUIN_H * U && dist2(g.x, g.z, c.x, c.z) < (PENGUIN_BODY + 128) * U) {
+    hitPenguin(d);
+    return true;
   }
   return false;
 }
@@ -1767,30 +1798,73 @@ function stepShots(w: World, d: Data, live: Body[]) {
 }
 
 // ---------- snow bash penguin ----------
+// FUN_800b879c / 800b8c9c: the penguin sleeps at the center until struck, wakes, then slides an orbit of
+// radius min(0x500, 3/8 sin t) for 512 updates while its 0x400 marker hits players and shoves crates.
 function stepPenguin(w: World, d: Data, live: Body[]) {
   const g = w.bodies.find((b) => b.kind === 'penguin');
-  if (!g) return;
-  if (d.penguin <= 0) {
-    for (const c of crates(w)) if (c.cd === 0 && d.cs[c.id] && d.cs[c.id].s !== C_IDLE && dist2(c.x, c.z, g.x, g.z) < g.r + CRATE_R * U) wakePenguin(w, d);
-    for (const p of live) if (p.alive && dist2(p.x, p.z, g.x, g.z) < g.r + p.r + 0.1) { wakePenguin(w, d); break; }
-    // solid while asleep
-    for (const p of live) { const dx = p.x - g.x, dz = p.z - g.z, dd = Math.hypot(dx, dz) || 1, m = g.r + p.r; if (dd < m) { p.x = g.x + dx / dd * m; p.z = g.z + dz / dd * m; } }
-    return;
+  const pg = d.peng;
+  if (!g || !pg) return;
+  switch (pg.s) {
+    case 1:
+      if (pg.hit) {
+        pg.s = 2; pg.e = 1; pg.f = 0;
+        cue(w, 0x426);
+        // The wake cancels a running fruit burst and delays the next by 600 updates.
+        d.tBurstN = 0; d.tBurst += 600;
+        emit(w, 'penguinWake', g.x, g.z, -1, 1);
+        break;
+      }
+      pg.f++;
+      if (pg.e === 2) {
+        if (pg.f === 14) cue(w, 0x425);
+        if (pg.f >= CT_PENGUIN_RETURN) { pg.e = 0; pg.f = 0; }
+      } else if (pg.f % CT_PENGUIN_LOOP === 38) cue(w, 0x424);
+      break;
+    case 2:
+      if (++pg.f === 26) cue(w, 0x428);
+      if (pg.f >= CT_PENGUIN_WAKE) { pg.s = 3; pg.t = 0x800; }
+      break;
+    case 3: {
+      if (pg.t < 1) {
+        pg.s = 1; pg.e = 2; pg.f = 0;
+        g.x = 0; g.z = 0; g.face = -0xe3 * TAU / 4096;
+        break;
+      }
+      const r = Math.min(0x500, (sin12(pg.t) * 3) >> 3);
+      pg.t -= 4;
+      pg.a = (pg.a + ((0x500 - Math.abs(r)) >> 6) + 0x28) & 0xfff;
+      g.x = ((r * sin12(pg.a)) >> 12) * U;
+      g.z = -((r * cos12(pg.a)) >> 12) * U;
+      penguinContacts(w, d, live, g);
+      g.face -= 0x1c7 * TAU / 4096;
+      break;
+    }
   }
-  d.penguin--;
-  let tgt: Body | null = null, td = Infinity;
-  for (const o of live) { if (!o.alive) continue; const dd = dist2(o.x, o.z, g.x, g.z); if (dd < td) { td = dd; tgt = o; } }
-  const back = d.penguin < 45 || !tgt;
-  const tx = back ? 0 : tgt!.x, tz = back ? 0 : tgt!.z;
-  const dx = tx - g.x, dz = tz - g.z, dd = Math.hypot(dx, dz) || 1;
-  const sp = (back ? 3 : 4.6) / 30;
-  if (dd > 0.2) { g.x += dx / dd * sp; g.z += dz / dd * sp; g.face = Math.atan2(dx, dz); }
-  if (!back && tgt && td < g.r + tgt.r + 0.1) {
-    queueDamage(d, tgt.slot, 5, 0, -1, (tgt.x - g.x) / (td || 1), (tgt.z - g.z) / (td || 1), 96, 0x446); // FUN_800b8c9c: 5 HP, knock 96 raw/tick
-    emit(w, 'penguinHit', tgt.x, tgt.z, tgt.slot, 1);
-    d.penguin = Math.min(d.penguin, 40);
+  pg.hit = false;
+  d.penguin = pg.s === 3 ? 1 : 0;
+}
+
+function penguinContacts(w: World, d: Data, live: Body[], g: Body) {
+  for (const p of live) {
+    if (!p.alive || p.fall || !bodyOverlapsHeight(d, p, g.y, g.y + 630 * U)) continue;
+    const dd = dist2(p.x, p.z, g.x, g.z);
+    if (dd >= p.r + PENGUIN_REACH * U) continue;
+    const nx = dd > 1e-9 ? (p.x - g.x) / dd : 0, nz = dd > 1e-9 ? (p.z - g.z) / dd : 1;
+    queueDamage(d, p.slot, 5, 0, -1, nx, nz, 96, 0x446); // 0x8005: 5 HP, knock 0x60
+    emit(w, 'penguinHit', p.x, p.z, p.slot, 1);
   }
-  if (d.penguin <= 0) { g.x = 0; g.z = 0; }
+  for (const c of crates(w)) {
+    if (c.y >= g.y + 630 * U || c.y + CRATE_H * U <= g.y) continue;
+    const dd = dist2(c.x, c.z, g.x, g.z), m = (PENGUIN_REACH + 128) * U;
+    if (dd >= m) continue;
+    const s = d.cs[c.id];
+    if (!s) continue;
+    if (c.cd) { destroy(w, d, c, -1); continue; } // a carried crate breaks in its holder's hands
+    if (dd > 1e-9) { c.x += (c.x - g.x) / dd * (m - dd); c.z += (c.z - g.z) / dd * (m - dd); }
+    // Owner 6 kicks along the bearing from the arena center with slot 0's kick row.
+    if (c.kind === 'nitro') destroy(w, d, c, -1);
+    else if (s.s === C_IDLE || s.s === C_SLIDE) kickCrate(w, d, c, s, -1, Math.atan2(c.x, c.z), d.char[0]);
+  }
 }
 
 // ---------- AI (FUN_800b4ab0) ----------

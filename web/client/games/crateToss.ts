@@ -1,7 +1,7 @@
 // CRATE CRUSH view (shared/games/crateToss.ts): the real Jungle / Space / Snow / Drain Bash stages, wood / TNT / Nitro crates.
 import * as THREE from 'three';
 import { CT_CHEST_REVEAL, CT_CHEST_SHRINK, CT_FLOOR_N, CT_HP, CT_OPENING_TICKS, CT_RING_COUNT, CT_RING_GAP, CT_RING_TICKS,
-  CT_U, CT_WEAPON_BLAST, CT_WEIGHT_DROP, CT_WEIGHT_OUT, ctActionTicks, ctHurtTicks, ctFruitRise, ctRingScale, floorAt, spaceFloorIndex } from '../../shared/games/crateToss';
+  CT_PENGUIN_LOOP, CT_PENGUIN_RETURN, CT_PENGUIN_WAKE, type CtPenguin, CT_U, CT_WEAPON_BLAST, CT_WEIGHT_DROP, CT_WEIGHT_OUT, ctActionTicks, ctHurtTicks, ctFruitRise, ctRingScale, floorAt, spaceFloorIndex } from '../../shared/games/crateToss';
 import type { Body, GameEvent } from '../../shared/types';
 import { ASSET_BASE, getCatalog } from '../crash';
 import type { BlobShadow } from '../fx';
@@ -106,7 +106,30 @@ export function createCrateTossView(): ClientMiniGame {
   const tiles: THREE.Object3D[] = [];
   const tileRims: THREE.Object3D[] = [];
   let arena: THREE.Group | null = null;
-  let penguin: { obj: THREE.Group; inst: ReturnType<typeof catalogInstance>; z: THREE.Object3D } | null = null;
+  let penguin: { obj: THREE.Group; inst: ReturnType<typeof catalogInstance> } | null = null;
+  /** Object 0x1102 render words: script entries 0 (sleep), 1 (wake) and 2 (return) of 0x800c3654, mesh 0x2002 while sliding. */
+  function penguinWord(pg: CtPenguin | undefined, opening?: number) {
+    if (!pg) return 0x4015;
+    if (pg.s === 3) return 0x2002;
+    if (pg.s === 2) {
+      const i = Math.min(pg.f, CT_PENGUIN_WAKE - 1);
+      return i < 26 ? 0x4100 + i : i < 30 ? 0x4119 + i - 26 : i < 40 ? 0x411d : i < 57 ? 0x411e + i - 40 : i < 67 ? 0x412e : 0x412f + i - 67;
+    }
+    if (pg.e === 2) { const i = Math.min(pg.f, CT_PENGUIN_RETURN - 1); return i < 14 ? 0x4080 + i : 0x408d + i - 14; }
+    const i = (opening ?? pg.f) % CT_PENGUIN_LOOP;
+    return i < 38 ? 0x4015 + i : 0x4000 + i - 38;
+  }
+  /** 0x427 loops on the penguin's handle while it slides (FUN_800b879c state 3). */
+  let penguinLoop: NonNullable<ReturnType<typeof sfx.startSample>> | undefined;
+  function syncPenguinLoop(at: Body | undefined) {
+    if (!at) { penguinLoop?.stop(); penguinLoop = undefined; return; }
+    const camera = follow?.camera;
+    const stereo = camera ? discStereo(camera, Math.round(at.x / CT_U), -16, -Math.round(at.z / CT_U)) : undefined;
+    if (penguinLoop && !penguinLoop.ended) { if (stereo) penguinLoop.setStereo(stereo); return; }
+    const file = idFile(0x427);
+    const loop = bankIdx?.[lv.bank]?.[BANK_IDS[lv.bank]?.[0x427]]?.loop ?? null;
+    penguinLoop = file ? sfx.startSample(file, loop, 1, sfxRate(lv.bank, 0x427), 0, stereo ?? [1, 1]) ?? undefined : undefined;
+  }
   let builtArena = false;
   /** short-lived effect pieces (the game's own blast / smoke / shard / dust meshes) */
   interface Piece { obj: THREE.Object3D; t: number; life: number; v: THREE.Vector3; g: number; s0: number; s1: number; spin: number; fade: boolean; frames?: THREE.Object3D[] }
@@ -179,16 +202,47 @@ export function createCrateTossView(): ClientMiniGame {
     }
   }
 
+  /** Object 0x1101 (FUN_800bab04 / 800b8694): nine glints of level part 0x2001 on the ice. Each shows at a random
+   * point within +-0x780 for rand(3) + 1 updates and hides for rand(15) + 1. Presentation randomness only. */
+  const glints: { obj: THREE.Object3D; shown: boolean; t: number }[] = [];
+  let glintTick = -1;
+  function stepGlints(tick: number) {
+    if (glintTick < 0 || tick < glintTick || tick - glintTick > 60) glintTick = tick;
+    for (; glintTick < tick; glintTick++) for (const g of glints) {
+      if (!g.shown) {
+        if (g.t === 0) {
+          g.obj.position.set((Math.floor(Math.random() * 0xf00) - 0x780) * CT_U, 16 * CT_U, -(Math.floor(Math.random() * 0xf00) - 0x780) * CT_U);
+          g.obj.visible = true;
+          g.t = Math.floor(Math.random() * 3);
+          g.shown = true;
+        } else { g.t--; g.obj.visible = false; }
+      } else if (g.t === 0) { g.t = Math.floor(Math.random() * 15); g.shown = false; }
+      else g.t--;
+    }
+  }
+
   function build() {
     buildArena();
+    glints.length = 0;
+    glintTick = -1;
     if (variant === 'snow') {
+      for (let i = 0; i < 9; i++) {
+        const obj = propClone('ctGlint');
+        obj.visible = false;
+        obj.traverse((m) => {
+          const mesh = m as THREE.Mesh;
+          if (mesh.isMesh) mesh.material = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map((q) => {
+            const c = q.clone(); c.blending = THREE.AdditiveBlending; c.depthWrite = false; c.transparent = true; return c;
+          });
+        });
+        kit.root.add(obj);
+        glints.push({ obj, shown: false, t: Math.floor(Math.random() * 15) });
+      }
       const inst = catalogInstance(getCatalog().props.ctPenguin);
       const obj = new THREE.Group();
       if (inst) obj.add(inst.root);
-      const z = propClone('ctZ');
-      billboards.add(z);
-      kit.root.add(obj, z);
-      penguin = { obj, inst, z };
+      kit.root.add(obj);
+      penguin = { obj, inst };
     }
   }
 
@@ -689,13 +743,12 @@ export function createCrateTossView(): ClientMiniGame {
             if (scale) shot.billboard.scale.set(scale[0] / 4096, scale[1] / 4096, scale[2] / 4096);
           }
         } else if (b.kind === 'penguin' && penguin) {
-          const awake = (d.penguin ?? 0) > 0;
+          const pg = d.peng as CtPenguin | undefined;
           penguin.obj.position.set(b.x, 0, b.z);
           penguin.obj.rotation.y = b.face;
-          penguin.inst?.play(awake ? 'run' : 'idle');
-          penguin.inst?.update(dt);
-          penguin.z.visible = !awake;
-          penguin.z.position.set(b.x + 0.5, 2.2 + ((ctx.time * 0.6) % 1) * 0.8, b.z);
+          const word = penguinWord(pg, openingFrame);
+          if (!penguin.inst?.nativePose(word)) penguin.inst?.play((d.penguin ?? 0) > 0 ? 'run' : 'idle');
+          syncPenguinLoop(!result && pg?.s === 3 ? b : undefined);
         }
       }
       const weightHolder = result ? -1 : d.weight ?? -1;
@@ -706,6 +759,7 @@ export function createCrateTossView(): ClientMiniGame {
       for (const [id, o] of shots) if (!seenS.has(id)) { removeShot(o); shots.delete(id); }
       if (openingFrame !== undefined) lastOpeningFrame = Math.max(lastOpeningFrame ?? -1, openingFrame);
       if (!result) stepPieces(dt);
+      if (glints.length) stepGlints(tick);
       for (const o of billboards) o.quaternion.copy(ctx.camera.quaternion);
       kit.fx.update(dt);
     },
@@ -789,6 +843,7 @@ export function createCrateTossView(): ClientMiniGame {
     dispose() {
       for (const playing of scrapes.values()) playing.sound.stop();
       syncWeightLoop(-1, 0);
+      syncPenguinLoop(undefined);
       scrapes.clear();
       for (const shot of shots.values()) removeShot(shot);
       crates.clear(); items.clear(); shots.clear(); weaponIcons.clear(); tiles.length = 0; pieces.length = 0; billboards.clear();
