@@ -270,22 +270,16 @@ export function createTilePainterView(): ClientMiniGame {
   }
 
   function makeParts(slot: number): ActorParts {
-    const hex = PAD[slot];
     const inst = createCharacter(kit.look(slot), { variant: 'pogo', ring: false });
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.82, 0.95, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: new THREE.Color(hex), transparent: true, opacity: 0.95, depthWrite: false }));
-    ring.position.y = 0.05;
     if (usedVariant(inst)) {
       // the game draws the pogo model in raw units like the stage (K per 1024 u): actor scale = K / the variant's catalog scale
       const sc = K / ((getCatalog().characters as { id: string; variants?: Record<string, { scale?: number }> }[]).find((c) => c.id === CHARACTERS[kit.look(slot).char % CHARACTERS.length].id)?.variants?.pogo?.scale ?? K);
-      ring.scale.setScalar(1.8 / sc); // keep the slot ring's world size
-      return { inst, extra: ring, headY: 2.1, shadow: 0.7 * 1.8 / sc, scale: sc };
+      return { inst, headY: 2.1, shadow: 0.7 * 1.8 / sc, scale: sc };
     }
-    const pogo = makePogo(hex);
+    const pogo = makePogo(PAD[slot]);
     inst.root.position.y = 0.55;
     pogoSprings.set(slot, pogo);
-    const grp = new THREE.Group();
-    grp.add(pogo, ring);
-    return { inst, extra: grp, headY: 2.15, shadow: 0.8 };
+    return { inst, extra: pogo, headY: 2.15, shadow: 0.8 };
   }
 
   function heldItem(slot: number, item: number): THREE.Object3D | null {
