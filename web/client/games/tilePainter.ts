@@ -17,7 +17,7 @@ import { arenaClockSprites, scoreHud } from '../ui/ps1hud';
 import { CHARACTERS } from '../../shared/look';
 import type { ClientMiniGame } from './types';
 import { PogoBoard, POGO_RIM_PARTS } from './pogoBoard';
-import { PartBatch, preloadFx } from './realFx';
+import { PartBatch, pickupShadow, preloadFx } from './realFx';
 
 /**
  * Real effects (re/notes/pogoPainter.md "Effects"): object pack 0770's effect scripts (0 explosion, 1 pickup puff, 2 loser
@@ -144,6 +144,8 @@ export function createTilePainterView(): ClientMiniGame {
   const icons = new Map<number, { item: number; obj: THREE.Object3D | null }>();
   /** one pack 0770 part at the stage scale (render id 0x2000 + part + 1) */
   const packPart = (part: number): THREE.Object3D => catalogInstance({ model: PACK, scale: K, parts: [`part${part}`] })?.root ?? new THREE.Group();
+  /** Render id 0x2029 (part 40) as every Pogo shadow draws it: node mode 2 (background minus foreground) at alpha 0x800. */
+  const floorShadow = (): THREE.Object3D => { const g = new THREE.Group(); g.add(pickupShadow(PACK, 40, K, { brightness: 0x800 / 0x1000 })); return g; };
   let beams: PartBatch[] = [];
   let missileTrail: PartBatch;
   const trailFacing = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -292,7 +294,7 @@ export function createTilePainterView(): ClientMiniGame {
   const shadows = new Map<number, THREE.Object3D>();
   function riderShadow(slot: number) {
     let s = shadows.get(slot);
-    if (!s) { s = packPart(40); kit.root.add(s); shadows.set(slot, s); }
+    if (!s) { s = floorShadow(); kit.root.add(s); shadows.set(slot, s); }
     return s;
   }
   const flames = new Map<number, THREE.Object3D>();
@@ -486,7 +488,7 @@ export function createTilePainterView(): ClientMiniGame {
             if (b.kind === 'monster') {
               mon = new ModelInstance({ model: MONSTER, scale: K, parts: ['part0'] });
               obj = new THREE.Group();
-              shadow = packPart(40);
+              shadow = floorShadow();
               shadow.scale.setScalar(0x15c0 / 4096);
               obj.add(shadow);
               if (mon.build()) {
@@ -499,7 +501,7 @@ export function createTilePainterView(): ClientMiniGame {
             else if (b.kind === 'padlock') {
               obj = new THREE.Group();
               lock = packPart(64);
-              obj.add(packPart(40), lock); // 0x2029 ground shadow does not turn or grow with 0x2041
+              obj.add(floorShadow(), lock); // 0x2029 ground shadow does not turn or grow with 0x2041
             }
             else if (b.kind === 'crate') obj = packPart(10);
             else if (b.kind === 'arrow') obj = packPart(b.m === 8 ? 13 : 0);
@@ -507,7 +509,7 @@ export function createTilePainterView(): ClientMiniGame {
               // FUN_800bad74: the item mesh and its own 0x2029 shadow, which stays on the floor
               obj = new THREE.Group();
               lock = packPart(ITEM_PART[b.cd] ?? 12);
-              shadow = packPart(40);
+              shadow = floorShadow();
               obj.add(lock, shadow);
             }
             else obj = packPart(b.cd === 3 ? 63 : b.cd === 2 ? 26 : 12);
