@@ -261,4 +261,30 @@ for (const edge of [false, true]) {
     }
   }
 }
+// Brio's L3 diagonal throw clips a crate top outside the old centre-only probe.
+{
+  const w = createWorld(crateToss, [4, 2].map((disc, slot) => ({
+    slot, char: DISC_CHARACTER.indexOf(disc), bot: false, name: 'P' + slot,
+  })), [], 538, 'drain');
+  const ps = w.bodies.filter(b => b.kind === 'player');
+  const chest = w.bodies.find(b => b.kind === 'chest')!;
+  const wood = w.bodies.find(b => b.kind === 'crate')!;
+  w.bodies = [...ps, chest, wood];
+  w.data.tPower = w.data.tSpawn = w.data.tFruit = 100000;
+  Object.assign(ps[0], { x: 208 * CT_U, z: -464 * CT_U, face: -Math.PI / 4 });
+  w.data.f8[0] = ps[0].face;
+  Object.assign(ps[1], { x: -1846 * CT_U, z: -1755 * CT_U });
+  Object.assign(chest, { x: 128 * CT_U, z: -384 * CT_U });
+  Object.assign(wood, { x: -896 * CT_U, z: 384 * CT_U });
+  w.data.cs[chest.id].item = 25;
+  const trace: Record<number, number[]> = {
+    161: [-701, 284, 433], 162: [-774, 256, 506], 163: [-896, 256, 384],
+    164: [-929, 336, 417], 174: [-1105, 916, 448], 184: [-1105, 1096, 448],
+  };
+  for (let frame = 120; frame <= 184; frame++) {
+    step(w, { a: frame <= 122 || frame === 152 || frame === 153 });
+    if (trace[frame]) assert.deepEqual([chest.x, chest.y, chest.z].map(v => Math.round(v / CT_U)), trace[frame]);
+  }
+  assert.equal(w.data.cs[wood.id].s, 1);
+}
 console.log('Crate Crush countdown, controls, movement poses and crate throws passed.');

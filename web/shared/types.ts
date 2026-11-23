@@ -140,7 +140,7 @@ export interface MiniGame {
   variantControls?: Record<string, string>;
   /** Level variants of the real game (e.g. CRASHBALL / BEACH BALL ...). setup() picks one from world.rng and stores its id in world.data.variant. */
   variants?: { id: string; name: string }[];
-  /** Hard time limit in seconds; at the limit placements() is taken from current state. */
+  /** Hard time limit in seconds, or Infinity for an elimination-only game. */
   maxTime: number;
   /** The native finish handler may wait for the displayed scores after the clock reaches zero. */
   settlesAfterTimeout?: boolean;

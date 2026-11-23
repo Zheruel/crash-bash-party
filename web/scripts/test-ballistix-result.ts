@@ -2,10 +2,21 @@ import assert from 'node:assert/strict';
 import { BallistixResult, ballistixCupDelay, ballistixResultEntry } from '../client/games/ballDefenceResult';
 import { LEVEL_CAMS } from '../client/games/ps1cam';
 import { ballDefence, ballistixFloor, BD_U, stepBallistixResultArena, type BallistixData } from '../shared/games/ballDefence';
-import { cloneWorld, createWorld, stepWorld } from '../shared/sim';
+import { cloneWorld, createWorld, roundOver, stepWorld } from '../shared/sim';
 import type { World } from '../shared/types';
 
 const seats = [6, 1, 8, 9].map((char, slot) => ({ slot, char, bot: false }));
+
+for (const variant of ['crashball', 'beach', 'nballism', 'sky']) {
+  const w = createWorld(ballDefence, seats, [], 47, variant);
+  w.tick = 7200;
+  w.time = 240;
+  assert.equal(roundOver(ballDefence, w), false, variant);
+  for (const p of w.data.pl.slice(1)) p.score = 0;
+  for (let i = 0; i < 240 && !roundOver(ballDefence, w); i++) stepWorld(w, ballDefence, []);
+  assert.equal(roundOver(ballDefence, w), true, variant);
+  assert.equal(ballDefence.placements(w)[0], 0, variant);
+}
 
 // A spectator arriving after the second knockout resumes the first barrier's loop.
 for (const variant of ['crashball', 'beach', 'nballism', 'sky']) {

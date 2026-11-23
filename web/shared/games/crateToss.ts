@@ -468,8 +468,9 @@ function stepChestReveal(w: World, d: Data, c: Body, s: CS) {
   s.vv = Math.min(s.homing ? 240 : 80, Math.max(0, s.vv + (s.up ? -4 : 4)));
   h += s.up ? s.vv : -s.vv;
   if (!s.vv) s.up = false;
-  const landed = !s.up && h <= 0;
-  if (landed) { h = 0; s.up = true; s.vv >>= 1; s.hv >>= 1; }
+  const surface = s.up ? -Infinity : crateFlightSurface(w, d, c, x * U, h * U, -z * U);
+  const landed = !s.up && h * U <= surface;
+  if (landed) { h = Math.round(surface / U); s.up = true; s.vv >>= 1; s.hv >>= 1; }
   c.x = x * U; c.y = h * U; c.z = -z * U;
   if (!s.homing) {
     if (!s.up) s.touchable = true;
@@ -659,6 +660,23 @@ function groundAt(w: World, d: Data, x: number, z: number, ignore?: Body): numbe
     if (dist2(x, z, c.x, c.z) < CRATE_R * U * 0.9) g = Math.max(g, c.y + CRATE_H * U);
   }
   return g;
+}
+
+/** FUN_800bac5c / FUN_80025e00, the support nearest to a descending crate. */
+function crateFlightSurface(w: World, d: Data, flying: Body, x: number, y: number, z: number) {
+  if (!floorAt(d, x, z)) return -Infinity;
+  if (Math.max(x, -z) >= ARENA * U || Math.min(x, -z) < -ARENA * U) return 0;
+  let surface = 0;
+  for (const crate of crates(w)) {
+    if (crate === flying || crate.cd !== 0) continue;
+    const state = d.cs[crate.id]?.s;
+    if (state !== C_IDLE && state !== C_GROW) continue;
+    // Marker 0x10 has radius 128. The native floor probe adds 64.
+    if (dist2(x, z, crate.x, crate.z) >= 192 * U) continue;
+    const top = crate.y + CRATE_H * U;
+    if (Math.abs(y - top) < Math.abs(y - surface)) surface = top;
+  }
+  return surface;
 }
 
 type ResultPlayerState = 'ready' | 'action' | 'rise' | 'fall' | 'hole' | 'land' | 'winner' | 'loser' | 'out';
@@ -1378,9 +1396,9 @@ function stepCrate(w: World, d: Data, c: Body) {
       if (c.kind !== 'chest') c.face += 0.25;
       const hitWall = c.kind !== 'chest' && clampCrate(c);
       const hole = !floorAt(d, c.x, c.z);
-      const ground = groundAt(w, d, c.x, c.z, c);
-      const landed = !s.up && !hole && c.y <= Math.max(0, ground);
-      if (landed) c.y = d.variant === 'space' ? ground : Math.max(0, c.y);
+      const surface = s.up ? -Infinity : crateFlightSurface(w, d, c, c.x, c.y, c.z);
+      const landed = !s.up && c.y <= surface;
+      if (landed) c.y = surface;
       if (hole && c.y < -SPACE_OBJECT_CULL * U) { c.alive = false; delete d.cs[c.id]; return; }
       if (landed && c.kind === 'chest') s.hv >>= 1;
       if (hitWall || landed || strike(w, d, c, s) || !hole && s.hv <= 0 && s.t > 40) impact(w, d, c, s);

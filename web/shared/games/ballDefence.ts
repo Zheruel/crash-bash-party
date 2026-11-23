@@ -337,7 +337,7 @@ export const ballDefence: MiniGame = {
     sky: '{move} orbit. {a} kick. Hold {r} to boost. {c} taunt when stopped.',
   },
   variants: BD_VARIANTS,
-  maxTime: 240,
+  maxTime: Infinity, // Individual versus ends when one ship remains. The disc starts no round clock.
 
   setup(w, slots) {
     const variant = pickVariant(w, BD_VARIANTS);

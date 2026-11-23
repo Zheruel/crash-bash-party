@@ -25,7 +25,9 @@ const ok = (name: string, cond: unknown) => {
 const tick = () => new Promise<void>((r) => setImmediate(r));
 // A three-digit score can keep counting after the horn. Use a watchdog so a
 // broken settlement fails the test instead of hanging or passing at maxTime.
-const simulationLimit = (game: MiniGame) => game.maxTime + (game.settlesAfterTimeout ? 60 : 0.1);
+const simulationLimit = (game: MiniGame) => Number.isFinite(game.maxTime)
+  ? game.maxTime + (game.settlesAfterTimeout ? 60 : 0.1)
+  : 600;
 
 // ---------- 1. every mini-game: deterministic, finite, ends, all bot levels ----------
 for (const game of GAMES) {

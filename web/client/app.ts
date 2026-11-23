@@ -926,7 +926,7 @@ export class App {
       else if (strip) this.ps1hud.draw(strip);
       if (world && c?.round) {
         const mg = getGame(c.round.gameId);
-        if (mg) this.hud.setClock(Math.max(0, mg.maxTime - world.time));
+        if (mg && Number.isFinite(mg.maxTime)) this.hud.setClock(Math.max(0, mg.maxTime - world.time));
       }
     } else {
       this.ps1hud.show(false);
