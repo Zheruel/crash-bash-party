@@ -36,6 +36,8 @@ import { attackHull, onFootItemMarker, TAUNT_TICKS } from './onFoot';
 import { CRATE_GRIPS, CT_HULL } from './crateGripData';
 import { DISC_CHARACTER } from '../look';
 import { addBody, emit, rand } from '../physics';
+import { atan2g } from '../ps1Angle';
+import { ps1SqrtQ6 } from '../ps1Sqrt';
 import { IDLE, type Body, type GameEvent, type InputState, type MiniGame, type World } from '../types';
 import { angDiff, pickVariant } from './common';
 
@@ -1220,13 +1222,27 @@ function pickUp(w: World, d: Data, p: Body, c: Body) {
   emit(w, 'grab', c.x, c.z, p.slot, 1);
 }
 
-function applyGrip(p: Body, c: Body, s: CS, [x, y, z, yaw, pitch]: number[]) {
-  const sin = Math.sin(p.face), cos = Math.cos(p.face);
-  c.x = p.x + (x*cos + z*sin)*U;
-  c.y = p.y + y*U;
-  c.z = p.z + (z*cos - x*sin)*U;
-  c.face = p.face + yaw * TAU / 4096;
-  s.pitch = pitch * TAU / 4096;
+function applyGrip(p: Body, c: Body, s: CS, [ax, ay, az, bx, by, bz]: number[]) {
+  const heading = -Math.round(p.face * 4096 / TAU) * TAU / 4096;
+  const sin = Math.round(4096 * Math.sin(heading)), cos = Math.round(4096 * Math.cos(heading));
+  const x = (ax * cos + az * sin) >> 12, z = (az * cos - ax * sin) >> 12;
+  if (bx === undefined) {
+    c.x = p.x + x * U;
+    c.y = p.y - ay * U;
+    c.z = p.z - z * U;
+    c.face = p.face;
+    s.pitch = 0;
+    return;
+  }
+  // Rotate each hand in fixed point before deriving the midpoint, yaw and tilt.
+  const dx = x - ((bx * cos + bz * sin) >> 12), dz = z - ((bz * cos - bx * sin) >> 12);
+  const tilt = atan2g(ps1SqrtQ6(dx * dx + dz * dz) >> 6, by - ay);
+  const vertical = Math.round(4096 * Math.cos((tilt + 399) * TAU / 4096)) >> 5;
+  c.x = p.x + (x - Math.trunc(dx / 2)) * U;
+  c.y = p.y - (by - vertical) * U;
+  c.z = p.z - (z - Math.trunc(dz / 2)) * U;
+  c.face = (512 - atan2g(dx, dz)) * TAU / 4096;
+  s.pitch = (625 - tilt) * TAU / 4096;
 }
 
 function throwCrate(w: World, d: Data, p: Body, c: Body) {
@@ -1354,7 +1370,9 @@ function stepCrate(w: World, d: Data, c: Body) {
       s.t++;
       const [, max, drag, , gravity] = THROWS[(d.char?.[s.own] ?? 1) - 1];
       s.hv = Math.min(max, Math.max(0, s.hv - drag));
-      c.x += s.dx * s.hv * U; c.z += s.dz * s.hv * U;
+      // The disc subtracts each signed 4.12 component after shifting, before converting its Z axis.
+      c.x -= ((Math.round(-4096 * s.dx) * s.hv) >> 12) * U;
+      c.z += ((Math.round(4096 * s.dz) * s.hv) >> 12) * U;
       if (s.up) { s.vv -= gravity; if (s.vv <= 0) { s.vv = 0; s.up = false; } else c.y += s.vv * U; }
       else { s.vv = Math.min(80, s.vv + gravity); c.y -= s.vv * U; }
       if (c.kind !== 'chest') c.face += 0.25;

@@ -208,8 +208,6 @@ for (const [variant, limits] of Object.entries({ jungle: [12,10,8], snow: [12,10
 assert.deepEqual(Array.from({ length: 16 }, (_, i) => Math.round(ctFruitRise(i) / CT_U)),
   [0,56,104,144,176,200,216,224,224,216,200,176,144,104,56,0]);
 
-console.log('Crate Crush countdown spawns, pickup limits, controls, jump and skate poses passed.');
-
 // USA Drain Bash, Brio's pickup and throw. Coordinates use the web Z convention.
 for (const edge of [false, true]) {
   const w = createWorld(crateToss, [4, 2].map((disc, slot) => ({
@@ -236,3 +234,31 @@ for (const edge of [false, true]) {
   assert.equal(w.data.ammo[0], 0);
   assert.equal(w.data.ammo[1], edge ? 0 : 2);
 }
+
+// USA Drain Bash, Rilla Roo's diagonal throw from release until the crate opens.
+{
+  const w = createWorld(crateToss, [6, 1].map((disc, slot) => ({
+    slot, char: DISC_CHARACTER.indexOf(disc), bot: false, name: 'P' + slot,
+  })), [], 538, 'drain');
+  const ps = w.bodies.filter(b => b.kind === 'player');
+  const chest = w.bodies.find(b => b.kind === 'chest')!;
+  w.bodies = [...ps, chest];
+  w.data.tPower = w.data.tSpawn = w.data.tFruit = 100000;
+  Object.assign(ps[0], { x: -49 * CT_U, z: -561 * CT_U, face: Math.PI / 4 });
+  w.data.f8[0] = ps[0].face;
+  Object.assign(ps[1], { x: -1846 * CT_U, z: -1755 * CT_U });
+  Object.assign(chest, { x: 128 * CT_U, z: -384 * CT_U });
+  w.data.cs[chest.id].item = 25;
+  const positions = [
+    [381, 379, 56], [472, 373, 146], [559, 361, 232], [643, 343, 315],
+    [723, 319, 394], [800, 289, 470], [873, 253, 542], [943, 211, 611],
+    [1009, 163, 676], [1072, 109, 738], [1131, 49, 796], [1187, 0, 851],
+  ];
+  for (let frame = 120; frame <= 168; frame++) {
+    step(w, { a: frame <= 122 || frame === 152 || frame === 153 });
+    if (frame >= 157) {
+      assert.deepEqual([chest.x, chest.y, chest.z].map(v => Math.round(v / CT_U)), positions[frame - 157]);
+    }
+  }
+}
+console.log('Crate Crush countdown, controls, movement poses and crate throws passed.');
