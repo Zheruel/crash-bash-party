@@ -1,4 +1,5 @@
 // USA overlay 0725, FUN_800b7c3c (tile texture/CLUT), FUN_800bbc94 (joined edges)
+// FUN_800b3c44 fills the 8x8 grid from the placed tile objects; FUN_800b8098 / FUN_800b7ee4 write their render words.
 // and FUN_800bcb4c (rim render word). Atlas cells come from tools/build_pogo_board.py.
 import * as THREE from 'three';
 import { pogoJoinedEdges, tileCenter, TP_TILE } from '../../shared/games/tilePainter';

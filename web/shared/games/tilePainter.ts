@@ -56,7 +56,7 @@ export const BEAM_FRAMES = 20; // FUN_800c2be8 starts the counter at 0x14; FUN_8
 const BEAM_SPARK_AGES = [[], [1, 6, 11, 16], [1, 5, 9, 15, 19], [1, 5, 9, 13, 17],
   [1, 5, 9, 13, 17], [1, 6, 11, 16], [1, 5, 9, 15, 19], [1, 6, 11, 16], [1, 5, 10, 15, 17]];
 const CRATE_GROW = 16; // scale +0x100 per frame up to 0x1000 (FUN_800baba8 case 2)
-/** FUN_800bad74 / 800baef0: an item crate starts 0x1000 above its tile, falls at +14 per frame up to 160 and lands on its 32nd update. */
+/** FUN_800bad74 / FUN_800baef0: an item crate starts 0x1000 above its tile, falls at +14 per frame up to 160 and lands on its 32nd update. */
 export const POGO_ITEM_LAND = 32;
 // Crate age counts the spawn tick, so object update n runs at age n + 1. Players check pickups after the object pass.
 const ARROW_READY = CRATE_GROW + 1; // FUN_800baba8 enters state 3 on update 16
@@ -102,7 +102,7 @@ const FAM_M = [0, 9, 9, 13, 13, 11, 12, 9, 13];
 /** FUN_800b9c10 / b9d64 spawn tables (800c38b8..38e8), index lvl-10 */
 const ITEM_START = [2, 2, 1, 1], ITEM_MAX = [3, 3, 1, 2], ARROW_START = [2, 2, 2, 0], ARROW_MAX = [2, 2, 2, 0];
 /** AI index per level & difficulty (800c3678 / 3724 / 37bc / 3854); delay frames = 96 - 3*idx (tables 800c3a38 / c38f8) */
-const AI_IDX = [[1, 12, 20], [1, 16, 24], [1, 16, 28], [1, 16, 24]];
+const AI_IDX = [[1, 12, 20], [1, 16, 24], [1, 16, 28], [1, 16, 24]]; // FUN_800b3ff0 -> FUN_800c2ee0
 /** padlock object: hops per stage (800c530c) and wait frames per stage (800c5334) */
 const PAD_HOPS = [18, 16, 14, 13, 12, 10, 8, 7];
 const PAD_WAIT = [1, 4, 7, 10, 14, 19, 23, 28];
@@ -114,7 +114,8 @@ const MON_ACTIONS = [6, 6, 6, 7, 6, 7, 6, 7, 6, 6, 8, 8, 6, 8];
 const RING = '00001111111122222222333333330000';
 
 export const TP_START = [TP_N * (TP_N - 1), 0, TP_N - 1, TP_N * TP_N - 1]; // yellow BL, red TL, blue TR, green BR (view order)
-const START_RX = [0, 0, 7, 7], START_RZ = [0, 7, 7, 0], START_HD = [2, 3, 3, 2];
+// FUN_800b3808: versus yaws 0x800, 0xc00, 0 and 0x400 face up, right, down and left around the board.
+const START_RX = [0, 0, 7, 7], START_RZ = [0, 7, 7, 0], START_HD = [2, 0, 3, 1];
 const DX = [1, -1, 0, 0], DZ = [0, 0, 1, -1]; // heading 0 +x, 1 -x, 2 +z (screen up), 3 -z
 
 export const TP_VARIANTS = [
@@ -211,6 +212,7 @@ export function pogoJoinedEdges(i: number, tiles: number[], rim: number): number
 }
 
 // ------------------------------------------------------------------ occupancy helpers
+// FUN_800b4230 rebuilds the occupant grid from rounded positions; this reads the live positions.
 function occupant(d: Data, rx: number, rz: number, except = -1): number {
   for (let s = 0; s < MAX_SEATS; s++) if (d.on[s] && s !== except && rnd(d.px[s]) === rx && rnd(d.pz[s]) === rz) return s + 1;
   const m = d.mon;
@@ -229,6 +231,7 @@ function freeSpawn(d: Data, rx: number, rz: number): boolean {
   if (d.st[i] === 5 || d.st[i] === 6) return false;
   return !padAt(d, rx, rz);
 }
+/** FUN_800c165c */
 function freeTile(w: World, d: Data): [number, number] | null {
   for (let t = 0; t < 10; t++) {
     const x = ri(w, 8), z = ri(w, 8);
@@ -248,6 +251,7 @@ function sfxP(w: World, d: Data, id: number, slot: number) {
 }
 
 // ------------------------------------------------------------------ tile state machine
+// FUN_800c2564 (paint), FUN_800c2620 (reset), FUN_800c24e4 (mine), FUN_800c244c (cross)
 function setTile(d: Data, rx: number, rz: number, owner: number, st: number, tm: number, prev = -1) {
   const i = tidx(rx, rz);
   d.tiles[i] = owner; d.st[i] = st; d.tm[i] = tm; if (prev >= -1) d.prev[i] = prev;
@@ -287,6 +291,7 @@ function paintTile(d: Data, rx: number, rz: number, p: number) {
   else setTile(d, rx, rz, p, 1, 0, old);
 }
 /** FUN_800b788c / c2338: cash every tile of p. Returns the count. */
+// FUN_800b7990 adds the score and FUN_800c0c34 floats the number.
 function cashIn(w: World, d: Data, p: number): number {
   // c2338 changes ownership immediately but leaves the current face on the board until the tile callback.
   const owned: number[] = [];
@@ -306,6 +311,7 @@ function cashIn(w: World, d: Data, p: number): number {
   }
   return n;
 }
+// FUN_800b8ec8 plays the locked-tile cue 0x54e + seat.
 /** FUN_800b8f94: padlock level - landing on an own tile wipes everything you own */
 function wipe(w: World, d: Data, p: number) {
   let n = 0;
@@ -393,6 +399,7 @@ function canCapture(d: Data, p: number, rx: number, rz: number) {
   return d.tiles[i] !== p && !occupant(d, rx, rz) && d.st[i] !== 5 && d.st[i] !== 6 && d.st[i] !== 7;
 }
 
+// FUN_800c19a8 clears the flood buffer, FUN_800bbb08 applies the enclosed tiles.
 function capture(w: World, d: Data, p: number): number {
   if (d.lvl === 10 || d.lvl === 13) return 0;
   const reach = outsideTiles(d, p);
@@ -421,6 +428,7 @@ function takeQueued(d: Data): boolean {
 }
 
 // ------------------------------------------------------------------ hits
+/** FUN_800bb724 */
 function stealTiles(w: World, d: Data, victim: number, owner: number) {
   let n = 0;
   for (let rx = 0; rx < 8; rx++) for (let rz = 0; rz < 8; rz++) {
@@ -430,6 +438,7 @@ function stealTiles(w: World, d: Data, victim: number, owner: number) {
   if (n) emit(w, 'steal', ...tileWorld(d.px[victim], d.pz[victim]), owner, n, victim);
 }
 
+// FUN_800c2770 / FUN_800c2810
 function clearReservation(d: Data, owner: number) {
   for (let i = 0; i < d.rsv.length; i++) if (d.rsv[i] === owner) d.rsv[i] = 0;
 }
@@ -444,6 +453,7 @@ function hitPlayer(w: World, d: Data, v: number, by: number, steal: boolean) {
   emit(w, 'hit', ...tileWorld(d.px[v], d.pz[v]), v, 1, by);
 }
 
+// FUN_800c2c70 / FUN_800c2b98 cancel the beam object (FUN_800c1c90 is its init).
 function removeBeam(w: World, d: Data, slot: number) {
   const beam = d.beams.find(b => b.own === slot);
   if (!beam) return;
@@ -464,7 +474,7 @@ function stopHop(d: Data, slot: number) {
   clearReservation(d, slot + 1);
 }
 
-/** FUN_800b6c14 / 800b6df4. Contact sets the flag after the rider update. */
+/** FUN_800b6c14 / FUN_800b6df4. Contact sets the flag after the rider update. */
 function enterStun(w: World, d: Data, slot: number) {
   // Dropping speed under script 0x2f runs the idle entry inside the stun entry (FUN_800c1cf0 -> FUN_800868b4(0x39)).
   // The rider is left in idle with the hit flag still set, and the stun starts on the next update without a second cry.
@@ -498,6 +508,7 @@ function boom(w: World, d: Data, rx: number, rz: number) {
 // All four versus floors have their ground reference 16 PS1 units above the stage origin.
 const projectileHeight = (owner: number) => (16 + (owner === 5 ? 512 : 384)) * TP_TILE / 512;
 
+// FUN_800c1384 -> FUN_800c11c4 (players), FUN_800bfff4 (monster spin)
 function spawnProj(w: World, d: Data, own: number, rx: number, rz: number, dir: number, kind: number, spinYaw?: number) {
   const [x, z] = tileWorld(rx, rz);
   const b = addBody(w, 'missile', own, x, z, 0.3, 0.2);
@@ -513,6 +524,7 @@ function spawnProj(w: World, d: Data, own: number, rx: number, rz: number, dir: 
   }
   d.proj.push(shot);
 }
+/** FUN_800c2cbc dispatches on the held item. */
 function fire(w: World, d: Data, p: number, padDir: number, input: InputState, locked: boolean) {
   const it = d.item[p];
   const rx = rnd(d.px[p]), rz = rnd(d.pz[p]);
@@ -904,11 +916,13 @@ function turnRider(body: Body, dir: number, shift: number) {
   body.face = -((yaw + ((error > 2048 ? error - 4096 : error) >> shift)) & 4095) * Math.PI / 2048;
 }
 
+/** FUN_800bc0ec */
 function beamCentre(position: number) {
   const raw = Math.round(position * 512);
   return (raw - Math.trunc((raw - rnd(position) * 512) / 4)) / 512;
 }
 
+// FUN_800c2674 starts the script 7 sparks.
 function advanceBeam(w: World, d: Data, body: Body) {
   const s = body.slot;
   const x = rnd(d.px[s]), z = rnd(d.pz[s]);
@@ -1034,7 +1048,7 @@ function spawnArrow(w: World, d: Data) {
   d.arN++;
   emit(w, 'arrow', x, z, -1, t);
 }
-/** FUN_800b9d64 / 800ba25c. FUN_800bad74 starts the item 0x1000 above the tile with sfx 0x41f. */
+/** FUN_800b9d64 / FUN_800ba25c. FUN_800bad74 starts the item 0x1000 above the tile with sfx 0x41f. */
 function spawnItem(w: World, d: Data) {
   let t = 0;
   const f = freeTile(w, d);
@@ -1050,6 +1064,7 @@ function spawnItem(w: World, d: Data) {
   sfx(w, 0x41f, f[0], f[1]);
   emit(w, 'power', x, z, -1, t);
 }
+/** FUN_800b9c10 and FUN_800b9d64, called from FUN_800b3e34. */
 function tickSpawners(w: World, d: Data) {
   const l = d.lvl - 10;
   // FUN_800b9c10 (arrow crates)
@@ -1121,6 +1136,7 @@ function syncCrates(w: World, d: Data) {
   }
 }
 
+/** FUN_800c0584 (FUN_800c0bf0 / FUN_800c0444 create it, FUN_800c0b70 checks a hop target). */
 function tickPad(w: World, d: Data) {
   const pd = d.pad;
   if (!pd) return;
@@ -1217,6 +1233,7 @@ function monSetHop(m: Mon, ax: number, az: number) {
   m.goalYaw = (atan2g(Math.round((ax - m.x) * 512), Math.round((az - m.z) * 512)) + 2048) & 4095;
 }
 
+/** FUN_800beea4 (FUN_800bed3c init, FUN_800bff58 hop sound, FUN_800c0d44 heading). */
 function tickMonster(w: World, d: Data) {
   const m = d.mon;
   if (!m) return;
@@ -1303,6 +1320,7 @@ function tickMonster(w: World, d: Data) {
   place();
 }
 
+/** FUN_800c0c70 */
 function monsterCanLand(d: Data, x: number, z: number): boolean {
   if (!inb(x, z)) return true;
   const owner = d.rsv[tidx(x, z)];
@@ -1336,6 +1354,7 @@ function monNext(w: World, d: Data, m: Mon, bx: number, bz: number): boolean {
   }
 }
 
+/** FUN_800bcb4c; FUN_800bd008 starts a rotation and FUN_800c1068 copies the ring row. */
 function tickBorder(w: World, d: Data) {
   if (d.lvl !== 11) return;
   const rem = pogoClock(w.tick + 1); // timer digits before the current frame's decrement
@@ -1367,7 +1386,8 @@ function ownsRouteTile(d: Data, p: number, x: number, z: number) {
   return false;
 }
 
-/** FUN_800c0f08 / 800be158: scan for an own tile past a gap, facing forward and to either side. */
+/** FUN_800c0f08 / FUN_800be158: scan for an own tile past a gap, facing forward and to either side. */
+// FUN_800be158 casts each ray; FUN_800c0e40 / FUN_800c0de4 read the route tiles.
 function lineRoute(d: Data, p: number, x: number, z: number): [number, number] | null {
   const dx = DX[d.hd[p]], dz = DZ[d.hd[p]];
   const rays = [[dx, dz], [-dz, dx], [dz, -dx]];
@@ -1383,7 +1403,8 @@ function lineRoute(d: Data, p: number, x: number, z: number): [number, number] |
   return null;
 }
 
-/** FUN_800be864 / 800bea34 / 800beb6c: try a single closing tile with the native capture flood. */
+/** FUN_800be864 / FUN_800bea34 / FUN_800beb6c: try a single closing tile with the native capture flood. */
+// FUN_800bea34 tests one candidate with FUN_800beb6c.
 function floodRoute(d: Data, p: number, rx: number, rz: number): [number, number] | null {
   let best = Infinity;
   let target: [number, number] | null = null;
@@ -1407,7 +1428,7 @@ function floodRoute(d: Data, p: number, rx: number, rz: number): [number, number
 }
 
 // 800c45bc / 800c457c: two hops per side, with the first side chosen from the current quadrant.
-const SQUARE_HEADS = [[1, 3, 0, 2], [0, 3, 1, 2]];
+const SQUARE_HEADS = [[1, 3, 0, 2], [0, 3, 1, 2]]; // FUN_800be6c4
 const SQUARE_START = [[4, 2, 6, 0], [6, 0, 4, 2]];
 function nextSquareTile(cpu: PogoRoute, x: number, z: number) {
   const k = SQUARE_HEADS[Number(cpu.odd)][((cpu.squareStart + cpu.squareStep) & 7) >> 1];
@@ -1467,6 +1488,7 @@ function routeDraw(w: World, p: number, salt: number, limit: number) {
   return ((Math.imul(h ^ (h >>> 16), 0x7feb352d) ^ (h >>> 15)) >>> 0) % limit;
 }
 
+/** FUN_800bde24 */
 function seekPogoRoute(w: World, d: Data, p: number, cpu: PogoRoute, rx: number, rz: number) {
   // Only Pogo-a-gogo and El Pogo Loco try the line, flood and square routes.
   if ((d.lvl === 11 || d.lvl === 12) && cpu.wait === 0) {
@@ -1489,8 +1511,9 @@ function seekPogoRoute(w: World, d: Data, p: number, cpu: PogoRoute, rx: number,
   return true;
 }
 
-/** FUN_800bd10c / 800bde24 on every stage: plan against the pre-step board and commit the state in step(). */
+/** FUN_800bd10c / FUN_800bde24 on every stage: plan against the pre-step board and commit the state in step(). */
 function planPogoRoute(w: World, d: Data, p: number) {
+  // FUN_800c1004 starts state 1 with a 3-5 landing search delay.
   const cpu: PogoRoute = d.cpuRoute?.[p] ? { ...d.cpuRoute[p] } : {
     mode: 'search', x: -1, z: -1, wait: 3 + routeDraw(w, p, 0, 3), squareStart: 0, squareStep: 0, odd: false,
   };
@@ -1573,6 +1596,7 @@ export const tilePainter: MiniGame = {
       b.x = x; b.z = z; b.face = Math.atan2(DX[d.hd[s.slot]], -DZ[d.hd[s.slot]]);
       d.wx[s.slot] = rx; d.wz[s.slot] = rz;
     }
+    // FUN_800c31b0 -> FUN_800c3048: cash crates (object 0x1403), the monster (0x1406) or the padlock.
     const nCash = lvl === 10 ? 2 : lvl === 12 ? 3 : lvl === 13 ? 2 : 0;
     for (let k = 0; k < nCash; k++) d.cash.push({ st: 0, tm: 60 + ri(w, 60), rx: 0, rz: 0, age: 0, id: -1 }); // FUN_800c1b7c
     if (lvl === 11) ri(w, 200); // FUN_800c10f8 draws the first rotation delay, which versus never reads
@@ -1620,7 +1644,7 @@ export const tilePainter: MiniGame = {
       if (d.item[s] === 5 || d.item[s] === 6) { if (--d.itemT[s] <= 0) clearItem(w, d, s); }
       if (d.item[s] > 0) d.itemAge[s]++;
       if ((d.pendingStun ?? 0) & (1 << s)) {
-        enterStun(w, d, s);
+        enterStun(w, d, s); // FUN_800b6c14 (hit check) -> FUN_800b6df4
       } else if (d.stun[s] > 0) {
         d.px[s] = d.fx[s]; d.pz[s] = d.fz[s];
         d.rsv[tidx(d.fx[s], d.fz[s])] = s + 1;
@@ -1656,7 +1680,7 @@ export const tilePainter: MiniGame = {
     tickPad(w, d);
     stepProj(w, d, tick);
     syncCrates(w, d);
-    // Global timer phase at GO in the four recorded USA stage openings.
+    // FUN_800c2e50 -> FUN_800b53cc ranks at timeout. Global timer phase at GO in the four recorded USA stage openings.
     d.over = d.shown ? tickVersusTally(d.score, d.shown, tick, d.lvl === 12 ? 1 : 0) : tick >= TP_FRAMES;
   },
 
@@ -1678,7 +1702,7 @@ export const tilePainter: MiniGame = {
     if (!d.on[slot] || d.stun[slot] > 0 || d.taz[slot] > 0) return IDLE;
     const out: InputState = { x: 0, y: 0, a: false, b: false };
     const delay = 96 - 3 * AI_IDX[d.lvl - 10][d.ai];
-    // FUN_800bd378 / bd520: an enemy ahead along the rounded row or column, after the reaction delay (+0x24)
+    // FUN_800bd378 / FUN_800bd520: an enemy ahead along the rounded row or column, after the reaction delay (+0x24)
     const it = d.item[slot];
     if (it >= 1 && it <= 4 && d.itemAge[slot] >= delay) {
       const rx = rnd(d.px[slot]), rz = rnd(d.pz[slot]);

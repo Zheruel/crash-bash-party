@@ -195,12 +195,15 @@ export function createTilePainterView(): ClientMiniGame {
     }
   }
 
+  // FUN_800b741c (event 0x14, script 4) and FUN_800b7574 (0x13); FUN_800b72b0 adds the flash for 0x11.
   function playDust(script: number, x: number, z: number, random = Math.random()) {
     const yaw = Math.floor(random * 360) * Math.PI / 180;
     kit.real.play(PACK, script, x, 0, z, { yaw, add: true });
     if (script === 6) kit.real.play(PACK, DUST_FLASH, x, 0, z, { yaw });
   }
 
+  // FUN_800c295c / FUN_800c29f4 / FUN_800c2b00 check the verdict flags: win FUN_800c2a8c -> FUN_800b6790, lose FUN_800b6960 ->
+  // 800b6ae0, draw FUN_800c28fc -> FUN_800c286c.
   function tickResult(state: PogoResult, frame: number) {
     const { world: w, entered } = state;
     w.tick++;
@@ -327,6 +330,7 @@ export function createTilePainterView(): ClientMiniGame {
     return h.obj;
   }
 
+  /** FUN_800c3148 sets the fixed versus camera. */
   function setCamera(ctx: Parameters<ClientMiniGame['render']>[0]) {
     const c = ctx.camera;
     const real = LEVEL_CAMS[lv.level], ref = getCatalog().arenas[lv.arena];
@@ -602,7 +606,7 @@ export function createTilePainterView(): ClientMiniGame {
           kit.real.play(PACK, 8, e.x + dx * (n + 0.5) * TP_TILE, 144 * U, e.z + dz * (n + 0.5) * TP_TILE);
           break;
         }
-        case 'missile':
+        case 'missile': // FUN_800bc490 asks for voice cue block * 50 + 0x10; stock banks have no tone for it
           if (!catchingUp) charVoice('a2', kit.look(e.s).char, 0x10);
           break;
         case 'stun':

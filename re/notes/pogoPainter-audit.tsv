@@ -1,0 +1,221 @@
+addr	status	ours(file:line)	note
+800b44f4	n/a(adventure or option flag only)		team/option ranking
+800b4e50	n/a(adventure or option flag only)		flag 0x20 ranking
+800bb31c	n/a(adventure or option flag only)		object 0x1407
+800b4a70	n/a(adventure or option flag only)		flag 0x40 ranking
+800b5410	n/a(adventure or option flag only)		ranking variant
+800b53d4	n/a(decompiler overlap of 800b53cc)		
+800b3534	n/a(adventure or option flag only)		handicap table pointers; versus uses AI_IDX
+800b3a38	n/a(adventure or option flag only)		flag 0x40 clocks
+800871e4	n/a(generic engine helper)		
+80018f3c	n/a(generic engine helper)		
+8007b120	n/a(generic engine helper)		
+800b478c	n/a(adventure or option flag only)		
+800b4374	n/a(adventure or option flag only)		flag 0x80 ranking
+800b83ac	n/a(adventure or option flag only)		hazard tile state 6
+80024e30	n/a(generic engine helper)		
+8002672c	n/a(generic engine helper)		
+8001aa48	n/a(generic engine helper)		
+800b981c	match	web/shared/games/tilePainter.ts	decompiler fragment of 800b935c
+800c20c0	match	web/shared/games/tilePainter.ts	two-way arrow lines
+800bbf00	n/a(adventure or option flag only)		object 0x1407 tile
+800c0164	n/a(adventure or option flag only)		aimed monster shots, not in the versus action table
+800250b0	n/a(generic engine helper)		
+800c02ac	n/a(adventure or option flag only)		see 800c0164
+800b9088	match	web/shared/games/tilePainter.ts	fragment of 800b9080
+800bd630	n/a(adventure or option flag only)		not called on the versus CPU path
+80025fac	n/a(generic engine helper)		
+800c353c	match	web/client/games/pogoBoard.ts	board tile object setup
+800c178c	n/a(level music id, shell)		
+800b5d90	match	web/shared/games/tilePainter.ts	part of the 800b574c direction choice
+80026540	n/a(generic engine helper)		
+800b5a40	match	web/shared/games/tilePainter.ts	fragment of 800b574c
+8001682c	n/a(generic engine helper)		
+800b3a9c	n/a(adventure or option flag only)		flag 0x40 clocks
+800c14bc	match	web/shared/games/tilePainter.ts	stride 0x200 / window (hopPos)
+800b566c	n/a(adventure or option flag only)		ranking fragment
+800bb4fc	n/a(adventure or option flag only)		object 0x1407
+80018430	n/a(generic engine helper)		
+800c2204	n/a(adventure or option flag only)		state 6
+80026980	n/a(generic engine helper)		
+800c1ae8	n/a(adventure or option flag only)		object type 0xb
+80015870	n/a(generic engine helper)		
+8007d144	n/a(generic engine helper)		
+800c1c08	match	web/shared/games/tilePainter.ts	cash crate mesh init
+800c2fb8	n/a(adventure or option flag only)		
+800c2018	match	web/shared/games/tilePainter.ts	cross arms
+800c3398	n/a(hook table)		
+800b627c	match	web/shared/games/tilePainter.ts	fragment of 800b5ee4
+800c1174	match	web/shared/games/tilePainter.ts	object reset
+800c3434	n/a(hook table)		
+8007eb1c	n/a(generic engine helper)		
+8001c378	n/a(generic engine helper)		
+800bb184	match	web/shared/games/tilePainter.ts	fragment of 800bb12c
+800c1608	n/a(adventure or option flag only)		object type 0xb
+800c2338	match	web/shared/games/tilePainter.ts	
+800183dc	n/a(generic engine helper)		
+800c16fc	match	web/shared/games/tilePainter.ts	distance helper
+800c1764	match	web/shared/games/tilePainter.ts	distance helper
+800c0fac	match	web/shared/games/tilePainter.ts	fire delay as itemAge >= delay
+8001e934	n/a(generic engine helper)		
+800c2488	n/a(adventure or option flag only)		state 6
+800c2f50	match	web/shared/games/tilePainter.ts	versus clock 1:30 (common versusClock)
+800c2f84	n/a(adventure or option flag only)		
+800c3510	match	web/client/games/pogoBoard.ts	board tile object setup
+8008ab04	n/a(generic engine helper)		
+80013c94	n/a(generic engine helper)		
+800c1400	n/a(adventure or option flag only)		state 6
+800c142c	n/a(adventure or option flag only)		state 6
+800c318c	n/a(clock helper, common)		
+800c34b0	n/a(overlay entry stub)		
+800c34d0	n/a(overlay entry stub)		
+800c34f0	n/a(overlay entry stub)		
+800c2660	match	web/shared/games/tilePainter.ts	height above floor
+800c3388	n/a(empty)		
+800beea4	match	web/shared/games/tilePainter.ts:1236	
+800b935c	match	web/client/games/tilePainter.ts:75	prior pass
+8008a200	match	web/client/shell/voice.ts:15	prior pass
+800b7c3c	match	web/client/games/pogoBoard.ts:1	prior pass
+800c0584	match	web/shared/games/tilePainter.ts:1139	prior pass
+800be158	match	web/shared/games/tilePainter.ts:1389	
+8008502c	match	web/shared/games/kegKaboomData.ts:2	prior pass
+800bd790	match	web/shared/games/tilePainter.ts:1469	prior pass
+800bcb4c	fixed	web/shared/games/tilePainter.ts:1357	rand(200) drawn after each rotation
+800bc5bc	match	web/shared/games/tilePainter.ts:50	prior pass
+800b5ee4	fixed	web/client/games/tilePainter.ts:439	shadow scale now drawn; jet index = capped counter
+800ba51c	match	web/client/games/tilePainter.ts:519	prior pass
+800b3808	fixed	web/shared/games/tilePainter.ts:117	versus start yaws 0x800/0xc00/0/0x400 (up, right, down, left); was up, down, down, up
+800b87dc	match	web/client/games/tilePainter.ts:181	prior pass
+800bfa14	match	web/shared/games/tilePainter.ts:1213	prior pass
+800b53cc	match	web/shared/games/tilePainter.ts:1683	
+800b574c	match	web/shared/games/tilePainter.ts:830	prior pass
+800baef0	fixed	web/client/games/tilePainter.ts:549	fall +14 to 160, lands on update 32 with 0x420, state 3 there; spin 0x38 for 1/2/4; shadow 0x1000-6h; bounce 15
+800b6f34	fixed	web/shared/games/tilePainter.ts:43	jet index toggles 0/20
+800b9d64	fixed	web/shared/games/tilePainter.ts:1051	starts at -1 and runs in the 112-update countdown pre-roll
+800b3ff0	match	web/shared/games/tilePainter.ts:105	L10.ram (flag 1, medium): 8009d87c = 12 for the human [2] and CPU [0], 800c5bb8 = 800c5bbc = 12 = AI_IDX
+800bfc6c	match	web/shared/games/tilePainter.ts:1330	prior pass
+800b5b1c	added	web/client/games/tilePainter.ts:465	part 32 at marker 0x200, tilt +5/-2 in 5..45 deg, Y scale 800c44d8; sim draws rand(16) per update like the disc
+800ba994	match	web/shared/games/tilePainter.ts:628	prior pass
+8007a26c	fixed	web/shared/games/tilePainter.ts:65	pogoItemHeight integrates the fall and bounce
+800bbc94	match	web/client/games/pogoBoard.ts:1	prior pass
+800bb840	match	web/shared/games/tilePainter.ts:389	prior pass
+800bd10c	fixed	web/shared/games/tilePainter.ts:1514	one state machine for all stages; wait counter only on L11/12; origStep wander wrapper removed
+800bb12c	match	web/client/games/tilePainter.ts:559	
+800bd378	fixed	web/shared/games/tilePainter.ts:1705	rounded own position and yaw quadrant
+800be6c4	match	web/shared/games/tilePainter.ts:1431	
+800ba25c	match	web/client/games/tilePainter.ts:74	
+800c11c4	match	web/shared/games/tilePainter.ts:511	
+800baba8	fixed	web/client/games/tilePainter.ts:559	sfx 0x3fa on update 1; ready turn: yaw += err>>3, dir+1 when step < 2 (first ready update, then every 35)
+800b3e34	fixed	web/shared/games/tilePainter.ts:1067	spawners and crate objects pre-rolled 112 updates in setup; item timers stay in the rider loop (same tick)
+800b3c44	match	web/client/games/pogoBoard.ts:2	
+800bdf60	fixed	web/shared/games/tilePainter.ts:1442	x-then-z first-of-equal on all stages
+80089fa4	match	web/client/shell/voice.ts:198	prior pass
+800b8180	match	web/client/games/tilePainter.ts:619	prior pass
+800b76cc	fixed	web/client/games/tilePainter.ts:457	held item at marker 0x80 + 800c4484[fam], 0x280 without a marker
+800b8be4	match	web/shared/games/tilePainter.ts:764	prior pass
+800b6c14	match	web/shared/games/tilePainter.ts:477	prior pass
+800bed3c	match	web/shared/games/tilePainter.ts:1236	
+800bad74	fixed	web/client/games/tilePainter.ts:507	item starts 0x1000 up with 0x41f, own 0x2029 shadow; was a 16-frame growth with 0x3fa
+800ba3e0	fixed	web/shared/games/tilePainter.ts:1039	start dir rand(4) after the type
+800b96f4	match	web/shared/games/tilePainter.ts	fragment of 800b935c (arrow pickup tail)
+800b9c10	fixed	web/shared/games/tilePainter.ts:102	free tile before type; L12 consumes the tile draws without spawning; 0x3fa moved to the object
+800be864	match	web/shared/games/tilePainter.ts:1406	prior pass
+800b6790	match	web/client/games/tilePainter.ts:205	
+800bbb08	match	web/shared/games/tilePainter.ts:402	
+800c0444	match	web/shared/games/tilePainter.ts:1139	
+800b4230	match	web/shared/games/tilePainter.ts:215	occupant() reads live rounded positions; native grid is rebuilt once per level tick
+800b6438	fixed	web/client/games/tilePainter.ts:310	idle clock runs under the countdown with landing / dust cues; jet index from the idle word
+800b8660	match	web/shared/games/tilePainter.ts:161	prior pass
+800b91e8	match	web/shared/games/tilePainter.ts:325	prior pass
+800bfff4	match	web/shared/games/tilePainter.ts:511	
+800bc184	match	web/shared/games/tilePainter.ts:533	prior pass
+800bea34	match	web/shared/games/tilePainter.ts:1406	
+800b72b0	match	web/client/games/tilePainter.ts:59	prior pass
+800bc490	match	web/client/games/tilePainter.ts:609	voice n 0x10 before 0x522; stock banks silent; customs keep their throw take (coordinator)
+800bd008	match	web/shared/games/tilePainter.ts:1357	
+800bdcb8	fixed	web/shared/games/tilePainter.ts:811	L13 pass-1 own-tile refusal exempts a cash-crate tile
+800b741c	match	web/client/games/tilePainter.ts:198	
+800b7574	match	web/client/games/tilePainter.ts:198	
+800b9080	match	web/shared/games/tilePainter.ts:344	prior pass
+800bde24	fixed	web/shared/games/tilePainter.ts:1491	line/flood/square only on L11/12, pickup search everywhere
+800bf8e4	match	web/shared/games/tilePainter.ts:1271	prior pass
+8007b7fc	match	web/shared/games/pushOff.ts:1958	prior pass
+8008d5d4	match	web/client/games/kegKaboom.ts:204	prior pass
+800bb724	match	web/shared/games/tilePainter.ts:431	
+800b8af8	match	web/shared/games/tilePainter.ts:710	prior pass
+80015780	added	web/client/games/tilePainter.ts:305	pogoMarkerData from the pogo models (re/notes/pogoPainter-markers.py)
+800b6ae0	match	web/client/games/tilePainter.ts:228	prior pass
+800b6960	match	web/client/games/tilePainter.ts:205	prior pass
+800b662c	match	web/shared/games/tilePainter.ts:54	prior pass
+800b7990	match	web/shared/games/tilePainter.ts:294	
+800c2cbc	match	web/shared/games/tilePainter.ts:527	
+800ba110	fixed	web/shared/games/tilePainter.ts:1440	occupancy + reservation for cash on every stage; per-kind ready timers
+800c1da4	match	web/shared/games/tilePainter.ts:786	prior pass
+800c1ea8	match	web/shared/games/tilePainter.ts:773	prior pass
+800b788c	match	web/client/games/tilePainter.ts:592	prior pass
+800beb6c	match	web/shared/games/tilePainter.ts:1406	
+800bff58	match	web/shared/games/tilePainter.ts:1236	
+800bc314	match	web/shared/games/tilePainter.ts:544	prior pass
+800bd520	fixed	web/shared/games/tilePainter.ts:1705	rounded own position
+800c3048	match	web/shared/games/tilePainter.ts:1599	
+80032490	match	web/shared/ps1Sqrt.ts:1	prior pass
+800b8f94	match	web/shared/games/tilePainter.ts:315	prior pass
+800c2674	match	web/shared/games/tilePainter.ts:925	
+800b7b1c	match	web/shared/games/tilePainter.ts:286	prior pass
+800b8dfc	match	web/client/games/tilePainter.ts:321	prior pass
+800b8ec8	match	web/shared/games/tilePainter.ts:314	
+800c19a8	match	web/shared/games/tilePainter.ts:402	
+800b6df4	fixed	web/shared/games/tilePainter.ts:477	nested idle entry when speed drops under 0x2f: stun starts one update later, no second cry
+800c0de4	match	web/shared/games/tilePainter.ts:1390	
+800c1068	match	web/shared/games/tilePainter.ts:1357	
+800c1840	match	web/shared/games/tilePainter.ts:380	prior pass
+800c2770	match	web/shared/games/tilePainter.ts:441	
+800c2388	match	web/shared/games/tilePainter.ts	flip a tile (setTile state 0)
+800c31b0	match	web/shared/games/tilePainter.ts:1599	level init; DAT_8005a5d8 = -16 is FLOOR in the view
+800ba018	fixed	web/shared/games/tilePainter.ts:672	item ready on landing (age 33) instead of age 17
+800c2810	match	web/shared/games/tilePainter.ts:441	
+800c32e8	added	web/client/games/tilePainter.ts:439	rider shadow pack 0770 part 40, hidden on lose; kit blob hidden
+800c2e50	match	web/shared/games/tilePainter.ts:1683	
+800854c0	match	web/shared/games/kegKaboom.ts:133	prior pass
+800bc0ec	match	web/shared/games/tilePainter.ts:919	
+800c165c	match	web/shared/games/tilePainter.ts:234	
+800bc04c	match	web/shared/games/tilePainter.ts:227	prior pass
+800c1b7c	fixed	web/shared/games/tilePainter.ts:1601	first cash timer 60+rand(60) from the pre-roll (was 48 from GO)
+800c2564	match	web/shared/games/tilePainter.ts:254	
+800b6370	match	web/client/games/tilePainter.ts:427	prior pass
+800c1a18	match	web/shared/games/tilePainter.ts:368	prior pass
+800c0c70	match	web/shared/games/tilePainter.ts:1323	
+800c0e40	match	web/shared/games/tilePainter.ts:1390	
+800c0f08	match	web/shared/games/tilePainter.ts:1389	prior pass
+800c10f8	fixed	web/shared/games/tilePainter.ts:1602	rand(200) drawn at init
+800c295c	match	web/client/games/tilePainter.ts:205	
+800c29f4	match	web/client/games/tilePainter.ts:205	
+800c2b00	match	web/client/games/tilePainter.ts:205	
+800c2ee0	match	web/shared/games/tilePainter.ts:105	crate delay from a CPU entry, fire delay from a human entry; a room without humans would keep 0x10
+800c1c90	match	web/shared/games/tilePainter.ts:456	beam object init
+800c286c	match	web/client/games/tilePainter.ts:206	
+800c3148	match	web/client/games/tilePainter.ts:333	
+800c0b70	match	web/shared/games/tilePainter.ts:1139	
+800c0cf4	match	web/client/games/tilePainter.ts:28	prior pass
+800c2be8	match	web/shared/games/tilePainter.ts:54	prior pass
+800c1004	match	web/shared/games/tilePainter.ts:1516	state 1, wait 3..5; the rand(3) uses routeDraw, not world.rng (bots plan outside the host RNG)
+80028018	match	web/client/shell/rumble.ts:1	prior pass
+800c0afc	match	web/shared/games/tilePainter.ts:225	prior pass
+800c2dcc	match	web/shared/games/tilePainter.ts:847	prior pass
+800c1cf0	match	web/shared/games/tilePainter.ts:334	nested call inside the stun entry now modelled
+800b8098	match	web/client/games/pogoBoard.ts:2	
+800c0d44	match	web/shared/games/tilePainter.ts:1236	
+800c2a8c	match	web/client/games/tilePainter.ts:205	
+800c2c70	match	web/shared/games/tilePainter.ts:456	
+800c327c	match	web/shared/games/tilePainter.ts:756	jet tilt starts at 5
+80015480	match	web/client/games/tilePainter.ts:234	prior pass
+800b7ee4	match	web/client/games/pogoBoard.ts:2	
+800c1384	match	web/shared/games/tilePainter.ts:511	
+800c159c	match	web/shared/games/crateToss.ts:1314	prior pass
+800c28fc	match	web/client/games/tilePainter.ts:206	
+800c2b98	match	web/shared/games/tilePainter.ts:456	
+800c24e4	match	web/shared/games/tilePainter.ts:254	
+800c2620	match	web/shared/games/tilePainter.ts:254	
+800c0bf0	match	web/shared/games/tilePainter.ts:1139	
+800c244c	match	web/shared/games/tilePainter.ts:254	
+800c0c34	match	web/shared/games/tilePainter.ts:294	

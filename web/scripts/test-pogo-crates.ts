@@ -91,6 +91,7 @@ const place = (w: World, slot: number, x: number, z: number) => {
   assert.notEqual(d.itT, -1);
   assert.ok(d.crates.length > 0 || d.cash.some((c: { st: number }) => c.st > 0));
   assert.deepEqual(createWorld(tilePainter, seats, [], 99, 'pogo'), w);
+  assert.deepEqual(d.hd, [2, 0, 3, 1]); // FUN_800b3808: up, right, down, left
 }
 
 // FUN_800bdf60 keeps the first of two equal targets in x-then-z order on Pogo Painter as well.
