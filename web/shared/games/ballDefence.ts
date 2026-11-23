@@ -172,6 +172,7 @@ interface Ball {
   vv: number; vmax: number; vup: number; vdn: number; vdir: number; // vertical bounce state (vdir 0 = down)
   psh: number; pshA: number;
   land: boolean; sink: number; fl: number;
+  roll?: [id: number, tick: number]; // landing effect on the ball's sound handle (FUN_800b9e54): it keeps looping while the ball lives
   corner: number;
   trail?: BDTrailPoint[]; // current point followed by the six previous points, in disc units
 }
@@ -209,6 +210,7 @@ interface Data {
   last: number; // side that conceded last (0x800c1f16), -1 none
   walls: number; // closed goals bitmask 1=z- 2=z+ 4=x- 8=x+ (game axes)
   wallSoundAt?: number;
+  goalLit?: number[]; // CRASHBALL: frame of the last ball over each seat's goal line (0x800c1d48 / 4a blink the goal strip)
   skyWallSoundDelay?: number;
   cool: number[]; // spawn corner cooldowns
   bumperHitAt?: number[];
@@ -224,7 +226,7 @@ interface Data {
   beachDecidedAt?: number; // Seat pass sets the native 0x800 round-decided flag.
   beachResultAt?: number; // Victory script ends the round on its second character sound.
   /** Sky Balls: platform events, event timer / table index (0x800c1c78 / 7c), disc tilt [rx 0x800c1c68, rz 0x800c1c6c, floor y 0x8005a5d8] */
-  sky?: { ev: SkyEv[]; t: number; i: number };
+  sky?: { ev: SkyEv[]; t: number; i: number; humAt?: number }; // humAt: frame of the last fan failure (effect 0x5c9 takes over the ambience handle)
   tilt?: number[];
 }
 
@@ -1378,6 +1380,7 @@ function launch(w: World, d: Data, b: Ball) {
   emit(w, 'sfx', b.x / BD_U, -b.z / BD_U, -1, 1, 1440);
   emit(w, 'spawn', b.x / BD_U, -b.z / BD_U, -1, 1);
   b.st = 6; b.spd = 0x20; b.who = -1; b.fl = 0; b.land = false;
+  delete b.roll; // the serve effect (0x5a0) takes the ball's sound handle
   const y0 = SPAWN_Y[d.variant];
   b.y = y0;
   switch (d.variant) {
@@ -1410,7 +1413,11 @@ function vertical(w: World, d: Data, b: Ball): boolean {
     const rest = ballistixFloor(d.tilt, b.x, b.z) - 96;
     if (b.y >= rest) {
       b.y = rest; b.fl |= 0x400;
-      if (!b.land) { b.land = true; emit(w, 'sfx', b.x / BD_U, -b.z / BD_U, -1, 1, LAND_SFX[rnd(w, 4)]); }
+      if (!b.land) {
+        b.land = true;
+        b.roll = [LAND_SFX[rnd(w, 4)], d.f];
+        emit(w, 'sfx', b.x / BD_U, -b.z / BD_U, -1, 1, b.roll[0]);
+      }
       b.vv = d.variant === 'nballism' ? b.vv >> 2 : b.vv >> 1;
       const t = b.vup; b.vup = 0; b.vdir = 1; b.vdn = t;
       if (b.vv < 8) { b.st = 1; b.fl |= 0x400; }
@@ -1453,6 +1460,7 @@ function skyPlatform(w: World, d: Data, sk: NonNullable<Data['sky']>, serveEvent
     const p = SKY_EV_SLOT[sk.i], e = sk.ev[p];
     // FUN_800bd43c: the disc lurches towards that player for 60..89 frames, then rocks back to level
     e.tm = rnd(w, 0x1e) + 0x3c; e.st = 1; e.an = 0xa0; e.max = 0x300; e.vel = 0; e.ap = 0; e.dir = -1;
+    sk.humAt = d.f;
     emit(w, 'sfx', 0, 0, p, 1, 0x5c9);
     emit(w, 'sfx', 0, 0, p, 1, 0x5ca + rnd(w, 4));
     emit(w, 'tilt', 0, 0, p, 1);
@@ -1504,6 +1512,8 @@ function skyTiltState(d: Data, sk: NonNullable<Data['sky']>) {
 function goal(w: World, d: Data, b: Ball, side: number, tm: number) {
   b.who = side;
   b.sink = 0;
+  // The goal strip's blink timer starts as the ball crosses the line, not when the point is taken.
+  if (d.variant === 'crashball') (d.goalLit ??= [-99, -99, -99, -99])[side] = d.f;
   if (isSky(d)) { b.st = 99; b.tm = tm === 4 ? 4 : 0x10; return; }
   b.tm = tm === 4 ? 4 : 8;
   if (d.variant === 'crashball') { b.st = 0x11; return; }

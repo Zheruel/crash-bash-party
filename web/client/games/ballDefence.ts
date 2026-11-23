@@ -11,9 +11,12 @@ import { createCharacter } from '../characters';
 import { CHARACTERS } from '../../shared/look';
 
 const SHIP_SCALE = 4;
+/** Effects started by a pilot's own button: kick swing (1409 + seat) and the Beach Ball launch (1459 + seat). */
+const OWN_ACTION = (id: number) => (id >= 1409 && id <= 1412) || (id >= 1459 && id <= 1462);
 const BALL_REST_Y = 96 / BD_U;
 import { sfx, sfxRate } from '../shell/sound';
-import { tauntVoice, winnerVoice } from '../shell/voice';
+import { charVoice, winnerVoice } from '../shell/voice';
+import { BallistixAudio, BD_BANK, BD_FULL } from './ballDefenceAudio';
 import { BallistixResult, ballistixResultEntry } from './ballDefenceResult';
 import type { ActorParts } from './kit';
 import { catalogInstance, disposeTree, Kit, preloadCatalogFor } from './kit';
@@ -59,23 +62,6 @@ const BEACH_SCENERY = [
   [-2035, 522, 4700, 0x4100, 78], [3695, 331, 2731, 0x4100, 78],
   [-3635, 459, 2865, 0x4300, 79], [1711, 276, 3538, 0x4200, 79], [3291, 310, 2512, 0x4300, 79],
 ] as const;
-
-/** sfx bank of each level (levelBanks in audio/index.json) */
-const BANK_OF: Record<string, string> = { crashball: '0157', beach: '0156', nballism: '0155', sky: '0154' };
-/** effect id -> sample of the level's bank (tone id through the bank's VAB; same for the four banks up to 1426) */
-const COMMON: Record<number, number> = {
-  1400: 0, 1401: 1, 1402: 2, 1403: 3, 1404: 4, 1405: 5, 1406: 4, 1407: 5, 1408: 6, 1409: 7, 1410: 8, 1411: 9, 1412: 10, 1413: 11, 1414: 12,
-  1415: 13, 1416: 14, 1417: 15, 1418: 13, 1419: 14, 1420: 15, 1421: 16, 1422: 16, 1423: 16, 1424: 16, 1425: 17, 1426: 18,
-};
-const EXTRA: Record<string, Record<number, number>> = {
-  crashball: { 1440: 19, 451: 20, 452: 21, 1494: 22, 1495: 22, 1496: 22, 1498: 22 },
-  beach: { 1440: 19, 1450: 20, 1451: 21, 1452: 22, 1453: 21, 1454: 22, 1455: 23, 1456: 24, 1457: 23, 1458: 24, 1459: 25, 1460: 26, 1461: 25, 1462: 26, 1463: 27, 1464: 28, 451: 29, 452: 30 },
-  nballism: { 1440: 19, 1470: 20, 1471: 21, 1472: 22, 1473: 23, 451: 24, 452: 25 },
-  sky: { 1480: 19, 1481: 20, 1482: 21, 1483: 22, 1484: 21, 1485: 22, 451: 23, 452: 24 },
-};
-const sampleOf = (variant: string, id: number): number | undefined => EXTRA[variant]?.[id] ?? COMMON[id];
-/** ball volume per effect (the disc plays most at full level; these keep the mix usable) */
-const VOL = (id: number) => (id === 1408 ? 0.35 : id >= 1415 && id <= 1424 ? 0.4 : 0.6);
 
 // ------------------------------------------------------------------ texture helpers
 
@@ -497,11 +483,8 @@ export function createBallDefenceView(): ClientMiniGame {
   let post: { x: number; y: number; z: number } | null = null;
   let machine: ReturnType<typeof catalogInstance> = null;
   const spectatorSounds = new Map<number, string>();
-  let bankIdx: Record<number, { file: string; loop?: number | null }> = {};
-  let motor: ReturnType<typeof sfx.startSample> = null;
+  let audio: BallistixAudio | undefined;
   let shieldMaterial: THREE.MeshBasicMaterial | undefined;
-  let wallSound: ReturnType<typeof sfx.startSample> = null;
-  const catchSounds = new Map<number, () => void>();
   const flashes: THREE.Object3D[] = [];
   let loaded = false;
   let active = false;
@@ -744,24 +727,6 @@ export function createBallDefenceView(): ClientMiniGame {
     return { inst, extra, shadow: 1.8, headY: 2.2, scale: 1, steady: true };
   }
 
-  function catchSound(slot: number, active: boolean) {
-    const stop = catchSounds.get(slot);
-    if (stop) {
-      if (!active) { stop(); catchSounds.delete(slot); }
-      return;
-    }
-    if (!active) return;
-    const id = 1451 + slot;
-    const sample = bankIdx[EXTRA.beach[id]];
-    if (sample?.loop != null) catchSounds.set(slot, sfx.loopFile(sample.file, sample.loop, VOL(id), sfxRate(BANK_OF.beach, id)));
-  }
-
-  function playSound(id: number) {
-    const n = sampleOf(variant, id);
-    const sample = n == null ? undefined : bankIdx[n];
-    if (sample) sfx.playFile(sample.file, VOL(id), false, sfxRate(BANK_OF[variant], id));
-  }
-
   return {
     id: 'ballDefence',
     async preload() {
@@ -776,7 +741,9 @@ export function createBallDefenceView(): ClientMiniGame {
       bgColor = new THREE.Color(BG[variant] ?? 0);
       kit = new Kit(ctx, 'ballDefence', { bg: BG[variant] ?? 0, hemi: [0xffffff, 0x888899, 1.6] });
       kit.realFx(FX_SCALE);
-      balls.clear(); post = null; machine = null; bankIdx = {}; result = undefined;
+      balls.clear(); post = null; machine = null; result = undefined;
+      audio = new BallistixAudio(variant);
+      const levelAudio = audio;
       // samples are shared between banks on disc, so the file comes from audio/index.json
       void fetch(ASSET_BASE + 'audio/index.json').then((r) => (r.ok ? r.json() : null)).then((j) => {
         if (!active) return;
@@ -784,10 +751,7 @@ export function createBallDefenceView(): ClientMiniGame {
           const file = j?.sfx?.banks?.['0277']?.samples[id - 0x192]?.file;
           if (file) { spectatorSounds.set(id, file); sfx.preloadFile(file); }
         }
-        const smp: { n: number; file?: string | null; loop?: number | null }[] = j?.sfx?.banks?.[BANK_OF[variant]]?.samples ?? [];
-        for (const { n, file, loop } of smp) if (file) bankIdx[n] = { file, loop };
-        const ids = new Set<number>(Object.values({ ...COMMON, ...EXTRA[variant] }));
-        for (const n of ids) if (bankIdx[n]) sfx.playFile(bankIdx[n].file, 0); // preload
+        levelAudio.load(j?.sfx?.banks?.[BD_BANK[variant]]?.samples ?? []);
       }).catch(() => { /* silent */ });
       build();
       setCamera(ctx.camera);
@@ -876,6 +840,7 @@ export function createBallDefenceView(): ClientMiniGame {
         fan.frames.forEach((o, i) => { if (o) o.visible = flicker && i === ((stageData.f >> 1) & 7); });
       }
       const pls: BallistixData['pl'] = players.data.pl;
+      const catchingSeats = [false, false, false, false];
       const rawBalls = stageData.balls;
       const seen = new Set<number>(), seenBalls = new Set<number>();
       const bodies = players === arena ? arena.bodies : [
@@ -916,7 +881,7 @@ export function createBallDefenceView(): ClientMiniGame {
             catchRing.visible = catching;
             if (catching) catchRing.scale.setScalar(1 + 0.125 * Math.sin((player.f - 8) * Math.PI / 16));
           }
-          if (variant === 'beach') catchSound(b.slot, catching && !w.finished);
+          catchingSeats[b.slot] = variant === 'beach' && catching && !w.finished;
           if (celebration) a.face = winner?.body.face ?? b.face;
           const body = winner?.body ?? b;
           const openingShip = opening?.ships[b.slot];
@@ -1009,16 +974,6 @@ export function createBallDefenceView(): ClientMiniGame {
       // to the open mesh (0x2006) while it spits balls
       const m = stageData.mach;
       const pose = m && ballistixLauncherFrame(m, arenaTick);
-      if (pose && pose.motorAge >= 0) {
-        const spin = bankIdx[EXTRA.nballism[1471]];
-        if (!motor && spin?.loop != null) {
-          const rate = sfxRate(BANK_OF.nballism, 1471);
-          motor = sfx.startSample(spin.file, spin.loop, VOL(1471), rate, pose.motorAge * rate / 30);
-        }
-      } else if (motor) {
-        motor.stop();
-        motor = null;
-      }
       if (pose) {
         if (!machine) {
           const ref = getCatalog().props.bdMachine;
@@ -1046,16 +1001,15 @@ export function createBallDefenceView(): ClientMiniGame {
         const visible = blocked && (pl.st !== 0x24 || wallTick - pl.stateAt >= 5);
         stage.barriers?.[slot].forEach((frame, part) => { frame.visible = visible && part === (wallTick & 7); });
       });
-      if (stageData.walls) {
-        const sample = bankIdx[COMMON[1425]];
-        if (!wallSound && sample?.loop != null) {
-          const rate = sfxRate(BANK_OF[variant], 1425);
-          const age = Math.max(0, wallTick - (stageData.wallSoundAt ?? wallTick));
-          wallSound = sfx.startSample(sample.file, sample.loop, VOL(1425), rate, age * rate / 30);
-        }
-      } else if (wallSound) {
-        wallSound.stop();
-        wallSound = null;
+      // Sound follows the same frame as the picture: queued effects first, then the voices owned by objects.
+      const soundCamera = result?.camera ?? LEVEL_CAMS[LEVEL[variant]];
+      if (audio && soundCamera) {
+        audio.flush(wallTick, soundCamera);
+        audio.sync(stageData, bodies, wallTick, soundCamera, {
+          catching: catchingSeats, live: opening !== undefined || w.tick > 0,
+          motorAge: pose ? pose.motorAge : -1,
+          wallAge: stageData.walls ? Math.max(0, wallTick - (stageData.wallSoundAt ?? wallTick)) : -1,
+        });
       }
       kit.real.update(dt, ctx.camera);
       kit.fx.update(dt);
@@ -1064,35 +1018,24 @@ export function createBallDefenceView(): ClientMiniGame {
     onEvent(ctx, e) {
       if (!kit) return;
       if (kit.baseEvent(e)) return;
+      const camera = result?.camera ?? LEVEL_CAMS[LEVEL[variant]];
       switch (e.k) {
         case 'sfx': {
           const prompt = spectatorSounds.get(e.o);
           if (prompt) sfx.playFile(prompt, 1, true, sfxRate('0277', e.o));
-          else if (e.o !== 1471 && e.o !== 1425) playSound(e.o);
+          else if (!audio || !camera) break;
+          // The result replay and the local pilot's own buttons are already in step with the picture.
+          else if (result || (e.s === ctx.mySlot && OWN_ACTION(e.o))) audio.play(e, camera);
+          else audio.queue(e);
           break;
         }
-        case 'hit': {
-          if (result) break;
-          const strong = e.v > 1.2;
-          kit.actorForSlot(e.o)?.squash.kick(0.3);
-          kit.shake((strong ? 0.2 : 0.1) + e.v * 0.1);
-          break;
-        }
-        case 'kick':
-          kit.actorForSlot(e.s)?.squash.kick(-0.4);
-          break;
         case 'taunt':
-          tauntVoice('a2', ctx.seats[e.s]?.look.char, e.o);
-          break;
-        case 'goal':
-          kit.shake(0.45);
+          // FUN_800b68c8 passes the ship's position: block * 0x32 + 7, or the roster's own line.
+          if (audio && camera) charVoice('a2', ctx.seats[e.s]?.look.char, 2, 0, BD_FULL, e.o, audio.voiceAt(camera, e));
           break;
         case 'gone':
+          // The overlay never shakes the camera (mode 7 is fixed). A knockout rumbles the pad (FUN_80028018).
           kit.real.play(FX_PACK, 0, e.x, e.v, e.z);
-          if (!result) kit.shake(0.9);
-          break;
-        case 'launch':
-          kit.shake(0.15);
           break;
         case 'machine':
           if (e.s === 1 || e.s === 5) kit.real.play(MACH_PACK, 0, 0, 0, 0); // rise / retract: script 0 at the machine
@@ -1119,15 +1062,11 @@ export function createBallDefenceView(): ClientMiniGame {
 
     dispose() {
       active = false;
-      wallSound?.stop();
-      wallSound = null;
+      audio?.dispose();
+      audio = undefined;
       flashes.length = 0;
-      motor?.stop();
-      motor = null;
       shieldMaterial?.dispose();
       shieldMaterial = undefined;
-      for (const stop of catchSounds.values()) stop();
-      catchSounds.clear();
       for (const v of balls.values()) removeBall(v);
       balls.clear(); post = null; machine = null;
       kit.dispose();
