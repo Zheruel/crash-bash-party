@@ -30,9 +30,14 @@
  * world.data: variant, radius, tilt [x,z] (-1..1), tiltRad [x,z], meter[4], hang[4] (s left), item[4] (1 shrink 2 grow 3 bomb 4 stun
  *   5 zap 6 snowball 7 frozen), itemT[4], elim[4], melt[16], pillars [x,z,alive][], foot[4] (1 = knocked off the bear), hold[4]
  *   (carries a bolt), P[] (per-player engine state), seal, internals.
- * Bodies: 'player', 'mask' (y = hover height), 'seal' (TILT; y = height while it jumps in), 'bolt' (manic: pickup on the ice, carried, or thrown; y = height). Events: dash, thump,
- *   hit, skid, ko, hang, climb, pickup, beamWarn, beam, beamEnd, zap, bomb, boom, dazed, melt, pillar, seal, bolt (pickup appears), grab (s
- *   takes it), throw, strike (bolt lands / explodes, v = blast radius), zapped (s hit by o's bolt: v 1 off the bear, 2 out).
+ * Bodies: 'player', 'mask' (y = hover height), 'seal' (TILT; y = height while it jumps in), 'bolt' (manic: pickup on the ice, carried, or
+ *   thrown; y = height), 'flybear' (the bear of a rider knocked off). Events (s = slot):
+ *   dash (v 1 mounted, 2 on foot), thump / snowbump (o = other slot + 4 * rand(4)), hit (o = other slot), skid (v = rand(6), o = pitch
+ *   rand(0x100)), quiet (the rider's sound handle is released), step (walk footfall, v 1 = shrunk), voice (v = disc voice id, keyed from
+ *   code), stun (FUN_800cde8c enter), dazed (stun wisps), ko, hang, climb, splash, pickup, beamWarn, beam, beamEnd, zap, bomb, boom, melt,
+ *   pillar (v = rand(3), o = the bear's angle), seal / sealSound, bolt (pickup appears), grab (s takes it), throw, boltLand (v 1 ice / 0
+ *   water, o 1 = landed on its own), strike (the blast's first tick, v = blast radius), zapped (s hit by o's bolt: v & 3 = 1 off the bear / 2 burnt, v >> 2 =
+ *   sfx pick), burn (v = burnt-rider tick 0 / 2 / 4), puff (object 0x1612: v 1 burnt wisps, 2 bolt trail, 3 flying bear).
  *   world.data.scale[4] = Uka shrink/grow model scale.
  */
 import { FitCam, trackBox, type TrackBox } from '../fitCamera';

@@ -131,6 +131,36 @@ const WIN_CUES: { cues: [number, number][]; period: number }[] = [
 /** FUN_800ce664: the pose a mounted rider holds from stun tick 32 on, while the bear turns. */
 const DAZED_WORD = [0, 0x4100, 0x4000, 0x4100, 0x4080, 0x4000, 0x4000, 0x4000, 0x4000];
 /** Object 0x1615 draws a static part of the rider's own bear model (the MELT models keep it under another index). */
+/**
+ * FUN_800cde8c: a stunned rider's node gets flag 0x400000 and +0x8e = 0x2002 (Brio mounted 0x2001): the animated frames keep
+ * their vertices and take static part 1's darker faces (part 0's own for Brio). Idle, item, knock-off, win and the stun's end
+ * clear it, a slip does not. The custom riders have no such part: their materials are halved instead.
+ */
+const stunWord = (ch: number, onFoot: boolean) => (ch === 4 && !onFoot ? 0x2001 : 0x2002);
+const darkMaterials = new WeakMap<THREE.Material, THREE.Material>();
+function darkMaterial(m: THREE.Material): THREE.Material {
+  let dark = darkMaterials.get(m);
+  if (!dark) {
+    dark = m.clone();
+    (dark as THREE.MeshBasicMaterial).color?.multiplyScalar(0.5);
+    darkMaterials.set(m, dark);
+  }
+  return dark;
+}
+function stunSkin(inst: ModelInstance, word: number | null) {
+  const skinned = inst.staticSkin(word);
+  const dark = word !== null && !skinned;
+  if (!!inst.root.userData.stunDark === dark) return;
+  inst.root.userData.stunDark = dark;
+  inst.root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    if (dark) {
+      mesh.userData.lit = mesh.material;
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(darkMaterial) : darkMaterial(mesh.material);
+    } else if (mesh.userData.lit) { mesh.material = mesh.userData.lit; delete mesh.userData.lit; }
+  });
+}
 function dashPart(ch: number, melt: boolean): { model: number; part: number } | null {
   if (ch === 7) return melt ? { model: 918, part: 1 } : { model: 950, part: 2 };
   if (ch === 8) return melt ? { model: 914, part: 2 } : { model: 944, part: 2 };
@@ -221,7 +251,7 @@ export function createPushOffView(): ClientMiniGame {
     hazards.length = 0;
     for (let slot = 0; slot < 4; slot++) {
       const bomb = propClone('poBomb'), zap = propClone('poZap');
-      // FUN_800d2248: a burnt rider becomes flat shared mesh 0x202d.
+      // FUN_800d2248: a burnt rider's entity draws shared mesh 0x202d.
       const burn = variant === 'manic' ? catalogInstance({ model: 403, scale: S, parts: ['part44'] })?.root ?? new THREE.Group() : new THREE.Group();
       bomb.visible = zap.visible = burn.visible = false;
       zap.scale.setScalar(0.5);
@@ -439,6 +469,8 @@ export function createPushOffView(): ClientMiniGame {
             hidden, role, script, scriptFrame, renderWord: dazed ? DAZED_WORD[q.ch] : undefined, keepYaw: win,
             pose: frozenClip == null ? undefined : { clip: frozenClip, frame: 0 },
           });
+          const stunned = q?.st === S_STUN || (q?.st === S_SLIP && q.pst === S_STUN);
+          stunSkin(a.inst, stunned && !win ? stunWord(q.ch, onFoot) : null);
           pfx?.dashMesh(b.slot, hidden || win ? undefined : q, b.x, b.y, b.z, b.face, q ? dashPart(q.ch, variant === 'melt') : null);
           if (variant === 'tilt' && !hidden) {
             a.holder.position.applyQuaternion(platform.quaternion);
@@ -457,11 +489,14 @@ export function createPushOffView(): ClientMiniGame {
           a.holder.scale.setScalar(win ? 1 : playerData.scale?.[b.slot] ?? 1);
           if (reflections && q) {
             reflections.render(b.slot, !hidden && q.st !== S_SLIP, !!snowball,
-              b.x, b.y, b.z, b.face, a.holder.scale.x, bearReflectionWord(script, q.ch, scriptFrame, win));
+              b.x, b.y, b.z, b.face, a.holder.scale.x, q.st === S_STUN || q.st === S_FROZEN ? 0x4000 : bearReflectionWord(script, q.ch, scriptFrame, win));
           }
           const { bomb, zap, burn } = hazards[b.slot];
           burn.visible = b.alive && q?.st === S_BURN;
-          if (burn.visible) burn.position.set(b.x, 0.01, b.z);
+          if (burn.visible) { // the rider's own entity: its place and yaw (0x800 from the hit), rotation order 2
+            burn.position.set(b.x, b.y, b.z);
+            burn.rotation.set(0, b.face, 0);
+          }
           const item = playerData.item?.[b.slot];
           const showItem = !hidden && !b.fall && !win && playerData.c6c === b.slot && (item === 3 || item === 5);
           bomb.visible = showItem && item === 3;
@@ -571,7 +606,6 @@ export function createPushOffView(): ClientMiniGame {
         case 'skid': audio?.hold(e.s, 0x456 + e.v, undefined, 0x1d80 + Math.max(0, e.o)); break;
         case 'thump': audio?.play(0x446 + (Math.max(0, e.o) >> 2)); break;
         case 'snowbump': audio?.play(0x48b); break;
-        case 'hit': kit.actorForSlot(e.s)?.hit(e.v); break; // the voice comes as its own event
         case 'dash':
           audio?.release(e.s);
           if (e.v === 1 && char != null) { // the mounted dash script 0x3e voices itself; the on-foot one (0x45) has no cue
@@ -617,7 +651,6 @@ export function createPushOffView(): ClientMiniGame {
         case 'grab': audio?.play(0x48e); break; // a bear takes it
         case 'zapped': // hit by a bolt: 0x490 + rand(4)
           audio?.play(0x490 + (e.v >> 2));
-          kit.actorForSlot(e.s)?.hit(1.5);
           break;
       }
     },
