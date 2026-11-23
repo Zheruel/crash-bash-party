@@ -11,7 +11,9 @@ const RESULT_MUSIC_GAIN = (0x55 / 0x7f) ** 2;
 // full-level effect (FUN_80022660 volume 0x1000) the music sits 1.3-7.5 dB (mean 3.9 dB) above what our RMS-normalised
 // tracks gave at the default sliders. The two trims move the default mix there and keep the summed peak where it was.
 const MUSIC_TRIM = 1.25, SFX_TRIM = 0.8;
-const DRAW_DUCK_MS = 2 * 1000 / 30;
+// FUN_8007d9dc ducks a draw (FUN_8002c29c) and only clears it (FUN_8002c290) when its 120-tick result timer runs out, on the
+// tick the round leaves, so a draw stays ducked through the whole result like a win.
+const DRAW_DUCK_MS = Infinity;
 
 /**
  * The menu blips of the announcer banks 0276 / 0277 / 0278 (all three hold the same tones; the titles, level-select and

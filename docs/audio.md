@@ -192,9 +192,9 @@ and nowhere else.
 * Pogo's winner entry (`FUN_800c2a8c`) calls the shared announcer setup (`FUN_80089fa4`) as soon as the winner enters the pose, after
   any exit hop. That setup sets the duck flag before the 30-tick name wait. The Pogo loser does not set it (`FUN_800b6960`), so all
   players hear the same music change when the winner enters. The other arena overlays use the same announcer setup for their winners.
-* The shared draw handler (`FUN_8007d9dc`) sets the flag on a draw. In ordinary individual versus, it enters state `0xc`, reaches
-  `0xe` on the next update, and clears the flag through `FUN_8002c290` on the following update. This is two 30 Hz ticks (about 67 ms).
-  The Draw logo cue comes later, as its scale reaches the threshold in `FUN_80082d90`.
+* The shared draw handler (`FUN_8007d9dc`) sets the flag on a draw (`FUN_8002c29c`) and arms its 120-tick result timer. States `0xc`/`0xe`
+  only clear the flag (`FUN_8002c290`) once that timer reaches zero, on the tick the round leaves, so a draw stays ducked through the
+  whole result, the same as a win. The Draw logo cue comes as its scale reaches the threshold in `FUN_80082d90`.
 * `FUN_8002bea8` applies the flag on the next sound update. The volume codes are `floor(setting * 0x55 / 100)` while ducked and
   `floor(setting * 0x7f / 100)` normally. `FUN_800447dc` squares the scaled voice level for the SPU, so the web gain uses
   `(0x55 / 0x7f)^2`, about 0.448 (−7.0 dB), with a continuous user slider. `FUN_8002c1c0(100, 5)` sets the sequence tempo back to
