@@ -20,7 +20,8 @@ import { BallistixAudio, BD_BANK, BD_FULL } from './ballDefenceAudio';
 import { BallistixResult, ballistixResultEntry } from './ballDefenceResult';
 import type { ActorParts } from './kit';
 import { catalogInstance, disposeTree, Kit, preloadCatalogFor } from './kit';
-import { fxPartTemplate, preloadFx } from './realFx';
+import { knockoutGhostRef, makeKnockoutGhost } from './knockoutGhost';
+import { fxPartTemplate, ownMaterial, pickupShadow, preloadFx } from './realFx';
 
 /** Object pack 0762 at the stage scale: effect script 0 = a knocked-out ship's explosion (FUN_800b79f4). */
 const FX_PACK = 762, FX_SCALE = 4;
@@ -43,9 +44,12 @@ export const BD_CAMS: Record<string, ReturnType<typeof cam>> = {
 /** BALLISTIX level ids (cheat 0x0E-0x11) */
 const LEVEL: Record<string, number> = { crashball: 14, beach: 15, nballism: 16, sky: 17 };
 const placements = new Map<string, Placements | null>();
-/** per-level stage options: the camera-side wall the game never draws, and native goal-floor strips missing from the object list */
+/**
+ * per-level stage options: parts the view draws itself and coplanar floor decals. Crashball's object 0x5020 (extra_bc58)
+ * is the pair of launcher housings in the near corners: its capture flag is clear, but the game draws it.
+ */
 const LEVEL_OPTS: Record<string, LevelStageOpts> = {
-  crashball: { skip: ['extra_bc58', 'extra_c810', 'extra_cb64', 'extra_ce98'], decals: ['extra_8d38', 'extra_8e94', 'extra_8ff0', 'extra_914c'] },
+  crashball: { skip: ['extra_c810', 'extra_cb64', 'extra_ce98'], decals: ['extra_8d38', 'extra_8e94', 'extra_8ff0', 'extra_914c'] },
   beach: { decals: ['extra_5660'] }, // additive glass highlight is coplanar with the floor
   sky: { skip: ['extra_87f0', 'extra_89ac'] },
 };
@@ -212,6 +216,8 @@ interface Stage {
   barriers?: THREE.Group[][];
   beachScenery?: (ModelInstance | null)[];
   cornerArt?: { corner: number; serve: boolean; frames: THREE.Mesh[][] }[];
+  /** per seat: the goal mouth lights and the mesh they blink to as a ball crosses the line */
+  goalLights?: { seat: number; frames: THREE.Mesh[][] }[];
   /** per player p: the goal-mouth strip while the goal is open (cyan lights) and once it is closed (red) */
   strips?: [THREE.Object3D | null, THREE.Object3D | null][];
   skyGates?: (THREE.Object3D | undefined)[];
@@ -237,23 +243,40 @@ const CORNER_ART: Record<string, [string, number, string, number][]> = {
 // The four serve markers use a different corner order. Each has four consecutive alternate meshes.
 const SERVE_MARKERS = [0x8ff0, 0x914c, 0x8d38, 0x8e94];
 
+// Markers 51-53 (table 0x800c1d38): the goal mouths of seats 1-3. A ball over the line arms a 4-tick delay and a
+// 32-tick timer, and FUN_800bca30 shows the alternate mesh while the timer has bit 2 set. Seat 0 has no such node.
+const GOAL_LIGHTS: [seat: number, base: string, alt: number][] = [[1, 'extra_a5d0', 11], [2, 'extra_acc8', 13], [3, 'extra_9f34', 12]];
+
+/** The meshes of a placed object (names[0]) and of the alternates the game swaps into its node. */
+function placedFrames(level: THREE.Object3D, names: string[]) {
+  const holder = level.getObjectByName('placements')?.children.find(o => o.name.endsWith(':' + names[0]));
+  if (!holder) return;
+  const frames: THREE.Mesh[][] = names.map(() => []);
+  holder.traverse(o => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const frame = names.indexOf(mesh.name);
+    const index = frame >= 0 ? frame : names.indexOf(mesh.parent?.name ?? '');
+    if (index >= 0) frames[index].push(mesh);
+  });
+  return frames;
+}
+
+function goalLights(level: THREE.Object3D, variant: string): Stage['goalLights'] {
+  if (variant !== 'crashball') return;
+  return GOAL_LIGHTS.flatMap(([seat, base, alt]) => {
+    const frames = placedFrames(level, [base, 'part' + alt]);
+    return frames ? [{ seat, frames }] : [];
+  });
+}
+
 function cornerArt(level: THREE.Object3D, variant: string): Stage['cornerArt'] {
   const rows = CORNER_ART[variant];
   if (!rows) return;
   const art: NonNullable<Stage['cornerArt']> = [];
-  const holders = level.getObjectByName('placements')?.children ?? [];
   function bind(corner: number, names: string[], serve = false) {
-    const holder = holders.find(o => o.name.endsWith(':' + names[0]));
-    if (!holder) return;
-    const frames: THREE.Mesh[][] = names.map(() => []);
-    holder.traverse(o => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      const frame = names.indexOf(mesh.name);
-      const index = frame >= 0 ? frame : names.indexOf(mesh.parent?.name ?? '');
-      if (index >= 0) frames[index].push(mesh);
-    });
-    art.push({ corner, serve, frames });
+    const frames = placedFrames(level, names);
+    if (frames) art.push({ corner, serve, frames });
   }
   rows.forEach(([a, altA, b, altB], i) => {
     bind(i, [a, 'part' + altA]);
@@ -400,7 +423,7 @@ function buildStage(variant: string): Stage {
       }
       return { group, skyGates, skyFans };
     }
-    return { group, strips, barriers, beachScenery, cornerArt: cornerArt(lvl, variant) };
+    return { group, strips, barriers, beachScenery, cornerArt: cornerArt(lvl, variant), goalLights: goalLights(lvl, variant) };
   }
   const main = catalogInstance(ref);
   if (main) group.add(main.root);
@@ -474,6 +497,9 @@ interface BallView {
   glow?: THREE.Object3D;
   trail?: THREE.Object3D[];
   materials?: THREE.Material[];
+  /** the sphere and its mirror image with their own colours, for the fade into a goal */
+  sphere?: { material: THREE.MeshMatcapMaterial | THREE.MeshBasicMaterial; base: THREE.Color; solid: boolean }[];
+  fade?: number;
 }
 
 export function createBallDefenceView(): ClientMiniGame {
@@ -494,6 +520,71 @@ export function createBallDefenceView(): ClientMiniGame {
   const axis = new THREE.Vector3();
   const billboard = new THREE.Quaternion();
   const shadowFloor = new THREE.Vector3();
+  const shipShadows = new Map<number, THREE.Group>();
+  const ringMaterials: THREE.Material[] = [];
+  const ghosts = new Map<number, { holder: THREE.Group; spirit: NonNullable<ReturnType<typeof makeKnockoutGhost>>; materials: THREE.Material[] }>();
+  const eye = new THREE.Vector3(), yawOnly = new THREE.Quaternion(), ONE = new THREE.Vector3(1, 1, 1);
+  const floorCast = new THREE.Matrix4(), placed = new THREE.Matrix4();
+
+  /**
+   * FUN_800c0760 / FUN_800c069c: each ship owns the fan 0x2002 of pack 0766, drawn subtractively at fade 0x200 on the
+   * floor under the hull with the ship's yaw. Its rim lies 95 u under the floor, and the disc draws it without a depth
+   * test. Casting the fan onto the floor from the eye gives the same picture.
+   */
+  function shipShadow(slot: number) {
+    let holder = shipShadows.get(slot);
+    if (!holder && fxPartTemplate(766, 1, SHIP_SCALE)) {
+      const fan = pickupShadow(766, 1, SHIP_SCALE, { brightness: 1 - 0x200 / 0x1000, depthBias: 2 });
+      fan.position.y = 0;
+      fan.traverse(o => { o.frustumCulled = false; });
+      holder = new THREE.Group();
+      holder.name = 'ship-shadow';
+      holder.matrixAutoUpdate = false;
+      holder.add(fan);
+      kit.root.add(holder);
+      shipShadows.set(slot, holder);
+    }
+    return holder;
+  }
+
+  /** FUN_800898ec / FUN_80089be8: the common spirit leaves the ship when the knockout burst starts (state 0x25). */
+  function knockoutGhost(slot: number) {
+    let ghost = ghosts.get(slot);
+    if (!ghost) {
+      const spirit = makeKnockoutGhost(SHIP_SCALE, slot, 0, 0);
+      if (!spirit) return;
+      // The disc adds the spirit and its glow to the picture (B + F): neither darkens the floor behind it.
+      const added = new Map<THREE.Material, THREE.Material>();
+      const add = (source: THREE.Material) => {
+        let mat = added.get(source);
+        if (!mat) added.set(source, mat = ownMaterial(source, true));
+        return mat;
+      };
+      for (const part of spirit.root.children.slice(0, 2)) part.traverse(node => {
+        const mesh = node as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.material = Array.isArray(mesh.material) ? mesh.material.map(add) : add(mesh.material);
+        mesh.renderOrder = 6;
+      });
+      const holder = new THREE.Group();
+      holder.matrixAutoUpdate = false;
+      holder.add(spirit.root);
+      kit.root.add(holder);
+      ghost = { holder, spirit, materials: [...added.values()] };
+      ghosts.set(slot, ghost);
+    }
+    return ghost;
+  }
+  function clearShipExtras() {
+    for (const ghost of ghosts.values()) {
+      ghost.spirit.dispose();
+      for (const mat of ghost.materials) mat.dispose();
+    }
+    ghosts.clear();
+    shipShadows.clear();
+    for (const mat of ringMaterials) mat.dispose();
+    ringMaterials.length = 0;
+  }
 
   function setCamera(cam: THREE.PerspectiveCamera) {
     const lc = result?.camera ?? LEVEL_CAMS[LEVEL[variant]];
@@ -567,6 +658,7 @@ export function createBallDefenceView(): ClientMiniGame {
     const real = catalogInstance(ballRef && beach ? { ...ballRef, parts: ['part22'] } : ballRef);
     if (real) {
       const materials: THREE.Material[] = [];
+      const sphere: NonNullable<BallView['sphere']> = [];
       // chrome: the game maps the ball texture by screen-space normal (environment map), so the pattern stays put
       real.root.traverse((o) => {
         const m = o as THREE.Mesh;
@@ -579,6 +671,7 @@ export function createBallDefenceView(): ClientMiniGame {
         const shaded = new THREE.MeshMatcapMaterial({ matcap: src.map ?? undefined, color });
         m.material = shaded;
         materials.push(shaded);
+        sphere.push({ material: shaded, base: color.clone(), solid: true });
       });
       real.root.name = 'spin';
       real.root.position.y = BALL_REST_Y;
@@ -593,7 +686,9 @@ export function createBallDefenceView(): ClientMiniGame {
           const mesh = o as THREE.Mesh;
           if (!mesh.isMesh) return;
           asDecal(mesh);
-          materials.push(...(Array.isArray(mesh.material) ? mesh.material : [mesh.material]));
+          const own = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as THREE.MeshBasicMaterial[];
+          materials.push(...own);
+          for (const material of own) sphere.push({ material, base: material.color.clone(), solid: false });
         });
         g.add(reflection.root);
       }
@@ -652,7 +747,7 @@ export function createBallDefenceView(): ClientMiniGame {
         glow.root.scale.setScalar(2);
         kit.root.add(glow.root);
       }
-      return { obj: g, reflection: reflection?.root, glow: glow?.root, trail, materials };
+      return { obj: g, reflection: reflection?.root, glow: glow?.root, trail, materials, sphere };
     }
     const mat = new THREE.MeshBasicMaterial({ color: BALL_COL[variant] ?? 0xffffff });
     const sph = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), mat);
@@ -698,8 +793,24 @@ export function createBallDefenceView(): ClientMiniGame {
       // Model 0766: the shockwave (render id 0x2001) and the Beach Ball capture ring (0x2003).
       const kick = catalogInstance({ model: 766, scale: SHIP_SCALE, parts: ['part0'] })?.root;
       const catchRing = catalogInstance({ model: 766, scale: SHIP_SCALE, parts: ['part2'] })?.root;
+      // Both rings fade with their node's +0x76 word, so each ship owns its ring materials.
+      const fading = (ring: THREE.Object3D) => {
+        const own: THREE.MeshBasicMaterial[] = [];
+        const copy = (source: THREE.Material) => {
+          const mat = source.clone() as THREE.MeshBasicMaterial;
+          own.push(mat);
+          ringMaterials.push(mat);
+          return mat;
+        };
+        ring.traverse(node => {
+          const mesh = node as THREE.Mesh;
+          if (mesh.isMesh && mesh.visible) mesh.material = Array.isArray(mesh.material) ? mesh.material.map(copy) : copy(mesh.material);
+        });
+        return own;
+      };
       for (const ring of [kick, catchRing]) if (ring) {
         ring.visible = false;
+        ring.userData.fade = fading(ring);
         extra.add(ring);
       }
       extra.userData.kick = kick;
@@ -730,7 +841,7 @@ export function createBallDefenceView(): ClientMiniGame {
   return {
     id: 'ballDefence',
     async preload() {
-      await Promise.all([preloadCatalogFor('ballDefence', ['bdShip', 'bdShipDim', 'bdBall', 'bdGlow', 'bdMachine', 'bdMachineSpit', ...CHARACTERS.map((c) => `bdPilot.${c.id}`)]), preloadFx([FX_PACK, MACH_PACK, POST_PACK]), ...Object.entries(LEVEL).map(async ([v, l]) => placements.set(v, await loadPlacements('L' + l)))]);
+      await Promise.all([preloadCatalogFor('ballDefence', ['bdShip', 'bdShipDim', 'bdBall', 'bdGlow', 'bdMachine', 'bdMachineSpit', ...CHARACTERS.map((c) => `bdPilot.${c.id}`)], [knockoutGhostRef(SHIP_SCALE)]), preloadFx([FX_PACK, MACH_PACK, POST_PACK]), ...Object.entries(LEVEL).map(async ([v, l]) => placements.set(v, await loadPlacements('L' + l)))]);
       loaded = true;
     },
 
@@ -742,6 +853,7 @@ export function createBallDefenceView(): ClientMiniGame {
       kit = new Kit(ctx, 'ballDefence', { bg: BG[variant] ?? 0, hemi: [0xffffff, 0x888899, 1.6] });
       kit.realFx(FX_SCALE);
       balls.clear(); post = null; machine = null; result = undefined;
+      clearShipExtras();
       audio = new BallistixAudio(variant);
       const levelAudio = audio;
       // samples are shared between banks on disc, so the file comes from audio/index.json
@@ -758,6 +870,9 @@ export function createBallDefenceView(): ClientMiniGame {
       if (!loaded) this.preload!().then(() => {
         if (!active) return;
         kit.reset();
+        for (const ghost of ghosts.values()) kit.root.remove(ghost.holder);
+        for (const shade of shipShadows.values()) kit.root.remove(shade);
+        clearShipExtras();
         kit.root.remove(stage.group);
         disposeTree(stage.group);
         build();
@@ -799,6 +914,12 @@ export function createBallDefenceView(): ClientMiniGame {
       }
       const remaining = w.tick === 0 ? ctx.countdownTicksLeft : undefined;
       const opening = remaining === undefined ? undefined : ballistixOpeningFrame(remaining);
+      const shownTick = result ? stageData.f : Math.floor(w.time * 30 + 1e-7);
+      for (const light of stage.goalLights ?? []) {
+        const age = shownTick - (stageData.goalLit?.[light.seat] ?? -99);
+        const blink = age >= 4 && age <= 35 && ((35 - age) & 4) ? 1 : 0;
+        light.frames.forEach((meshes, i) => { for (const mesh of meshes) mesh.visible = i === blink; });
+      }
       if (stage.beachScenery) {
         const playFrame = result ? stageData.f : Math.floor(w.time * 30 + 1e-7);
         const age = (opening?.pose ?? BALLISTIX_OPENING_TICKS + playFrame) - 1;
@@ -811,6 +932,15 @@ export function createBallDefenceView(): ClientMiniGame {
       const tilt = variant === 'sky' ? opening?.tilt ?? stageData.tilt : undefined;
       if (tilt) skyTilt(tilt, opening?.pose ?? BALLISTIX_OPENING_TICKS + stageData.f);
       kit.root.getWorldQuaternion(billboard).invert().multiply(ctx.camera.quaternion);
+      // The eye in the floor's own frame (the Sky Balls platform tilts under kit.root).
+      eye.copy(ctx.camera.position);
+      if (tilt) eye.applyMatrix4(tiltInv);
+      const lift = 0.004;
+      floorCast.set(
+        eye.y, -eye.x, 0, 0,
+        0, -lift, 0, lift * eye.y,
+        0, -eye.z, eye.y, 0,
+        0, -1, 0, eye.y);
       if (variant === 'crashball') {
         const tick = opening ? opening.pose - BALLISTIX_OPENING_TICKS : markers?.tick ?? stageData.f;
         let used = 0;
@@ -874,12 +1004,22 @@ export function createBallDefenceView(): ClientMiniGame {
           const kick = a.extra?.userData.kick as THREE.Object3D | undefined;
           if (kick) {
             kick.visible = kicking;
-            if (kicking) kick.scale.setScalar(1 + Math.max(0, pl.kfr - 1) * 0x600 / 0x1000);
+            // FUN_800b7518: scale 0x1000 + n * 0x600 and fade 0x800 + n * 0x200 on kick frame n.
+            const n = Math.max(0, pl.kfr - 1);
+            if (kicking) {
+              kick.scale.setScalar(1 + n * 0x600 / 0x1000);
+              for (const mat of kick.userData.fade as THREE.MeshBasicMaterial[]) mat.color.setScalar(1 - (0x800 + n * 0x200) / 0x1000);
+            }
           }
           const catchRing = a.extra?.userData.catchRing as THREE.Object3D | undefined;
           if (catchRing) {
             catchRing.visible = catching;
-            if (catching) catchRing.scale.setScalar(1 + 0.125 * Math.sin((player.f - 8) * Math.PI / 16));
+            if (catching) {
+              // FUN_800b77f8: one 32-tick sine drives the scale (0x1000 + s) and the fade (0xa00 - s).
+              const wave = Math.round(4096 * Math.sin(((player.f & 31) - 8) * Math.PI / 16)) >> 3;
+              catchRing.scale.setScalar((0x1000 + wave) / 0x1000);
+              for (const mat of catchRing.userData.fade as THREE.MeshBasicMaterial[]) mat.color.setScalar(1 - (0xa00 - wave) / 0x1000);
+            }
           }
           catchingSeats[b.slot] = variant === 'beach' && catching && !w.finished;
           if (celebration) a.face = winner?.body.face ?? b.face;
@@ -898,11 +1038,31 @@ export function createBallDefenceView(): ClientMiniGame {
             freeze: true,
             keepYaw: celebration,
           });
+          const floor = tilt ? ballistixFloor(tilt, Math.round(body.x * BD_U), Math.round(-body.z * BD_U)) : 0;
+          const sampledFloor = !tilt || celebration || dying ? floor : openingShip?.skyFloor ?? pl.skyFloor ?? floor;
+          const height = winner?.y ?? sampledFloor + hover;
+          // The fan follows the hull on the floor until the seat is knocked out (flags & 0xf800).
+          const shade = shipShadow(b.slot);
+          if (shade) {
+            a.shadow.visible = false;
+            shade.visible = !gone && !dying;
+            if (shade.visible) {
+              shadowFloor.set(body.x, -floor / BD_U, body.z);
+              placed.compose(shadowFloor, yawOnly.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, a.yaw.rotation.y), ONE);
+              if (tilt) placed.premultiply(tiltInv);
+              shade.matrix.multiplyMatrices(floorCast, placed);
+              shade.matrixWorldNeedsUpdate = true;
+            }
+          }
+          const ghost = gone ? knockoutGhost(b.slot) : ghosts.get(b.slot);
+          if (ghost) {
+            const frame = result && result.age >= 0 ? result.entry + result.age : player.f ?? d.f;
+            if (tilt) ghost.holder.matrix.copy(tiltInv); else ghost.holder.matrix.identity();
+            ghost.holder.matrixWorldNeedsUpdate = true;
+            ghost.spirit.pose(body.x, -height / BD_U, body.z, gone ? frame - pl.stateAt : -1, ctx.camera);
+          }
           if (tilt && !gone) {
             // L17 changes the hull height while leaving its horizontal position and axes in world space.
-            const floor = ballistixFloor(tilt, Math.round(body.x * BD_U), Math.round(-body.z * BD_U));
-            const sampledFloor = celebration || dying ? floor : openingShip?.skyFloor ?? pl.skyFloor ?? floor;
-            const height = winner?.y ?? sampledFloor + hover;
             a.holder.position.set(body.x, -height / BD_U, body.z).applyMatrix4(tiltInv);
             a.holder.quaternion.setFromRotationMatrix(tiltInv);
             shadowFloor.set(body.x, -floor / BD_U, body.z).applyMatrix4(tiltInv);
@@ -929,6 +1089,23 @@ export function createBallDefenceView(): ClientMiniGame {
           v.obj.visible = b.alive;
           v.obj.position.set(b.x, b.y, b.z);
           const ball = rawBalls.find(ball => ball.id === b.id);
+          // FUN_800b9e54, states 4 and 0x11: once the goal timer runs out the ball and its mirror image are added to
+          // the picture (node flag 0x40000000) and fade by 0x200 a tick from 0x400.
+          const fade = ball && (ball.st === 4 || ball.st === 0x11) && ball.sink >= 0x400 ? Math.min(ball.sink, 0xfff) : 0;
+          if (v.sphere && (v.fade ?? 0) !== fade) {
+            v.fade = fade;
+            for (const { material, base, solid } of v.sphere) {
+              const level = 1 - fade / 0x1000;
+              // The matcap tint is a linear colour; the disc scales the encoded value.
+              if (solid) material.color.copy(base).convertLinearToSRGB().multiplyScalar(level).convertSRGBToLinear();
+              else material.color.copy(base).multiplyScalar(level);
+              if (!solid) continue;
+              material.transparent = fade > 0;
+              material.depthWrite = fade === 0;
+              material.blending = fade > 0 ? THREE.CustomBlending : THREE.NormalBlending;
+              material.blendSrc = material.blendDst = THREE.OneFactor;
+            }
+          }
           const spin = v.obj.getObjectByName('spin');
           if (spin && ball?.pitch !== undefined) {
             spin.rotation.set(ball.pitch * Math.PI / 2048, -(ball.yaw ?? 0) * Math.PI / 2048, 0, 'YXZ');
@@ -959,6 +1136,7 @@ export function createBallDefenceView(): ClientMiniGame {
         }
       }
       kit.prune(seen);
+      for (const [slot, shade] of shipShadows) if (!bodies.some(b => b.kind === 'player' && b.slot === slot)) shade.visible = false;
       for (const [id, v] of balls) if (!seenBalls.has(id)) { removeBall(v); balls.delete(id); }
 
       // N.Ballism power-up post: the level's looping effect script 1 at its marker (FUN_800bd770); it ends with the post
@@ -1065,6 +1243,7 @@ export function createBallDefenceView(): ClientMiniGame {
       audio?.dispose();
       audio = undefined;
       flashes.length = 0;
+      clearShipExtras();
       shieldMaterial?.dispose();
       shieldMaterial = undefined;
       for (const v of balls.values()) removeBall(v);
