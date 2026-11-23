@@ -225,6 +225,12 @@ function occupiedAt(w: World, ci: number, cj: number): boolean {
   // FUN_800bad70 reserves the four 256-unit spawn cells beneath each missing tile.
   if (!floorAt(D(w), cellRaw(ci - 2) * U, -cellRaw(cj - 2) * U)) return true;
   for (const b of w.bodies) {
+    if (b.kind === 'player') {
+      // FUN_80086d88 marks the 3x3 cells around every player, eliminated ones included, when its own cell is on the grid.
+      const pi = Math.floor(b.x / U / 256) + 10, pj = 9 - Math.floor(b.z / U / 256);
+      if (pi >= 0 && pi < 20 && pj >= 0 && pj < 20 && Math.abs(ci - pi) <= 1 && Math.abs(cj - pj) <= 1) return true;
+      continue;
+    }
     if (!b.alive || !(isCrate(b) || isPickup(b) || b.kind === 'penguin')) continue;
     if (Math.floor(b.x / U / 256) + 10 === ci && 9 - Math.floor(b.z / U / 256) === cj) return true;
   }
@@ -2058,8 +2064,11 @@ function planCrushBot(w: World, slot: number, contestants: Body[], focus: number
     return result({ x: Math.sin(heading), y: Math.cos(heading), a: false, b: false, ...buttons });
   };
   const byId = (id: number) => w.bodies.find((b) => b.id === id && b.alive && !b.fall);
-  const canFire = () => !d.air[slot] && !d.prevB[slot] && d.wcd[slot] <= 1 && d.ammo[slot] > 0 && foes.some(
-    (foe) => d.weapon[slot] === 3 ? rawDistanceSq(me, foe) < 0x51000 : nearAngle(face, headingTo(me, foe), 0x155 * TAU / 4096));
+  // FUN_800b4848: the ring (0x1c) needs a live player within 0x51000 squared. The orb and missile pick the player with the
+  // smallest bearing error under 0x800 among all other slots, so they always have a target. Firing clears the route.
+  const canFire = () => !d.air[slot] && !d.prevB[slot] && d.wcd[slot] <= 1 && d.ammo[slot] > 0
+    && (d.weapon[slot] !== 3 || foes.some((foe) => rawDistanceSq(me, foe) < 0x51000));
+  const fire = () => { state.target = 0; delete state.resumeFrom; return result({ ...IDLE, b: true }); };
   const startRetreat = (route: CrushRoute) => {
     state.resumeFrom = route;
     state.retreatUntil = now + 30;
@@ -2073,7 +2082,8 @@ function planCrushBot(w: World, slot: number, contestants: Body[], focus: number
   }
 
   // Like the native controller, steer away from a rolling penguin or an opponent with the weight.
-  if (dangerFoe) return steer(evadeCrushHeading(d, me, headingTo(me, dangerFoe) + Math.PI));
+  // FUN_800b46b8 replaces the route heading; the route state still runs FUN_800b4848 (Drain weapons).
+  if (dangerFoe) return !held && canFire() ? fire() : steer(evadeCrushHeading(d, me, headingTo(me, dangerFoe) + Math.PI));
   if (now < state.retreatUntil) {
     if (state.resumeFrom && crushRouteBlocked(crushDanger(d, me, me.face, hazards))) startRetreat('retreat');
     return steer(evadeCrushHeading(d, me, state.retreatAngle));
@@ -2122,7 +2132,7 @@ function planCrushBot(w: World, slot: number, contestants: Body[], focus: number
     if (state.target === 0) {
       const next = chooseCrushTarget(w, d, me, foes, nearest, skill, state.resumeFrom);
       if (next !== undefined) { state.target = next; delete state.resumeFrom; }
-      return result(canFire() ? { ...IDLE, b: true } : IDLE);
+      return canFire() ? fire() : result();
     }
   }
 
@@ -2165,7 +2175,7 @@ function planCrushBot(w: World, slot: number, contestants: Body[], focus: number
   }
   if (station && rawDistanceSq(at, me) < 0x4000) return taunt();
 
-  if (canFire()) return result({ ...IDLE, b: true });
+  if (canFire()) return fire();
 
   if (!d.air[slot] && !d.prevB[slot] && closeFoe && !weight && !guarded(d, closeFoe.slot)) {
     const char = d.char[slot] ?? 1;
