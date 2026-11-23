@@ -684,9 +684,10 @@ export function createPushOffView(): ClientMiniGame {
         if (!seat) return;
         out.push({ tex: hudFace(seat.look.char), x, y: 10, w: 64, h: 40 });
         const m = Math.max(0, Math.min(1, (resultWorld?.data.meter ?? w.data.meter)?.[slot] ?? 0));
-        const g = Math.round(52 * m);
-        out.push({ tex: `${ASSET_BASE}hud/barR.png`, x: x + 16, y: 39, w: 52, h: 6 });
-        if (g > 0) out.push({ tex: `${ASSET_BASE}hud/barG.png`, x: x + 16, y: 39, w: g, h: 6 });
+        // FUN_8007ce50: the green quad is gauge >> 2 of the bar's 0x40 HUD units (at most 0x3f), the red one the rest
+        const units = Math.min(0x3f, Math.round(m * 0x100) >> 2), g = Math.round(units * 52 / 0x40);
+        if (units < 0x3f) out.push({ tex: `${ASSET_BASE}hud/barR.png`, x: x + 16 + g, y: 39, w: 52 - g, h: 6 });
+        if (units > 0) out.push({ tex: `${ASSET_BASE}hud/barG.png`, x: x + 16, y: 39, w: g, h: 6 });
         out.push({ tex: hudTex(33), x: x - 8, y: 33, w: 24, h: 18 });
       });
       out.push(...arenaClockSprites('pushOff', w));

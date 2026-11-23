@@ -142,6 +142,7 @@ const MELT_TRI = [[602,3252,988,-186,3294,2304,356,1987,3970], [59,3235,985,-679
 /** MANIC PANIC: 26 edges (L21 0x801d12d4) */
 const HULL_MANIC = [-14,-3169,860,-648,-3007,1083,-1172,-3056,778,-1951,-2749,688,-2647,-2358,259,-2986,-1554,1,-2988,-984,3989,-2909,-503,187,-3064,18,33,-3096,613,4023,-2995,1516,3870,-2706,2319,3458,-1658,3026,3073,-756,3028,3143,231,3136,2964,1195,2976,3036,1814,2942,2659,2737,2266,2238,3117,1002,1976,3052,410,2143,3202,-604,1927,2959,-1916,1774,2659,-2589,1302,1871,-2950,1171,901,-3174,1050,386,-3196,979];
 const HULLS: Record<string, number[]> = { tilt: HULL_RAW, polar: HULL_POLAR, melt: HULL_MELT, manic: HULL_MANIC };
+/** FUN_800cd118 (FUN_800b4260 for hull 0): inside iff the point is on the inner side of every edge */
 const hullInside = (H: number[], px: number, pz: number): boolean => {
   for (let i = 0; i < H.length; i += 3) {
     const a = H[i + 2];
@@ -325,6 +326,7 @@ export const poSetState = (w: World, s: number, st: number) => { const d = w.dat
 export const poOnIce = (w: World, gx: number, gz: number) => onIce(w.data as Data, gx | 0, gz | 0);
 
 const SECTORS = 16;
+/** FUN_800cba28 */
 const sectorOf = (gx: number, gz: number) => ((at2(gx, gz) - 0x7d) & 0xfff) >> 8;
 const elim = (q: PoP | null) => !q || (q.fl & F_ELIM) !== 0;
 const P = (d: Data, i: number) => d.P[i];
@@ -537,12 +539,12 @@ function throwCheck(w: World, d: Data, q: PoP, s: number): boolean {
 }
 
 function stateTick(w: World, d: Data, q: PoP, s: number) {
-  if ((q.fl & F_WON) && q.st !== S_WIN && q.st !== S_OUT) { setState(w, d, q, s, S_WIN); return; }
+  if ((q.fl & F_WON) && q.st !== S_WIN && q.st !== S_OUT) { setState(w, d, q, s, S_WIN); return; } // FUN_800d2d2c
   q.k++;
   switch (q.st) {
     case S_IDLE: case S_WALK: case S_FOOT: case S_FOOTWALK: { // FUN_800cda54 / FUN_800cdbd0, on foot FUN_800d1c14 / FUN_800d1db4
       if (q.st === S_FOOT) q.md = 1;
-      q.g = Math.min(0x100, q.g + 4);
+      q.g = Math.min(0x100, q.g + 4); // FUN_800d325c
       collide(w, d, q, s);
       // FUN_800cdbd0: the bear's footfall when the walk script (16 words, looping) stands at pc 4; 0x4a0 while shrunk
       if (q.st === S_WALK && (q.af & 15) === 4) E(w, 'step', q.x, q.z, s, q.mass < 0x51 ? 1 : 0);
@@ -551,7 +553,7 @@ function stateTick(w: World, d: Data, q: PoP, s: number) {
         const [a, b] = FOOT_STEP[q.ch], t = (q.af - 1) % (a + b);
         if (t === 0 || t === a) E(w, 'voice', q.x, q.z, s, HIT_VOICE[q.ch] + (t ? 0x11 : 0x12));
       }
-      const still = q.st === S_IDLE || q.st === S_FOOT;
+      const still = q.st === S_IDLE || q.st === S_FOOT; // FUN_800d3394 / FUN_800d32cc: a direction held walks, none idles
       if (still ? (q.held & 0xf0) : !(q.held & 0xf0)) setState(w, d, q, s, still ? (q.md === 1 ? S_FOOTWALK : S_WALK) : q.md === 1 ? S_FOOT : S_IDLE);
       dashCheck(w, d, q, s);
       throwCheck(w, d, q, s);
@@ -646,7 +648,7 @@ function stateTick(w: World, d: Data, q: PoP, s: number) {
       if (q.sc1c++ >= 0xb5 && q.st === S_STUN) { q.mass = massOf(q); setState(w, d, q, s, q.md === 1 ? S_FOOT : S_IDLE); } // FUN_800b5684 then 0x49 / 0x54
       break;
     }
-    case S_WIN:
+    case S_WIN: // FUN_800d2b58
       q.held = q.pressed = 0;
       q.lk = 0x14;
       q.yaw = s16(q.yaw + (adiff(q.yaw, 0) >> 2));
@@ -751,6 +753,7 @@ function aiDash(d: Data, q: PoP, s: number) {
 }
 /** MANIC bolts (list DAT_800d5294): FUN_800cb56c = does bear s carry one; the first one still lying on the ice */
 const carries = (d: Data, s: number) => d.bolts.some((b) => b.k === 0 && b.st === 1 && b.own === s);
+/** FUN_800cb5f4 */
 const freeBolt = (d: Data) => d.bolts.find((b) => b.k === 0 && b.st === 0);
 /** FUN_800b6eb4: throw (Circle) at rival t when closer than 2000, in front, and the bolt was held for 0x1f decide() calls. */
 function aiThrow(d: Data, q: PoP, t: number) {
