@@ -479,7 +479,6 @@ export function createCrateTossView(): ClientMiniGame {
       case 'explode':
         burst(e.s === 1 ? 'N' : 'T', e.x, e.z, Math.max(1, e.v));
         if (audio) {
-          kit.shake(0.5);
           playPick(e.s === 1 ? NITRO_IDS : TNT_IDS);
         }
         return true;

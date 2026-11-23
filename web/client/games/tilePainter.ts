@@ -593,11 +593,9 @@ export function createTilePainterView(): ClientMiniGame {
         case 'cash':
           // FUN_800b788c -> FUN_8008d5d4: banked tiles float up as a number.
           kit.real.number(e.v, e.x, 256 * U, e.z + 256 * U, 0);
-          kit.shake(0.3);
           break;
         case 'pickup': case 'line': case 'cross':
           kit.real.play(PACK, 1, e.x, 0, e.z); // FUN_800b935c: every other pickup goes in script 1
-          if (e.k === 'cross') kit.shake(0.2);
           break;
         case 'pogoBeamSpark':
           kit.real.play(PACK, 7, e.x, 80 * U, e.z);
@@ -614,12 +612,8 @@ export function createTilePainterView(): ClientMiniGame {
         case 'stun':
           if (!catchingUp) hitVoice('a2', kit.look(e.s).char, 0.8, 0, undefined, undefined, e.s);
           break;
-        case 'wipe':
-          kit.shake(0.2);
-          break;
         case 'boom':
           kit.real.play(LOCO, 1, e.x, 0, e.z); // mine tile (FUN_800b8180): the level's script 1
-          kit.shake(0.35);
           break;
       }
     },

@@ -487,7 +487,6 @@ export function createRingDingView(): ClientMiniGame {
           break;
         }
         case 'black': {
-          kit.shake(0.4);
           playBlack(e.v);
           break;
         }
@@ -510,7 +509,6 @@ export function createRingDingView(): ClientMiniGame {
         case 'punch':
           if (e.v === 2) {
             kit.actorForSlot(e.s)?.hit();
-            kit.shake(0.25);
             if (e.o >= 0) poseCues.push({ tick, slot: e.s, cue: 3 });
           } else poseCues.push({ tick, slot: e.s, cue: 0xe });
           break;

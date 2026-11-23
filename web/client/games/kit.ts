@@ -291,11 +291,10 @@ export class Kit {
       case 'goal': this.actorForSlot(e.s)?.hit(); break;
     }
     switch (e.k) {
-      // the engine has no generic jump / land / run dust or bump sparks (re/notes/engine.md "Effect scripts"): poses and shake only
+      // the engine has no generic jump / land / run dust or bump sparks (re/notes/engine.md "Effect scripts"), and every level camera
+      // is fixed during play (no routine moves it on landings or bumps): poses only
       // not consumed: games still play their own sounds / voices / effects for these (Dash bumps, Crate Crush jumps, Tank crate landings)
       case 'jump': this.actorForSlot(e.s)?.jump(); break;
-      case 'land': this.shake(0.05 * e.v); break;
-      case 'bump': this.shake(0.06 + e.v * 0.1); break;
     }
     return false;
   }
