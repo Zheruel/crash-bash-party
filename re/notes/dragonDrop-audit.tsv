@@ -1,0 +1,115 @@
+addr	status	ours	note
+800b33d8	match	web/shared/games/dragonDrop.ts:354	replay-verified (re/notes/dragonDrop.md)
+800b3538	match	web/shared/games/dragonDrop.ts:203	replay-verified (re/notes/dragonDrop.md)
+800b3760	match	web/shared/games/dragonDrop.ts:405	
+800b38bc	match	web/shared/games/dragonDrop.ts:418	
+800b3a38	match	web/shared/games/dragonDrop.ts:467	
+800b3a9c	match	web/shared/games/dragonDrop.ts:467	split tail of 800b3a38
+800b3c1c	match	web/shared/games/dragonDrop.ts:480	
+800b3d90	match	web/shared/games/dragonDrop.ts:490	
+800b3fdc	match	web/shared/games/dragonDrop.ts:510	
+800b4268	match	web/shared/games/dragonDrop.ts:328	replay-verified (re/notes/dragonDrop.md)
+800b4474	match	web/shared/games/dragonDrop.ts:342	replay-verified (re/notes/dragonDrop.md)
+800b475c	match	web/shared/games/dragonDrop.ts:370	
+800b478c	match	web/shared/games/dragonDrop.ts:432	
+800b485c	match	web/shared/games/dragonDrop.ts:354	team-mate test, always 0 outside team mode
+800b49ac	match	web/shared/games/dragonDrop.ts:370	replay-verified (re/notes/dragonDrop.md)
+800b4b14	match	web/shared/games/dragonDrop.ts:499	
+800b4c70	match	web/shared/games/dragonDrop.ts:522	rdInside(0)
+800b4d6c	match	web/shared/games/dragonDrop.ts:522	
+800b53d4	match	web/shared/games/dragonDrop.ts:510	
+800b5410	n/a(empty)		
+800b5424	match	web/shared/games/dragonDrop.ts:325	replay-verified (re/notes/dragonDrop.md)
+800b55e8	n/a(variant rules: option flags 0x20/0x40/0x80 or team mode; party is individual versus)		ranking for flags 0x20/0x80
+800b566c	n/a(variant rules: option flags 0x20/0x40/0x80 or team mode; party is individual versus)		tail of 800b55e8
+800b5a40	n/a(variant rules: option flags 0x20/0x40/0x80 or team mode; party is individual versus)		team-result tail (flags 0x200/0x400 + 0x1605 bursts)
+800b5dcc	n/a(variant rules: option flags 0x20/0x40/0x80 or team mode; party is individual versus)		team ranking, unreferenced in individual versus
+800b627c	match	web/client/games/dragonDrop.ts:310	draw tail of 800b62d8: flag 0x100 on every rider
+800b62d8	match	web/client/games/dragonDrop.ts:310	replay-verified (re/notes/dragonDrop.md)
+800b69f4	n/a(variant rules: option flags 0x20/0x40/0x80 or team mode; party is individual versus)		ranking for flag 0x40
+800b6fe4	match	web/shared/games/dragonDrop.ts:991	pointer table; ranking 800bce7c
+800b714c	match	web/shared/games/dragonDrop.ts:991	finds target node 0x5002
+800b7300	n/a(variant rules: option flags 0x20/0x40/0x80 or team mode; party is individual versus)		lit-target round (flag 0x80): picks a lit target every 180 ticks, sfx 0x6cf
+800b7664	match	web/shared/games/dragonDrop.ts:991	start yaw atan2+0x1000, accel 6 then idle 9, jewels A/B state 7
+800b7aa0	fixed	web/shared/games/dragonDrop.ts:226	gong / score cues now at volume 0x1000
+800b7ee4	match	web/shared/games/dragonDrop.ts:226	split tail of 800b7aa0 scoring loop
+800b8098	match	web/shared/games/dragonDrop.ts:226	split tail of 800b7aa0 scoring loop
+800b85dc	match	web/shared/games/dragonDrop.ts:1043	tick order, cooldowns, third jewel at 0x546
+800b86c8	fixed	web/shared/games/dragonDrop.ts:712	rim clamp 0xafe, wall cue 0x6d0+rand4 while barging; volume 0x1000
+800b88e0	match	web/shared/games/dragonDrop.ts:737	smoke 0x1903 follows rider /6, height 420
+800b8a40	match	web/shared/games/dragonDrop.ts:226	replay-verified (re/notes/dragonDrop.md)
+800b9020	n/a(unreferenced zone test variant)		
+800b9534	match	web/shared/games/dragonDrop.ts:626	equal masses 0x100 = swap
+800b96a0	match	web/shared/games/dragonDrop.ts:712	yaw += adiff>>2 unless locked
+800b96f4	match	web/client/scene/podiumCam.ts:1	replay-verified (re/notes/dragonDrop.md)
+800b9778	match	web/shared/games/dragonDrop.ts:712	replay-verified (re/notes/dragonDrop.md)
+800b9930	match	web/shared/games/dragonDrop.ts:656	replay-verified (re/notes/dragonDrop.md)
+800b9c10	fixed	web/shared/games/dragonDrop.ts:667	step cues 0x6a4+2*slot / +1 at sc 6 and 0x13; volume now 0x1000 (was 0.25)
+800b9e68	fixed	web/shared/games/dragonDrop.ts:574	recoil: hit voice rand(4); removed extra actor.hit() flinch
+800ba468	match	web/shared/games/dragonDrop.ts:668	recoil: yaw +0x80, lock 2, pad 0, rt 7..-1
+800ba574	fixed	web/shared/games/dragonDrop.ts:574	barge cue 0x6c4+slot, accel 10/6, v 0x59<<1; volume 0x1000; removed action() kick
+800ba724	match	web/shared/games/dragonDrop.ts:667	barge update; smoke at 2nd tick
+800ba810	match	web/shared/games/dragonDrop.ts:633	replay-verified (re/notes/dragonDrop.md)
+800ba960	fixed	web/shared/games/dragonDrop.ts:597	contact cue 0x6d0+rand4, extra rand4, barge -> recoil; volume 0x1000
+800bad18	match	web/shared/games/dragonDrop.ts:803	replay-verified (re/notes/dragonDrop.md)
+800bae94	fixed	web/shared/games/dragonDrop.ts:844	clash: push 0x208-d, cue 0x6c0+rand4, mass-weighted swap; volume 0x1000
+800bb184	fixed	web/shared/games/dragonDrop.ts:844	second copy of 800bae94
+800bb23c	match	web/shared/games/dragonDrop.ts:991	jewel object + ground node 2014 scale 0x23e8
+800bb3ec	fixed	web/shared/games/dragonDrop.ts:269	jewel cues 0x6b7-0x6ba, 0x6c0-0x6c3, 0x6cc-0x6ce; volume 0x1000
+800bb4fc	fixed	web/shared/games/dragonDrop.ts:922	appear: 0x1605 burst + 0x6ce, wall 0x6cc; volume 0x1000
+800bb574	fixed	web/shared/games/dragonDrop.ts:844	rest state: spin, clash, friction 2, pickup 0x6cd; volume 0x1000
+800bc1bc	fixed	web/shared/games/dragonDrop.ts:737	skid cue 0x6ac+slot now on the rider handle with position (stereo) and cut by idle entry 800bcac0
+800bc5e0	n/a(engine object hook not used by the sim; render only)		sets node word 0x2003
+800bc684	n/a(unreferenced wall helper)		
+800bc774	match	web/shared/games/dragonDrop.ts:667	barge ends under |v| 0x20
+800bc820	match	web/shared/games/dragonDrop.ts:667	
+800bc878	match	web/shared/games/dragonDrop.ts:667	
+800bc8d0	match	web/shared/games/dragonDrop.ts:667	
+800bc948	fixed	web/shared/games/dragonDrop.ts:574	throw cue 0x6b3+slot; volume 0x1000; removed squash kick
+800bca18	match	web/shared/games/dragonDrop.ts:574	
+800bca38	match	web/shared/games/dragonDrop.ts:667	
+800bcac0	fixed	web/shared/games/dragonDrop.ts:574	idle entry releases the rider handle (stops the skid cue)
+800bcb4c	match	web/shared/games/dragonDrop.ts:991	player reset (idle, yaw 0) superseded by 800b7664 start yaw
+800bcce8	match	web/shared/games/dragonDrop.ts:131	replay-verified (re/notes/dragonDrop.md)
+800bcd64	match	web/shared/games/dragonDrop.ts:667	smoke 0x1903 init; view showPuff
+800bce6c	n/a(empty)		
+800bce7c	match	web/client/games/dragonDrop.ts:310	individual versus -> 800b62d8
+800bcefc	match	web/shared/games/dragonDrop.ts:991	level callback table
+800bcf44	match	web/client/games/dragonDrop.ts:302	winner script 0x56 cues (0x8008) decoded from L28; volume now 0x1000
+800bcf88	match	web/client/games/dragonDrop.ts:302	replay-verified (re/notes/dragonDrop.md)
+800bd01c	match	web/shared/games/dragonDrop.ts:668	
+800bd08c	match	web/shared/games/dragonDrop.ts:438	
+800bd0ac	match	web/shared/games/dragonDrop.ts:522	
+800bd1b8	match	web/shared/games/dragonDrop.ts:467	
+800bd204	match	web/shared/games/dragonDrop.ts:418	
+800bd258	match	web/shared/games/dragonDrop.ts:438	
+800bd2b8	match	web/shared/games/dragonDrop.ts:405	
+80018f3c	n/a(engine object lookup)		
+80024e30	n/a(engine object init for 800bcd64)		
+800250b0	n/a(engine object update for smoke)		
+8002672c	n/a(engine helper, ported where used)		
+8002689c	n/a(engine helper, ported where used)		
+80026980	n/a(engine helper, ported where used)		
+80026a04	n/a(engine helper, ported where used)		
+80027f7c	match	web/client/shell/rumble.ts:1	replay-verified (re/notes/dragonDrop.md)
+80028018	match	web/client/shell/rumble.ts:1	replay-verified (re/notes/dragonDrop.md)
+800322fc	n/a(engine helper, ported where used)		
+80032490	match	web/shared/games/dragonDrop.ts:98	replay-verified (re/notes/dragonDrop.md)
+8003278c	match	web/shared/fitCamera.ts:42	replay-verified (re/notes/dragonDrop.md)
+80032cac	n/a(engine helper, ported where used)		
+800330cc	match	web/shared/fitCamera.ts:61	replay-verified (re/notes/dragonDrop.md)
+8007b7fc	n/a(engine helper, ported where used)		
+8007d144	n/a(engine helper, ported where used)		
+8007eb1c	n/a(engine helper, ported where used)		
+8008502c	n/a(engine helper, ported where used)		
+800854c0	n/a(engine helper, ported where used)		
+80085718	n/a(engine helper, ported where used)		
+80085890	match	web/client/games/dragonDrop.ts:302	replay-verified (re/notes/dragonDrop.md)
+80089fa4	match	web/client/shell/voice.ts:198	replay-verified (re/notes/dragonDrop.md)
+8008a200	match	web/client/shell/voice.ts:15	winner announcer via winnerVoice
+8008a810	match	web/client/shell/voice.ts:15	announcer end
+8008b29c	n/a(engine helper, ported where used)		
+8008b418	n/a(engine helper, ported where used)		
+8008c4c8	match	web/shared/games/dragonDrop.ts:114	replay-verified (re/notes/dragonDrop.md)
+8008ce20	n/a(engine helper, ported where used)		
+8008ceb0	n/a(engine helper, ported where used)		
