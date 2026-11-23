@@ -10,6 +10,8 @@ const fire = { x: 0, y: -1, a: false, b: true };
 function fixture(x = 3, victimX = 5) {
   const w = createWorld(tilePainter, seats, [], 1, 'agogo'), d = w.data;
   d.cash = []; d.arT = d.itT = 9999;
+  // Drop the crates that the countdown pre-roll placed.
+  d.crates = []; d.arN = d.itN = 0; w.bodies = w.bodies.filter(b => b.kind !== 'power' && b.kind !== 'arrow');
   for (const [s, [cx, cz]] of [[x, 3], [victimX, 3], [0, 7], [7, 0]].entries()) {
     d.fx[s] = d.px[s] = d.tx[s] = cx;
     d.fz[s] = d.pz[s] = d.tz[s] = cz;
@@ -57,7 +59,7 @@ for (const [pickupSeat, order, immediate] of [
   const w = fixture(), d = w.data;
   d.updateOrders = [order];
   d.crates.push({ id: 91, rx: d.px[pickupSeat], rz: d.pz[pickupSeat],
-    k: 'item', t: pickupSeat === 0 ? 3 : 5, age: 21 });
+    k: 'item', t: pickupSeat === 0 ? 3 : 5, age: 33 });
   stepWorld(w, tilePainter, [{ ...right, b: true }]);
   assert.equal(d.beams[0].firstTick, immediate ? 1 : 2);
   assert.equal(d.pendingStun ?? 0, immediate ? 2 : 0);
