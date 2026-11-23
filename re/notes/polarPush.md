@@ -313,3 +313,57 @@ Two production WebRTC matches exercised keyboard input and rim knockouts. In Man
 The second rider entity at player record offset +12 uses model slot 0x80054654 (DAT 0484, textures 0483). It contains the bear's additive reflection below the ice plane. FUN_800cc3b4 selects an independent pose for idle, walk, dash and victory. It hides the reflection on an edge hang or elimination and skips Manic Panic. Melt Panic swaps in stage word 0x2003 at raw Y +664 for a snowball. The web reuses those meshes and blend modes. For a WebGL depth buffer, it tests the reflection against the tilted ice surface so riders and pillars can occlude it. The mounted model also uses its disc origin, including Crash and Koala.
 
 Three PCSX recordings matched 750 idle and winner reflection words, accounting for the measured load time in each run. Two Polar Panic recordings matched another 440 idle, walk and dash words. On the Tilt Panic comparison image, the screenshot taken at RAM sample 246 most closely matched web sample 244. The WebGL comparison shows the arena pass before the shell HUD. GPU ordering, rasterization and the display buffer can produce pixel and timing differences.
+
+## Fidelity audit (2026-11)
+
+Scope of this pass: sound, voice and effect-object presentation. The simulation (physics, items, AI, seal, bolts) is replay-exact per the sections above and was only spot-checked; the edits below add events and leave every random draw in place (state parity with the previous sim over 49,734 all-CPU ticks, 4 arenas x 5 seeds x 3 rosters). Status: **done** = ported in this pass, **ok** = confirmed unchanged, **todo** = open.
+
+Corrections to earlier sections:
+- Thumps `0x446-0x449` exist in all four level banks (0450 / 0451 / 0448 / 0447), not only TILT. Every tone of those banks has volume 127 and centre pan and every `FUN_80022660` call in the overlay passes volume 0x1000, so all effects key at one level (`PO_FULL`).
+- Engine character 6 is Rilla Roo and 8 is Koala Kong (`DISC_CHARACTER`); 7 is Dingodile.
+- Voice ids: n 0x16 = mounted dash start (keyed from code, `FUN_800d0808`), n 0x18 = dash script 0x3e cue, n 0x17 = throw (code), n 0x1a = on-foot dash start (Cortex's bank holds it as 0x1c), n 0x15 / 0x14 = the two footsteps of on-foot walk script 0x43, n 0x19 / 0x18 (Cortex 0x19 / 0x1a / 0x1b) = cues of the mounted win script 0x46. On-foot win 0x47 and on-foot dash 0x45 carry no cue.
+- Rider sound handle = entity +0x94: footfalls, skid and ledge slip replace each other on it; entering idle, walk, dash, on-foot idle / walk and the climb release it (`FUN_800225c4`).
+- Object table 0x80098984: 0x1604 pillar chunk, 0x1606 skid tracks, 0x1612 puff, 0x1613 smoke flip-book, 0x1614 shards, 0x1615 / 0x1616 dash meshes. Node flag bits 5-6 = GPU blend (0x21 add, 0x41 subtract, 0x61 add quarter), node +0x76 darkens (fade). Entity +0x5d: 0 = Rx Ry Rz, 2 = Rz Ry Rx.
+
+| Function | Role | Ours | Status |
+|---|---|---|---|
+| `FUN_800cd594` / `FUN_800d191c` | idle enter (mounted / on foot): release handle, skid `0x456 + rand(6)` at pitch `0x1d80 + rand(0x100)` on the handle | sim `pushOff.ts` setState S_IDLE / S_FOOT (`skid`, `quiet`); view `pushOff.ts:572` | done |
+| `FUN_800d31a0` / `FUN_800d2e00` | walk enter: release handle; on foot script 0x43 | sim setState S_WALK / S_FOOTWALK (`quiet`, `voice`) | done |
+| `FUN_800cdbd0` | walk tick: footfall `0x49c + slot` (0x4a0 shrunk) at script pc 4, on the handle with position | sim stateTick (`step`); view `pushOff.ts:568`, `polarAudio.ts` hold | done |
+| script 0x43 (anim VM) | on-foot footsteps n 0x15 / 0x14 | sim stateTick `FOOT_STEP` (`voice`) | done |
+| `FUN_800d0808` | dash enter: release handle, voice n 0x16 (on foot n 0x1a / Cortex 0x1c) | sim setState S_DASH (`voice`); view `pushOff.ts:558`, dash case | done |
+| script 0x3e (anim VM) | dash cue n 0x18 per character, engine 8 also n 0x16 at tick 1 | view `DASH_VOICE_FRAME` | ok |
+| `FUN_800bbf2c` | collision: thump `0x446 + rand(4)`, snowball 0x48b (twice above 64 u/tick), hit voice rand(4), rumble | sim `collide` (`thump`, `snowbump`, `voice`, `hit`); `shell/rumble.ts` | done |
+| `FUN_800cde8c` | stun enter: 0x467, first hit voice, pack 0403 script 0 at rate 0x200 (tilt-flagged), stun skin (node flag 0x400000, +0x8e) | sim S_STUN (`stun`, `voice`); view `pushOff.ts:583` | done; **todo** stun skin |
+| `FUN_800ce664` | stun tick: two rising wisps every 24-31 ticks; mounted pose word held from tick 32 | sim (`dazed`); view `DAZED_WORD` `pushOff.ts:437` | done |
+| `FUN_800d10a0` + state 0x53 | throw: voice n 0x17 | sim setState S_THROW (`voice`) | done |
+| `FUN_800cfc58` / `FUN_800d0060` / `FUN_800cff44` | slip 0x45c on the handle, climb releases it, splash 0x45d | view `playSlip`, `hang` / `climb` / `splash` | done (through the handle) |
+| `FUN_800c0888` | pillar: `0x46a + rand(3)`, three chunks 0x1604, one-vblank hit-stop | sim `pillars` (`pillar`, o = angle); `polarFx.ts:173` | done; **todo** hit-stop |
+| `FUN_800ca890` / `FUN_800c01c8` | skid tracks 0x1606 (16 per rider) | `polarFx.ts:104` | done, unverified against the emulator |
+| `FUN_800ca424` / `FUN_800c42a0` | puff 0x1612 | `polarFx.ts:144` | done, unverified |
+| `FUN_8008cef8` / `FUN_8008c368` | smoke flip-book 0x1613 | `polarFx.ts:156` | done, unverified |
+| `FUN_800c4498` / `FUN_800ca344` | 17 shards 0x1614 | `polarFx.ts:161` | done, unverified |
+| `FUN_800ca2b8` / `FUN_800c45bc`, `FUN_800ca220` / `FUN_800c4748` | dash meshes 0x1615 (engines 7, 8) / 0x1616 (engines 3, 4 and the custom riders) | `polarFx.ts:189`, view `dashPart` | done, unverified |
+| `FUN_800d17e8` / `FUN_800d14cc` | snowball: rolls `speed >> 6` per tick, rotation order 2 | view `pushOff.ts:454` (rolled in the view, one tick behind) | done |
+| `FUN_800b4b04` / `FUN_800b4c74` | thrown bolt: trail puffs, ice mark 0x202f, 0x48f / 0x494, level script 1 on landing, hidden for the 31 blast ticks, shards | sim `boltTick` (`puff`, `boltLand`, `strike`); `polarFx.ts:212`; view `pushOff.ts:508` | done, unverified |
+| `FUN_800b44b4` | bolt hit: `0x490 + rand(4)`, first hit voice (engine 8 keys Dingodile's 0xfd, engine 6 none) | sim `boltHit` (`voice`, `zapped` v >> 2 = take) | done |
+| `FUN_800d2248` / `FUN_800d2334` | burnt rider: smoke at enter and ticks 2 / 4, shards, two wisps every 1-7 ticks | sim S_BURN (`burn`, `puff`) | done |
+| `FUN_800ca514` | flying bear: puff every 1-7 ticks, hidden at tick 31 | sim (`puff` v 3); view flybear branch | done |
+| script 0x46 (anim VM) | mounted win cheer cues after the stream load | view `WIN_CUES` / `winCues` `pushOff.ts:299` | done |
+| `FUN_800bd67c` / `FUN_800c1584` | mask items and their sounds | `polarItemEmitter.ts` (now at `PO_FULL`) | ok |
+| `FUN_800c32a4` / `FUN_800c358c` | seal and fish cues | view `sealCue` | ok |
+| `FUN_800d3170` + object 0x1602 | bomb expiry 0x453 / 0x455, pass 0x454 | `polarBombExpiry.ts`, view `boom` / `bomb` | ok |
+| `FUN_800cad60` | CPU | sim `aiTick` | ok (replay-exact, not re-audited) |
+| camera mode 1, HUD, countdown, timeout, draw, winner tally | shared engine | view `ps1Hud`, `Ps1Follow`, `stepPolarResultMotion` | ok per `test-polar-timeout.ts`; not re-audited function by function |
+
+Remaining todo (for a follow-up pass):
+1. Emulator A/B of everything marked unverified: track yaw and sort height (`polarFx.ts:104-128`), puff / shard blend and size, dash-mesh lift and spin axis (`polarFx.ts:189-206`), bolt mark blend (`polarFx.ts:212`, drawn subtractive on the reading of entity flags 0x8041), stun shock placement (`pushOff.ts:583`). Our own view was only run headless for errors and the cue trace on TILT.
+2. Stun skin: `FUN_800cde8c` sets node flag 0x400000 and +0x8e = 0x2002 (Brio mounted 0x2001), drawing the animated vertices with another static part's faces. Needs a `ModelInstance` path in `client/crash.ts`; riders keep their normal skin (`pushOff.ts:437`).
+3. Reflection during the dazed hold: `bearReflectionWord` (`pushOff.ts:460`) still follows script 0x44 after tick 32; the snowball reflection does not roll.
+4. Hit-stop on pillar contact (`FUN_800320ec(1)` in `FUN_800c0888`), sim `pillars` `shared/games/pushOff.ts:1686`: not ported.
+5. The hit voice has its own handle in the original (a new take cuts the last); ours overlap. Needs a per-player voice handle in `client/shell/voice.ts` (audio agent).
+6. `preloadRoundVoices` (`client/shell/voice.ts`) does not warm the family b ids n 0x14-0x1c, so the first dash / throw / step voice of a round can land late.
+7. The view's `Actor.hit` reactions on `hit` / `zapped` (`pushOff.ts:574`, `:620`) are not from the original; they only affect procedural fallbacks.
+8. Burnt-rider mesh 0x202d (`pushOff.ts:225`) is placed flat at y 0.01 without the entity's rotation order 2 / yaw 0x800.
+9. Not audited in this pass: alternate-rules ids 0x46d / 0x47e-0x482, the round-skip path (`FUN_800b5910`, `DAT_800d4d08`), boss objects 0x1617+, and a function-by-function re-read of HUD, countdown, camera and CPU.
+10. `shared/games/pushOff.ts` header comment (lines 30-35) does not yet list the new events: `voice`, `quiet`, `step`, `snowbump`, `stun`, `burn`, `puff`, `boltLand`.
