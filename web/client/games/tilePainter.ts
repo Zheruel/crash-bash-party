@@ -1,6 +1,6 @@
 // POGO PANDEMONIUM view (shared/games/tilePainter.ts): the real stages 675 / 671 / 667 / 663 with an 8x8 painted floor.
 import * as THREE from 'three';
-import { BEAM_FRAMES, createPogoResult, enterPogoResult, finishPogoHop, pogoResultPickup, pogoResultWindowTicks, pogoWinnerLand, pogoWinnerTailTicks, PADLOCK_INTRO_TICKS, POGO_TRAIL_FRAMES, tickPogoResultObjects, tickPogoTiles, TP_TILE, tileWorld, type PogoProjectileTrail } from '../../shared/games/tilePainter';
+import { BEAM_FRAMES, POGO_INTRO_TICKS, POGO_JET_SCALE, pogoIntroEvent, pogoItemHeight, pogoItemShadow, createPogoResult, enterPogoResult, finishPogoHop, pogoResultPickup, pogoResultWindowTicks, pogoWinnerLand, pogoWinnerTailTicks, PADLOCK_INTRO_TICKS, POGO_TRAIL_FRAMES, tickPogoResultObjects, tickPogoTiles, TP_TILE, tileWorld, type PogoProjectileTrail } from '../../shared/games/tilePainter';
 import type { World } from '../../shared/types';
 import { createCharacter, usedVariant } from '../characters';
 import { ASSET_BASE, getCatalog, ModelInstance } from '../crash';
@@ -11,7 +11,8 @@ import type { ActorParts } from './kit';
 import { catalogInstance, disposeTree, Kit, preloadCatalogFor } from './kit';
 import { applyPose, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type Placements } from './ps1cam';
 import { POGO_HOP } from './playerPoseData';
-import { poseTicks } from './playerPose';
+import { playerPose, poseTicks } from './playerPose';
+import { POGO_ITEM_MARKER, POGO_JET_MARKER } from './pogoMarkerData';
 import { arenaClockSprites, scoreHud } from '../ui/ps1hud';
 import { CHARACTERS } from '../../shared/look';
 import type { ClientMiniGame } from './types';
@@ -27,6 +28,10 @@ import { PartBatch, preloadFx } from './realFx';
  *  1 wait 26 f, 2 hop 14 f = the hop cycle of FUN_800c0cf4) */
 const MONSTER = 768;
 const PACK = 770, DIGITS = 732, LOCO = 667, K = TP_TILE * 2, U = K / 1024;
+/** All four versus floors are 16 native units above the stage origin (DAT_8005a5d8). */
+const FLOOR = 16 * U;
+/** 800c4484: the held item sits this far above marker 0x80, per engine family. */
+const ITEM_LIFT = [0, 80, 80, 112, 96, 112, 112, 112, 112];
 const YAW_UNIT = 2 * Math.PI / 4096;
 const WIN_SCRIPT = 0x32, RESULT_HOP_SCRIPT = 0x2e;
 const TIME_UP_SOUND = 'sfx/0277/5.mp3', DRAW_SOUND = 'sfx/0278/13.mp3';
@@ -95,10 +100,10 @@ const pad3 = (n: number) => String(Math.max(0, Math.min(999, Math.round(n)))).pa
  */
 const RUN: Record<string, number> = { '0171': 13, '0170': 14, '0169': 21, '0168': 24 };
 const SND: Record<string, Record<number, number>> = {
-  '0171': { 0x514: 2, 0x515: 3, 0x51d: 5, 0x51e: 7, 0x51f: 8, 0x520: 9, 0x521: 10, 0x522: 11, 0x438: 6, 0x43c: 12, 0x41c: 34, 0x41f: 36, 0x3fa: 35, 0x529: 1, 0x1c2: 33 },
-  '0170': { 0x514: 3, 0x515: 4, 0x51d: 6, 0x51e: 8, 0x51f: 9, 0x520: 10, 0x521: 11, 0x522: 12, 0x438: 7, 0x43c: 13, 0x41c: 35, 0x41f: 37, 0x3fa: 36, 0x532: 0, 0x533: 1, 0x534: 2, 0x1c2: 34 },
-  '0169': { 0x514: 10, 0x515: 11, 0x51d: 13, 0x51e: 15, 0x51f: 16, 0x520: 17, 0x521: 18, 0x522: 19, 0x438: 14, 0x43c: 20, 0x41c: 42, 0x41f: 44, 0x3fa: 43, 0x3ec: 5, 0x3ed: 6, 0x3ee: 5, 0x3ef: 6, 0x3f0: 7, 0x3f1: 8, 0x3f2: 9, 0x3f3: 8, 0x3f4: 9, 0x53c: 0, 0x53d: 1, 0x53e: 2, 0x53f: 0, 0x540: 1, 0x541: 2, 0x542: 3, 0x543: 4, 0x1c2: 41 },
-  '0168': { 0x514: 13, 0x515: 14, 0x51d: 16, 0x51e: 18, 0x51f: 19, 0x520: 20, 0x521: 21, 0x522: 22, 0x438: 17, 0x43c: 23, 0x41c: 45, 0x41f: 47, 0x3fa: 46, 0x54b: 5, 0x54c: 6, 0x54d: 7, 0x54e: 8, 0x54f: 9, 0x550: 10, 0x551: 11, 0x552: 12, 0x1c2: 44 },
+  '0171': { 0x514: 2, 0x515: 3, 0x51d: 5, 0x51e: 7, 0x51f: 8, 0x520: 9, 0x521: 10, 0x522: 11, 0x438: 6, 0x43c: 12, 0x41c: 34, 0x41f: 36, 0x420: 37, 0x3fa: 35, 0x529: 1, 0x1c2: 33 },
+  '0170': { 0x514: 3, 0x515: 4, 0x51d: 6, 0x51e: 8, 0x51f: 9, 0x520: 10, 0x521: 11, 0x522: 12, 0x438: 7, 0x43c: 13, 0x41c: 35, 0x41f: 37, 0x420: 38, 0x3fa: 36, 0x532: 0, 0x533: 1, 0x534: 2, 0x1c2: 34 },
+  '0169': { 0x514: 10, 0x515: 11, 0x51d: 13, 0x51e: 15, 0x51f: 16, 0x520: 17, 0x521: 18, 0x522: 19, 0x438: 14, 0x43c: 20, 0x41c: 42, 0x41f: 44, 0x420: 45, 0x3fa: 43, 0x3ec: 5, 0x3ed: 6, 0x3ee: 5, 0x3ef: 6, 0x3f0: 7, 0x3f1: 8, 0x3f2: 9, 0x3f3: 8, 0x3f4: 9, 0x53c: 0, 0x53d: 1, 0x53e: 2, 0x53f: 0, 0x540: 1, 0x541: 2, 0x542: 3, 0x543: 4, 0x1c2: 41 },
+  '0168': { 0x514: 13, 0x515: 14, 0x51d: 16, 0x51e: 18, 0x51f: 19, 0x520: 20, 0x521: 21, 0x522: 22, 0x438: 17, 0x43c: 23, 0x41c: 45, 0x41f: 47, 0x420: 48, 0x3fa: 46, 0x54b: 5, 0x54c: 6, 0x54d: 7, 0x54e: 8, 0x54f: 9, 0x550: 10, 0x551: 11, 0x552: 12, 0x1c2: 44 },
 };
 
 function makePogo(hex: string): THREE.Group {
@@ -281,6 +286,40 @@ export function createTilePainterView(): ClientMiniGame {
     return { inst, extra: pogo, headY: 2.15, shadow: 0.8 };
   }
 
+  const shadows = new Map<number, THREE.Object3D>();
+  function riderShadow(slot: number) {
+    let s = shadows.get(slot);
+    if (!s) { s = packPart(40); kit.root.add(s); shadows.set(slot, s); }
+    return s;
+  }
+  const flames = new Map<number, THREE.Object3D>();
+  function jetFlame(slot: number, family: number) {
+    if (family !== 3 && family !== 4) return null;
+    let f = flames.get(slot);
+    if (!f) { f = packPart(32); kit.root.add(f); flames.set(slot, f); }
+    return f;
+  }
+  /** FUN_80015780: a native pose marker rotated by the rider's yaw, `lift` units above it. */
+  function placeAtMarker(obj: THREE.Object3D, b: { x: number; z: number }, face: number, [x, h, z]: readonly number[], lift: number) {
+    const sin = -Math.sin(face), cos = Math.cos(face);
+    obj.position.set(b.x + (x * cos + z * sin) * U, FLOOR + (h + lift) * U, b.z - (-x * sin + z * cos) * U);
+  }
+  // FUN_800b6438 under the countdown: landings and dust as the idle clock passes each event.
+  const introAt: (number | undefined)[] = [];
+  function playIntro(slot: number, family: number, clock: number, b: { x: number; z: number }) {
+    const from = introAt[slot] ?? clock;
+    introAt[slot] = clock;
+    let first = 0;
+    while (first < POGO_INTRO_TICKS && pogoIntroEvent(family, first) !== 0x12) first++;
+    for (let k = from; k < clock; k++) {
+      const event = pogoIntroEvent(family, k);
+      if (event === 0x12) {
+        playId(0x55e + family - 1);
+        if (k === first) playId(0x55a + slot); // FUN_800b8dfc: the first landing paints the start tile
+      } else if (event) playDust(event === 0x11 ? 6 : 4, b.x, b.z);
+    }
+  }
+
   function heldItem(slot: number, item: number): THREE.Object3D | null {
     let h = icons.get(slot);
     if (h && h.item !== item) { if (h.obj) { kit.root.remove(h.obj); disposeTree(h.obj); } h = undefined; }
@@ -328,11 +367,11 @@ export function createTilePainterView(): ClientMiniGame {
       });
       kit = new Kit(ctx, 'tilePainter', { bg: lv.bg, hemi: [0xffffff, 0xaaaaaa, 1.5] });
       kit.realFx(K); beams = []; mkBeams(); mkMissileTrail();
-      pogoSprings.clear(); objs.clear(); icons.clear();
+      pogoSprings.clear(); objs.clear(); icons.clear(); shadows.clear(); flames.clear(); introAt.length = 0;
       arena = null;
       build();
       setCamera(ctx);
-      if (!loaded) this.preload!().then(() => { if (!arena) { kit.root.clear(); kit.realFx(K); build(); } if (kit) { mkBeams(); mkMissileTrail(); } });
+      if (!loaded) this.preload!().then(() => { if (!arena) { kit.root.clear(); shadows.clear(); flames.clear(); kit.realFx(K); build(); } if (kit) { mkBeams(); mkMissileTrail(); } });
     },
 
     render(ctx, w, dt) {
@@ -382,18 +421,28 @@ export function createTilePainterView(): ClientMiniGame {
           const script = entered < 0 ? playScript : win ? WIN_SCRIPT : RESULT_HOP_SCRIPT;
           // The loser spins on the first pose. FUN_800b6ae0 never advances its script.
           // The sim restarts the idle bounce at every idle entry (FUN_800b6370), so its landings match the pose.
-          const idle: number | undefined = counter < 0 ? d.idle?.[slot] : undefined;
+          // Under the countdown the idle clock runs from 0 to 112 before the first simulated tick.
+          const intro = !result && playerWorld.tick === 0 && ctx.countdownTicksLeft !== undefined
+            ? Math.max(0, POGO_INTRO_TICKS - ctx.countdownTicksLeft) : undefined;
+          const idle: number | undefined = counter < 0 ? intro ?? d.idle?.[slot] : undefined;
           const scriptFrame = entered < 0 ? (stun ? d.stun[slot] - 1 : taz ? BEAM_FRAMES - d.taz[slot] : idle)
             : lose ? 0 : kit.over.frame - entered;
+          const family = d.fam[slot];
+          const renderWord = counter >= 0 && entered < 0 && !stun && !taz ? POGO_HOP[family - 1]?.[Math.floor(counter)] : undefined;
           if (result) a.face = b.face;
           a.update(b, dt, { role: stun ? 'hit' : taz ? 'action' : air ? 'hop' : 'idle', freeze: true,
-            keepYaw: !!result, script, scriptFrame,
-            renderWord: counter >= 0 && entered < 0 && !stun && !taz ? POGO_HOP[d.fam[slot] - 1]?.[Math.floor(counter)] : undefined });
-          if (lose) a.shadow.visible = false;
+            keepYaw: !!result, script, scriptFrame, renderWord });
+          // FUN_800c32e8: the rider shadow is pack 0770 part 40 at half alpha, scaled by the hop (FUN_800b5ee4).
+          a.shadow.visible = false;
+          const shadow = riderShadow(slot);
+          shadow.visible = !lose; // FUN_800b6960 hides it
+          shadow.position.set(b.x, FLOOR, b.z);
+          shadow.scale.setScalar((d.shadow?.[slot] ?? 0x1a00) / 4096);
           // The pogo model contains the vertical hop. The body height also drives gameplay and shadows.
           if (a.inst.ref && !stun && !taz && !lose) a.holder.position.y = 0;
           const sp = pogoSprings.get(slot);
           if (sp) sp.scale.y = air ? 1 : 0.6;
+          const word = renderWord ?? playerPose(script, family, scriptFrame ?? 0);
           const held = heldItem(slot, d.item?.[slot] ?? 0);
           if (held) {
             const tick = Math.max(arenaTick, playerWorld.tick);
@@ -401,9 +450,28 @@ export function createTilePainterView(): ClientMiniGame {
             const yaw = d.itemYaw?.[slot] ?? d.itemAge[slot] * 0x71;
             // In the L13 opening global frame 3271 was play tick 1. The sim counts the pickup tick in itemT.
             held.visible = d.item[slot] !== 6 || d.itemT[slot] + 1 - between > 90 || ((tick + 6) & 4) === 0;
-            held.position.set(b.x, b.y + a.headY + 0.2, b.z);
+            // FUN_800b76cc: model marker 0x80 raised by 800c4484[family], or 0x280 above the rider without one.
+            const marker = word === undefined ? undefined : POGO_ITEM_MARKER[family - 1]?.[word];
+            if (marker) placeAtMarker(held, b, a.face, marker, ITEM_LIFT[family] ?? 0);
+            else held.position.set(b.x, FLOOR + 0x280 * U, b.z);
             held.rotation.y = -((yaw + between * 0x71) & 0xfff) * YAW_UNIT;
           }
+          const flame = jetFlame(slot, family);
+          if (flame) {
+            // FUN_800b5b1c: part 32 at marker 0x200, the rider's yaw, a tilt in degrees and a flickering Y scale.
+            const marker = word === undefined ? undefined : POGO_JET_MARKER[family - 3]?.[word];
+            flame.visible = !!marker;
+            if (marker) {
+              placeAtMarker(flame, b, a.face, marker, 0);
+              const resultAge = entered >= 0 ? kit.over.frame - entered : 0;
+              const tilt = Math.max(5, (d.jetTilt?.[slot] ?? 5) - 2 * resultAge);
+              // The win handler draws a random index each update. The other result states keep the last one.
+              const height = win && resultAge > 0 ? POGO_JET_SCALE[Math.floor(hash(w.tick * 4 + slot) * 16)] : d.jetY?.[slot] ?? 4096;
+              flame.rotation.set(tilt * Math.PI / 180, a.face, 0, 'YXZ');
+              flame.scale.set(1, height / 4096, 1);
+            }
+          }
+          if (intro !== undefined) playIntro(slot, family, intro, b);
         } else if (b.kind === 'crate' || b.kind === 'power' || b.kind === 'arrow' || b.kind === 'missile' || b.kind === 'monster' || b.kind === 'padlock' || b.kind === 'beam') {
           seenO.add(b.id);
           let o = objs.get(b.id);
@@ -431,7 +499,13 @@ export function createTilePainterView(): ClientMiniGame {
             }
             else if (b.kind === 'crate') obj = packPart(10);
             else if (b.kind === 'arrow') obj = packPart(b.m === 8 ? 13 : 0);
-            else if (b.kind === 'power') obj = packPart(ITEM_PART[b.cd] ?? 12);
+            else if (b.kind === 'power') {
+              // FUN_800bad74: the item mesh and its own 0x2029 shadow, which stays on the floor
+              obj = new THREE.Group();
+              lock = packPart(ITEM_PART[b.cd] ?? 12);
+              shadow = packPart(40);
+              obj.add(lock, shadow);
+            }
             else obj = packPart(b.cd === 3 ? 63 : b.cd === 2 ? 26 : 12);
             kit.root.add(obj);
             o = { obj, mon, lock, shadow };
@@ -467,28 +541,24 @@ export function createTilePainterView(): ClientMiniGame {
             o.obj.position.set(b.x, 16 * U, b.z);
             o.lock.scale.y = Math.min(1, b.vx + (arenaTick - w.tick) / 16);
             o.lock.rotation.y = -((PADLOCK_INTRO_TICKS + arenaTick) * 0x38 & 0xfff) * YAW_UNIT;
+          } else if (b.kind === 'power' && o.lock && o.shadow) {
+            // FUN_800baef0: the item falls from 0x1000 above the tile, lands on update 32 and then bounces every 15.
+            const height = pogoItemHeight(b.dash);
+            o.lock.position.set(b.x, FLOOR + height * U, b.z);
+            // Items 1, 2 and 4 turn by 0x38 on every update, including the fall.
+            if (b.cd === 1 || b.cd === 2 || b.cd === 4) o.lock.rotation.y = (Math.max(0, b.dash - 1) * 0x38 & 0xfff) * YAW_UNIT;
+            const shade = pogoItemShadow(height);
+            o.shadow.visible = shade > 0;
+            o.shadow.position.set(b.x, FLOOR, b.z);
+            o.shadow.scale.setScalar(Math.max(1e-3, shade / 4096));
           } else {
-            o.obj.scale.setScalar(Math.max(0.05, Math.min(1, b.dash / 16))); // crates grow in over 16 frames (+0x100 / frame)
-            // FUN_800baef0: after landing, +56 units of upward speed, then -8 per tick until the next bounce.
-            const bounce = b.kind === 'power' ? Math.max(0, b.dash - 17) % 15 : 0;
-            o.obj.position.set(b.x, 4 * bounce * (15 - bounce) * U, b.z);
-            if (b.kind === 'arrow') { // FUN_800baba8: yaw eases 1/8 per frame toward dir * 0x400
-              // the 0770 arrow mesh's tip is on its gltf +z, so add a half turn: the arrow then points along its fill
-              // (checked on the emulator: dir 2 = yaw 0x800 points at the camera, game -z)
-              const tgt = Math.PI - (b.cd & 3) * Math.PI / 2;
-              if (result) {
-                // Reconstruct the turn from crate age so a replay needs no prior render frames.
-                const readyAge = b.dash - 17;
-                o.yaw = readyAge < 32 ? tgt : tgt + Math.PI / 2 * Math.pow(7 / 8, readyAge % 32 + 1);
-              } else {
-                o.yaw ??= tgt;
-                const dy = Math.atan2(Math.sin(tgt - o.yaw), Math.cos(tgt - o.yaw));
-                o.yaw += dy * (1 - Math.pow(7 / 8, dt * 30));
-              }
-              o.obj.rotation.y = o.yaw;
-            } else if (b.kind === 'power' && (b.cd === 1 || b.cd === 2 || b.cd === 4)) {
-              o.obj.rotation.y = (b.dash * 0x38 & 0xfff) * YAW_UNIT;
-            }
+            // The cash crate (FUN_800bb12c) and the arrow (FUN_800baba8, first update 0x100) grow by 0x100 per update.
+            const grown = b.kind === 'arrow' ? b.dash - 1 : b.dash;
+            o.obj.scale.setScalar(Math.max(1, Math.min(16, grown)) / 16);
+            o.obj.position.set(b.x, FLOOR, b.z);
+            // FUN_800baba8 turns the node yaw (carried in vz). The 0770 arrow mesh's tip is on its glTF +z, so add a
+            // half turn: the arrow then points along its fill (emulator: dir 2 = yaw 0x800 points at the camera, game -z).
+            if (b.kind === 'arrow') o.obj.rotation.y = Math.PI - b.vz * YAW_UNIT;
           }
         }
       }
@@ -560,6 +630,8 @@ export function createTilePainterView(): ClientMiniGame {
     dispose() {
       for (const o of objs.values()) kit.root.remove(o.obj);
       for (const t of icons.values()) if (t.obj) kit.root.remove(t.obj);
+      for (const o of [...shadows.values(), ...flames.values()]) { kit.root.remove(o); disposeTree(o); }
+      shadows.clear(); flames.clear();
       objs.clear(); icons.clear(); pogoSprings.clear();
       board?.dispose(); board = null;
       boardTexture.dispose();
