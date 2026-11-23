@@ -328,3 +328,76 @@ In five controlled USA captures the web renderer matched the four goals’ visib
 ### Elimination-only rounds
 
 The setup and stage callbacks at `800b36cc`, `800b3b20` and `800bc0d8` initialize the serves, arena events, lives and spectator flow without starting a versus round clock. The web game previously awarded placements at 240 seconds even if several ships were still alive. All four arenas now wait for the last ship and its result sequence. The Ballistix result regression advances each arena past the old boundary, then verifies that elimination still produces a winner.
+
+## Fidelity audit (2026-11)
+
+Function-by-function pass over `re/out_ballistix/ovl.c` (100 functions) and the engine calls it makes (`FUN_80022660` sound queue, `FUN_8002b210` stereo, `FUN_800898ec` / `FUN_80089be8` spirit, `FUN_8007d4d0` HUD, `FUN_8009608c` camera). Paths: `S` = `web/shared/games/ballDefence.ts`, `V` = `web/client/games/ballDefence.ts`, `A` = `web/client/games/ballDefenceAudio.ts`, `R` = `web/client/games/ballDefenceResult.ts`, `P` = `web/shared/games/ballistixPilot.ts`. "Matches" rows rest on the frame comparisons above and the five Ballistix scripts in `web/scripts`.
+
+| function | role | ours | status |
+|---|---|---|---|
+| 800c0b94, 800c0b7c, 800c0b84 | overlay entry, empty hooks | registry | n/a |
+| 800b36cc, 800b3a9c | setup: per-level callback and script tables | S:327 | matches |
+| 800b3b20 | level start: serves, seats, HUD; Sky starts effect 1480 | S:327, A:154 | fixed: the Sky ambience was missing |
+| 800b40ac | frame controller: `bc0d8`, seat loop, pool callbacks | S:411 | matches |
+| 800b3528, 800bf474 | hit boxes from model markers (table 800c1a88) | S constants | matches |
+| 800b42f4, 800b478c | push a ship out of the corner bumpers | S:926 | matches |
+| 800b4880, 800b4ae8 | wall / ring normal for a rolling ball | S:1156, S:1166 | matches |
+| 800c0a74, 800b4d9c | goal-line seat test (0xa00 / 0xb80; Sky 0x980 / 0xc00) | S:1199 | matches |
+| 800b4efc | ball clear of bumpers (state 6 -> 8) | S:1395 | matches |
+| 800bfd9c | height above the floor | S:236 | matches |
+| 800b5238, 800b53d4, 800b5410 | seat init: hull 0x2004, start pose | S:371, V:775 | matches (the OT bias for wide pilots has no z-buffer equivalent) |
+| 800b558c, 800b566c / 800b58e8, 800b5a40 | slide: acceleration, top speed, steering (Sky ring) | S:767 | matches |
+| 800b5c30 / 800b5ec8 | ship update, hull 0x2004 / 0x2006 | S:767, V:1001 | matches |
+| 800b60fc, 800b627c | Square -> 0x1f, Cross -> 0x21 (Beach) | S:767 | matches; state 0x20 is Adventure only |
+| 800b62f4, 800b649c | pilot lean and render word | P:30 | matches |
+| 800b66d0, 800c052c, 800c04fc | idle / move states, idle gesture timer | S:752 | matches |
+| 800b68c8 | taunt: script, voice at the ship's position | S:838, V:1210 | fixed: the voice was centred |
+| 800b69e8, 800b6ae0, 800c05b8, 800c0624 | end-of-round state choice | S:767, R:11 | matches |
+| 800b6be8, 800b6cf0 | winner entry / run to the 1280 u line | R:35 | matches |
+| 800b6fe0, 800b70cc, 800c0448, 800c04b8 | dying: 60 ticks, script 0x20, barrier, loop 1425 | S:899, V:1180, A:149 | matches |
+| 800b7450, 800b7518 | kick: cooldown, swing 1409+p at the ship, ring 0x2001 | S:950, V:1007 | fixed: ring fade 0x800 + n * 0x200 |
+| 800b7688, 800c039c | state 0x20 (ring 0x2007) | - | not ported: only reachable with the Adventure flag 0x80 |
+| 800c02f8, 800b77f8 | catch: loop 1451+p on the ship handle, ring 0x2003 | S:987, V:1018, A:139 | fixed: ring fade 0xa00 - s |
+| 800b79f4 | knockout: burst script 0, 0x586, spirit, 451/452 | S:913, V:1214, V:551 | added: the spirit (model 0792) |
+| 800b7b60 | gone: spirit rises 24 u a tick (`FUN_80089be8`) | V:551 | added |
+| 800c069c, 800c0760 | ship shadow: fan 0x2002 of 0766, subtractive, fade 0x200 | V:534 | added (replaces the blob) |
+| 800b7c60, 800b7ee4, 800b808c, 800b8098 | CPU defence ray, segment test, kick ray, line choice | S:1600 | matches |
+| 800b84b8, 800b85dc, 800b8964, 800b9728 | CPU target, kick and catch checks | S:1620 | matches |
+| 800b8a68, 800b96f4 | CPU pad | S:1620 | matches |
+| 800b97d8, 800b99e0, 800c01b8, 800c00b0 | ball objects: pool, launcher marker | S:319 | matches |
+| 800b9b6c, 800bff0c | ball node init (0x2009; Beach 0x2017) | V:653 | matches |
+| 800b9e54, 800bb184 | ball state machine | S:1225, V:1092, A:116 | fixed: roll loop on the ball handle, goal fade |
+| 800bb41c, 800bb4fc, 800c0804 | push heading | S:1438 | matches |
+| 800bb674, 800bb924 | release, held-ball separation | S:1011, S:1331 | matches |
+| 800be1c4, 800be4d4 | ship vs ball | S:1087, S:1028 | matches |
+| 800befd4 | kick sweep | S:959 | matches |
+| 800bf640 | ball vs ball | S:1541 | matches |
+| 800bf2bc, 800bfa24 | shield repulsion, nearest ship | S:1108 | matches |
+| 800bfc04, 800bdd94 | shield pickup (effect 0x5d6) and field | S:1108, V:979 | matches; 0x5d6 is a silent stub tone on disc, so the pickup makes no sound |
+| 800bbc3c | N. Gin launcher | S:685, V:1151, A:152 | matches |
+| 800bc0d8 | controller: ball ramp, post timer, Sky events | S:613 | matches |
+| 800bc564 | marker setup: corner pairs, serve markers, goal lights 51-53 | V:251-290 | fixed: goal lights were not bound |
+| 800bca30, 800bca38 | per-frame art: corner lights, serve markers, goal light blink, Sky tilt | V:908-925, V:608 | fixed: goal light blink |
+| 800bd00c, 800bd228, 800bfdb0 | barrier objects | V:349, V:1180 | matches |
+| 800bd43c, 800bd510 | Sky fan failure (1481 replaces 1480) | S:1457, A:154 | fixed: hum handover |
+| 800bd770, 800bdab8 | N. Ballism post | S:668, V:1142 | matches |
+| 800bfe70 | Crashball flash scale table | V:948 | matches |
+| 800bff78, 800bffa8 | Beach scenery | V:927 | matches |
+| exe 80022660 / 8002b210 | effect call: handle, position, stereo | A:73-108, `web/client/shell/discStereo.ts` | fixed: every effect was centred at a flat level |
+| exe 8007d4d0 | HUD: face and two static digits per seat | V:1226 | matches (no score animation on disc) |
+| exe 8009608c | camera mode 7 (fixed), mode 1 fit for the winner | V:589, R:35 | fixed: the view shook the camera; the disc only rumbles the pad |
+
+What changed in this pass:
+- Sound. Effects with a position (`AT_SHIP`, `AT_BALL` in A) go through the disc's stereo routine; the others play at full level on both channels. The landing effect 1421-1424 stays on the ball's handle: its sample loops (the roll) under ADSR2 0x5244 and stops with the ball. Sky Balls runs 1480 from the start and each fan failure replaces it with 1481. Snapshot events wait until their frame is on screen, so a rebound sounds as the ball turns.
+- Knockout. State 0x25 now shows the common spirit. Its body and glow add to the picture (B + F): on the disc a pixel under the spirit only gets brighter. `knockoutGhost.ts` draws the body at half blend and the glow opaque, so the Ballistix view swaps in additive materials itself.
+- Ship shadow. The fan's rim lies 95 u under the floor and the disc draws it without a depth test. The view casts the fan onto the floor from the eye, which gives the same picture. It hides with flags & 0xf800 (dying or gone).
+- Crashball. Object 0x5020 (`extra_bc58`, the launcher housings in the two near corners) was skipped as a camera-side wall, but the disc draws it. The goal lights of seats 1-3 (`extra_a5d0`, `extra_acc8`, `extra_9f34`) blink to parts 11, 13 and 12: a ball over the line sets a 4-tick delay and a 32-tick timer, and the alternate mesh shows while the timer has bit 2 set. Emulator frames 5068-5071 and 5076-5079 after a crossing at 5062 show the red bar, which is that rule seen two frames late.
+- Ball. In states 4 and 0x11 the ball and its mirror image switch to additive drawing at fade 0x400 when the goal timer runs out, then fade by 0x200 a tick.
+
+Remaining gaps:
+- The master level `BD_FULL = 0.8` follows the roster voices. It has not been measured against an emulator recording, and the SPU's first-frame level (squared volume before `SsUtSetVVol`) is ignored.
+- Only L14 was checked in the emulator this pass (`re/dumps/L14.state`). The shadow, spirit and ball fade on L15-L17 use the same code paths but were only viewed in the browser.
+- The spirit's three sparks use a private random stream, not the shared RNG word.
+- A goal re-arms the light timer while a blink is running. The view derives the blink from the last crossing only, so the first four ticks after a second crossing show the base mesh where the disc holds the current one.
+- Near polygons: the PS1 drops whole polygons at the near plane, the browser clips them. The near housings were compared at the play camera only.
+- State 0x20 and the Adventure rules (crystal, relic, boss rounds) are not ported. Team rounds share the versus paths and were not compared.
