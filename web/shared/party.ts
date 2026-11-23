@@ -111,7 +111,7 @@ export class Party {
   private game: MiniGame | null = null;
   private world: World | null = null;
   private frozen: SeatInfo[] = [];
-  /** Stages already played this party: the draw leaves them (and their mini-game) out until the pool runs dry. */
+  /** Stages already played this party: the draw leaves them out until every stage has had a turn. */
   private played: StageOption[] = [];
   private next: { game: MiniGame; mod: Modifier | null; showdown: boolean; variant: { id: string; name: string } | null } | null = null;
   private lastWheel: WheelMsg | null = null;
@@ -528,13 +528,13 @@ export class Party {
     this.drawStage(now);
   }
 
-  /** Stages of mini-games not played yet; once every mini-game has had a turn, stages not played yet; then everything again. */
+  /** Stages not played yet this party; once every stage has had a turn, everything again. */
   private freshStages(): StageOption[] {
-    const games = new Set(this.played.map((s) => s.gameId)), ids = new Set(this.played.map((s) => s.id));
-    const newGames = this.stages.filter((s) => !games.has(s.gameId));
-    if (newGames.length) return newGames;
-    const newStages = this.stages.filter((s) => !ids.has(s.id));
-    return newStages.length ? newStages : this.stages;
+    const ids = new Set(this.played.map((s) => s.id));
+    const fresh = this.stages.filter((s) => !ids.has(s.id));
+    if (fresh.length) return fresh;
+    this.played = [];
+    return this.stages;
   }
 
   private prepareStage(stage: StageOption) {
