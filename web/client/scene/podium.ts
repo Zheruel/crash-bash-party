@@ -9,6 +9,7 @@ import { createCharacter } from '../characters';
 import { ASSET_BASE, charEntry, getCatalog, loadCatalog, ModelInstance, ps1Material, ready, type ModelRef } from '../crash';
 import { applyPose, ps1Pose } from '../games/ps1cam';
 import { sfx } from '../shell/sound';
+import { VOICE_VOL } from '../shell/voice';
 import type { Mode, Stage } from '../view';
 import { PodiumCam, type CamData, type CamOut } from './podiumCam';
 import { clamp01, ease, labelSprite } from './util';
@@ -50,6 +51,10 @@ export function preloadPodium(): Promise<boolean> {
 }
 
 const TICK = 1 / 30;
+/** FUN_80022660 volume 0x1000 (every podium cue; bank 0181 tones are all at 127): the level of every full-volume cue */
+const FULL = VOICE_VOL;
+/** loop starts (s) of bank 0181 samples 0-2, the crowd loops 0x352-0x354 (VAG loop flags, assets/audio/index.json) */
+const CHEER_LOOP = [1.665, 2.2138, 1.2937];
 const rnd = (n: number) => Math.floor(Math.random() * n);
 /** cos table of the engine (0x80068bd6): 4096 * cos(a), a in 4096ths of a turn */
 const T = (a: number) => Math.round(4096 * Math.cos(((a & 0xfff) * Math.PI) / 2048));
@@ -235,13 +240,15 @@ export class PodiumScene implements Mode {
   private fwGroup = new THREE.Group();
   private actors = new THREE.Group();
   private cheer = '';
+  private cheerLoop = 0;
+  private stopCheer: (() => void) | null = null;
   /** score strip (FUN_800b9b0c, HUD object 6): y in the HUD's half-line units, 540 = off screen, 340 = up */
   private stripY = 540;
   /** Black cover for the level fade from black (one step per game frame, measured on the real game). */
   private fadeEl: HTMLDivElement | null = null;
-  /** frames left in the 240-frame hold once up (then it slides back down, phases 4-5); -1 = not up yet */
-  private stripHold = -1;
-  private stripSeen = false;
+  /** FUN_800b96f4 phases 3 / 4 / 5 / 100 (0 = before): strip up for 240 frames, one idle frame, down for 60, leave */
+  private stripPhase = 0;
+  private stripTimer = 0;
   private stripLooks: Look[] = [];
   private stripPts: number[] = [];
   /** the strip's spinning trophy (HUD pack 0732 part0), kept in front of the camera at the strip's centre */
@@ -330,6 +337,7 @@ export class PodiumScene implements Mode {
     if (data) this.pending(); else void preloadPodium().then((ok) => { if (ok) this.pending?.(); });
   }
 
+  /** FUN_800b875c / FUN_800b88b8 (level setup); `order` comes sorted as FUN_800b8aa4 sorts the points (best first). */
   private place(order: number[], looks: Look[], names: string[], key: number[]) {
     const d = data!;
     this.pending = null;
@@ -347,6 +355,7 @@ export class PodiumScene implements Mode {
       const custom = cat.props[`podiumChar_${id}`];
       const pc = custom ? chars.find((c) => c.engine === DISC_CHARACTER[look.char]) : chars.find((c) => c.base === charEntry(id)?.model);
       const h = d.pedestalHeight[Math.min(4, Math.max(1, ped)) - 1] * k;
+      // FUN_800ba9c8: object 0x1f01 at the layout's (x, 0, z); pedestal > 1 adds its part and lifts the character
       const holder = new THREE.Group();
       holder.position.set(x * k, 0, -z * k);
       holder.visible = false;
@@ -354,6 +363,7 @@ export class PodiumScene implements Mode {
         const p = new ModelInstance(cat.props[`podiumPed${Math.min(4, ped)}`] ?? null);
         if (p.build()) holder.add(p.root);
       }
+      // FUN_800b93b4: the engine character's podium model and script table, started in win idle
       let mi = new ModelInstance(custom ?? (pc ? cat.props[`podiumChar_${pc.engine}`] : null) ?? null);
       let actor: Actor | null = null;
       if (pc && mi.build()) actor = new Actor(pc);
@@ -373,6 +383,7 @@ export class PodiumScene implements Mode {
     const wc = chars.find((c) => c.base === charEntry(CHARACTERS[w.char % CHARACTERS.length].id)?.model) ?? chars.find((c) => c.engine === eng);
     this.fwColors = wc?.sparks ?? [0, 1];
     this.cheer = d.cheer[wc?.cheer ?? 0] ?? '';
+    this.cheerLoop = CHEER_LOOP[wc?.cheer ?? 0] ?? 0;
     for (const e of this.entries) this.poseOf(e, 1);
   }
 
@@ -388,8 +399,9 @@ export class PodiumScene implements Mode {
     if (this.trophy) this.trophy.visible = false;
     this.fwTimer = 0;
     this.stripY = 540;
-    this.stripHold = -1;
-    this.stripSeen = false;
+    this.stripPhase = 0;
+    this.stripTimer = 0;
+    this.crowd(false);
     for (const f of this.fireworks) { this.fwGroup.remove(f.group); f.dispose(); }
     this.fireworks = [];
   }
@@ -411,7 +423,13 @@ export class PodiumScene implements Mode {
     this.trophyOn = true;
     this.live = true;
     this.fwTimer = 10;
-    if (this.cheer) sfx.playFile(this.cheer, 0.7, true);
+    this.crowd(true);
+  }
+
+  /** FUN_800b96f4 at level start: one crowd sample by the winner's character, full volume; its VAG loops until the level ends. */
+  private crowd(on: boolean) {
+    this.stopCheer?.();
+    this.stopCheer = on && this.cheer ? sfx.loopFile(this.cheer, this.cheerLoop, FULL) : null;
   }
 
   /** The scene exactly as the game plays it: everyone in place from the first frame, camera and fireworks on the game's clock. */
@@ -425,7 +443,7 @@ export class PodiumScene implements Mode {
     this.auto = true;
     this.live = true;
     this.fwTimer = data.fireworks.first;
-    if (this.cheer && elapsedFrames < 2) sfx.playFile(this.cheer, 0.7, true);
+    this.crowd(true);
     for (let i = 0; i < elapsedFrames; i++) this.tick(data, false);
   }
 
@@ -451,6 +469,7 @@ export class PodiumScene implements Mode {
   }
 
   leave(stage: Stage) {
+    this.crowd(false);
     if (this.fadeEl) this.fadeEl.style.opacity = '0';
     // applyPose leaves the off-centre PS1 frustum behind: hand the camera back square
     stage.camera.aspect = innerWidth / Math.max(1, innerHeight);
@@ -462,17 +481,19 @@ export class PodiumScene implements Mode {
   private tick(d: PodiumData, audible = true) {
     this.frame++;
     this.prev = { ...this.cam!.out };
+    // FUN_800b96f4 phases 3-5, on the phase the frame starts in: 3 raises the strip (FUN_800ba848, 5 a frame while
+    // above 340) for 240 frames counted from the phase start, 4 waits one frame, 5 lowers it (FUN_800ba804) for 60
+    if (this.stripPhase === 3) {
+      if (this.stripY > 0x154) this.stripY -= 5;
+      if (--this.stripTimer <= 0) this.stripPhase = 4;
+    } else if (this.stripPhase === 4) { this.stripPhase = 5; this.stripTimer = 0x3c; }
+    else if (this.stripPhase === 5) {
+      if (this.stripY < 0x21c) this.stripY += 5;
+      if (--this.stripTimer <= 0) this.stripPhase = 100;
+    }
     this.cam!.step(this.auto);
     if (this.cam!.phase >= 2) this.trophyOn = true;
-    // phase 3: the score strip slides up 5 a frame from 540 to 340 (the party holds there: no phase 4/5 slide-out)
-    if (this.cam!.phase >= 3) {
-      if (this.stripHold < 0) {
-        this.stripSeen = true;
-        this.stripY = Math.max(340, this.stripY - 5);
-        if (this.stripY === 340) this.stripHold = 240;
-      } else if (this.stripHold > 0) this.stripHold--;
-      else this.stripY = Math.min(540, this.stripY + 5);
-    }
+    if (this.stripPhase === 0 && this.cam!.phase === 3) { this.stripPhase = 3; this.stripTimer = 0xf0; }
     for (const e of this.entries) if (e.revealed) e.actor?.tick();
     if (this.trophyOn && this.trophyScale < 0x1000) {
       // FUN_800b9538: grows from nothing, 1/32 of the rest per frame
@@ -480,8 +501,10 @@ export class PodiumScene implements Mode {
       if (this.trophyScale > 0xeff) this.trophyScale = 0x1000;
     }
     this.fireworks = this.fireworks.filter((f) => { if (f.tick()) return true; this.fwGroup.remove(f.group); f.dispose(); return false; });
-    if (this.live && --this.fwTimer < 0) {
-      // FUN_800b8f50: a burst somewhere over the back of the scene every 10-29 frames, one of the winner's two colours
+    // FUN_800b8f50: the counter runs down to -1, the next frame fires (first burst on frame 92, then every 12-31)
+    if (this.live && this.fwTimer >= 0) this.fwTimer--;
+    else if (this.live) {
+      // a burst somewhere over the back of the scene, one of the winner's two colours
       const fw = d.fireworks, c = this.fwColors[rnd(2)];
       const f = new Firework(this.k, rnd(fw.x) - rnd(fw.x), rnd(fw.y[1]) + fw.y[0], fw.z + 0x2000, this.fwHeads[c] ?? null, this.fwMats[c]);
       this.fireworks.push(f);
@@ -489,8 +512,8 @@ export class PodiumScene implements Mode {
       const a = rnd(6), b = rnd(6);
       // six ids each over three samples: the second three are the same bangs pitched down (tone centre notes, VAB 0181)
       if (audible) {
-        sfx.playFile(fw.bang[a % 3], 0.45, false, fw.bangRate?.[a] ?? 1);
-        sfx.playFile(fw.crackle[b >> 1], 0.45, false, fw.crackleRate?.[b] ?? 1);
+        sfx.playFile(fw.bang[a % 3], FULL, false, fw.bangRate?.[a] ?? 1);
+        sfx.playFile(fw.crackle[b >> 1], FULL, false, fw.crackleRate?.[b] ?? 1);
       }
       this.fwTimer = rnd(fw.wait[0]) + fw.wait[1];
     }
@@ -509,7 +532,7 @@ export class PodiumScene implements Mode {
     const cam = stage.camera;
     applyPose(cam, ps1Pose({ x: 0, y: 0, z: mix(p.z, o.z), tx: mix(p.tx, o.tx), ty: mix(p.ty, o.ty), tz: mix(p.tz, o.tz), pitch: mix(p.pitch, o.pitch), yaw: mix(p.yaw, o.yaw), H: mix(p.H, o.H) }, { scale: d.scale }));
     cam.updateMatrixWorld();
-    // sky layers: centred on the camera, tumbling, seen through the game's wider backdrop lens (H 320 against 512)
+    // sky layers (FUN_80095258 registers, FUN_8009440c draws from FUN_800baafc): centred on the camera, tumbling, seen through the game's wider backdrop lens (H 320 against 512)
     const f = this.frame + a, s = d.sky.H / mix(p.H, o.H);
     const q = cam.quaternion, m = this.skyRoot.matrix;
     m.compose(cam.position, q, new THREE.Vector3(s, s, 1)).multiply(new THREE.Matrix4().makeRotationFromQuaternion(q.clone().invert()));
@@ -537,12 +560,12 @@ export class PodiumScene implements Mode {
   /** What the strip shows: the seats' looks and points (the game's tournament points, two digits). */
   setStrip(looks: Look[], points: number[]) { this.stripLooks = looks; this.stripPts = points; }
 
-  /** The strip has come up (it may have left again since). */
-  get stripShown() { return this.stripSeen; }
-  /** The strip has come up and gone again (the game's phase 5). */
-  get stripDone() { return this.stripSeen && this.stripHold === 0 && this.stripY >= 540; }
-  /** Cross skips the hold, as in the game. */
-  skipStrip() { if (this.stripHold > 0) this.stripHold = 0; }
+  /** The strip has started up (it may have left again since). */
+  get stripShown() { return this.stripPhase >= 3; }
+  /** Phase 100: the strip is down and the game would leave the level here. */
+  get stripDone() { return this.stripPhase === 100; }
+  /** FUN_800bab40: cross from any pad during phase 3 jumps to phase 4 (the strip goes straight back down). */
+  skipStrip() { if (this.stripPhase === 3) this.stripPhase = 4; }
 
   /** Strip lines below their resting place (0 = up, 100 = off screen). */
   private get stripDrop() { return (this.stripY - 340) / 2; }

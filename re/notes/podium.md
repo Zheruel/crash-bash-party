@@ -48,8 +48,8 @@ Everyone starts in win idle with counter 0. While in an idle script: counter 0 -
 Two paths in the level data (`*(level+0x28)` ids, `+0x2c` pointers): node 0 = look-at target, nodes 1.. = polyline with the
 running distance. Path 1 target (7,-102,6), 13 nodes from (3557,-547,-1493) round to the front (1,-283,-2252), distance
 3854..7752; path 2 target (0,301,9), (0,-281,-2254) -> (3,-627,-2859), 2263..2869.
-Phases: 0 path 1 at 32 units / frame (122 frames) · 1 hold 60 · 2 path 2 (19 frames; the trophy appears) · 3 hold 240, strip
-slides up 5 px / frame from 540 to 340, cross skips · 4 -> 5 strip down, 60 frames · 100 leave (frame 501).
+Phases: 0 path 1 at 32 units / frame (122 frames) · 1 hold 60 · 2 path 2 (19 frames; the trophy appears) · 3 hold 240 counted from the phase start (the 40-frame rise included), strip
+slides up 5 px / frame from 540 to 340, cross from any pad (`FUN_800bab40`) jumps to 4 at any time in phase 3 · 4 one frame · 5 strip down, 60 frames · 100 leave (frame 501). The strip moves on the phase the frame starts in.
 Each frame: point on the path, target eased `>> 4`, then distance / yaw `atan2(-dx, dz)` / pitch `atan2(dy, horizontal)` are eased
 into the camera block (H toward 512 by `(d + 4) >> 2`, so it settles on 513). The block starts from the loader's values
 (all 0, H 320), and the level start runs the function twice. Final block: z 3004, target (2,286,6), pitch 200, yaw 0.
@@ -65,14 +65,14 @@ Part9 at (0,-1196,644), hidden until phase 2, then scale += (0x1000 - scale) >> 
 rz = 128 (sin(70t) + sin(100t)) (angles in 4096ths; checked against the trace).
 
 ## Fireworks (`FUN_800b8f50`; object 0x1628: `FUN_800b9d1c`, `FUN_800b9e90`, `FUN_800ba374`, `FUN_800ba1b4`)
-First after 90 frames, then every `rand(20)+10`. Position (rand(0x2000) - rand(0x2000), rand(0x400) - 0xc00, 0x1000); the
+Counter `0x800bd390` = 0x5a at load; each frame it counts down while >= 0 and fires on the frame it is -1: first burst on frame 92, then `rand(20)+10` + 2 = every 12-31 frames. RNG order: colour rand(2), bang rand(6), crackle rand(6), x rand(0x2000) twice, y rand(0x400), next wait rand(20). Position (rand(0x2000) - rand(0x2000), rand(0x400) - 0xc00, 0x1000); the
 sparks sit 0x2000 further back. Colour = one of two by the winner's engine character: 3, 4, 6, 8 -> green / red, others ->
 blue / white (heads part32 / 36 / 33 / 35 / 38 / 37, trails tex007 / 011 / 008 / 010 / 009 / 012 for colours 0..5).
 12 sparks at 45 degree steps: start (64 sin, 64 cos - 1024), velocity 256 (sin, cos) +- 64, each frame vy = (vy + 6) * 230 >> 8,
 vx = vx * 230 >> 8. Eight trail joints follow one frame behind each other, ribbon half-width 128 - 16 i, quads 2..7 drawn,
 brightness 255 - 255 i / 8; from frame 20 it fades (x 220 / 256 per joint, heads darken by 1/8 per frame); gone after 30.
 Sound: `0x355 + rand(6)` (bank samples 3,4,5,3,4,5) and `0x35b + rand(6)` (6,6,7,7,8,8).
-Scene start plays one crowd loop by the winner's character: 1, 2 -> 0x352 (sample 0); 5, 7 -> 0x353 (1); 3, 4, 6, 8 -> 0x354 (2).
+Scene start (`FUN_800b96f4` first call) plays one crowd cue by the winner's character: 1, 2 -> 0x352 (sample 0); 5, 7 -> 0x353 (1); 3, 4, 6, 8 -> 0x354 (2). The samples carry VAG loop points (1.665 / 2.214 / 1.294 s) and nothing keys them off, so the crowd loops until the level ends. Every podium cue keys at volume 0x1000 and all bank 0181 tones are at volume 127, the same as the announcer's 0278 tones: the port plays them at the shared full level (`VOICE_VOL`).
 
 ## Score strip (`FUN_800b9b0c`)
 HUD object 6 at x 40, y 540 (off screen): four faces in seat order with two-digit points (tournament points 0x8005a6b3..b6),
@@ -80,8 +80,8 @@ a trophy icon in the middle (HUD pack 0732 part0, the silver cup). Measured on `
 pixel): additive frame (132,130,0) over lines 186-189 / 221-222 and columns 29-31 / 480-482 (it adds onto the scene: (0x63,0,0x94)
 -> (0xE6,0x82,0x94)); faces 64x40 at x 35 / 121 / 305 / 391, line 187; digits (yellow (255,194,0) -> orange (255,138,0), black
 outline) at x 81 / 171 / 350 / 440, lines 211-217; trophy centred at x 256, lines 185-207. Port: `PodiumScene.stripHud()` (HUD
-sprites, frame on an additive layer) + the cup kept in front of the camera; up 5 a frame in phase 3, holds 240, then down 5 a
-frame (tap / key skips the hold like cross); the party's buttons come in after it leaves.
+sprites, frame on an additive layer) + the cup kept in front of the camera; phases 3-5 as the camera function runs them (up 5 a
+frame for 240 frames from the phase start, a tap / key jumps to phase 4 like cross); the party's buttons come in at phase 100, where the game leaves.
 
 ## Port notes
 - Scale 3 / 1024: the 744-758 models then stand as tall as the catalog heights.
