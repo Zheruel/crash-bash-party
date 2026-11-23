@@ -119,7 +119,8 @@ export function createCrateTossView(): ClientMiniGame {
       return i < 26 ? 0x4100 + i : i < 30 ? 0x4119 + i - 26 : i < 40 ? 0x411d : i < 57 ? 0x411e + i - 40 : i < 67 ? 0x412e : 0x412f + i - 67;
     }
     if (pg.e === 2) { const i = Math.min(pg.f, CT_PENGUIN_RETURN - 1); return i < 14 ? 0x4080 + i : 0x408d + i - 14; }
-    const i = (opening ?? pg.f) % CT_PENGUIN_LOOP;
+    // the opening frame counts up from below zero during the countdown: wrap it into the 60-frame sleep loop
+    const i = (((opening ?? pg.f) % CT_PENGUIN_LOOP) + CT_PENGUIN_LOOP) % CT_PENGUIN_LOOP;
     return i < 38 ? 0x4015 + i : 0x4000 + i - 38;
   }
   /** 0x427 loops on the penguin's handle while it slides (FUN_800b879c state 3). */
