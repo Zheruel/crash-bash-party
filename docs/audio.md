@@ -159,12 +159,12 @@ Nothing was listened to by a human.
 * `VOICE_VOL` is the one level of every voice and announcer cue in `voice.ts`.
 
 ## Custom characters (Big Stein, Top G)
-Both run Cortex's scripts (engine 3). `CUSTOM_VOICES` gives them a recording for every voiced id of the table above: 1 name, 2 taunt,
-3-6 hit (two takes; 5 / 6 replay them at Cortex's 0.96 pitch), 7 win, 0xc-0x10 and 0x16-0x1b the effort take (Top G: his dash take
-for 0x16 / 0x18, his pick-up take for 0xf). Foley ids (0xa, 0xb, 0x11, 0x14, 0x15, 0x1c) come from Cortex's bank. `level` brings the
-hit, taunt and win takes to the stock roster's mean level for that cue (they were 1.5-4 dB under it). On the title screen they play
-their taunt, as Cortex does. Not recorded: a separate jump, land, throw or win-cheer take, a third and fourth hit take, and for Big
-Stein a dash and a pick-up take.
+Both run Cortex's scripts (engine 3). `CUSTOM_VOICES` gives each its own original line set (generated locally by
+`tools/generate_custom_voices.py`, no real recordings or quotes) for every voiced id: 1 name, 2 taunt, 3-6 hit, 7 win, 0xc jump, 0xd land,
+0xe spin, 0xf pick-up, 0x10 throw (Pogo included), 0x16 dash start, 0x17 call, 0x18 dash, 0x19-0x1b win cheers. Cues with several takes
+pick one at random; each take is level-matched to the stock roster's mean for that cue. Foley ids (0xa, 0xb, 0x11, 0x14, 0x15, 0x1c)
+come from Cortex's bank. Lose and draw takes exist on disk but are unused, as the original never voices a loser or a draw. Character
+select plays the name call (`announceHero`).
 
 ## Not rendered / unknown
 * seq0 of every t10/t14 (identical 786-event single-channel sequence, program 0 of each bank, 12384 ticks): purpose unknown.
