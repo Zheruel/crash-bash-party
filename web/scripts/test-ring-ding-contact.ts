@@ -8,6 +8,9 @@ import { createWorld, stepWorld } from '../shared/sim';
 import { IDLE, type InputState } from '../shared/types';
 
 const ANGLE = Math.PI * 2 / 4096;
+/** Sound-only events (pop ids, hit cues, footsteps) are checked in test-ring-ding-sfx.ts. */
+const AUDIO = new Set(['popsfx', 'hitsfx', 'hitland', 'footstep', 'flash']);
+const gameplay = <T extends { k: string }>(events: T[]) => events.filter(e => !AUDIO.has(e.k));
 const square = { ...IDLE, b: true };
 const right = { ...IDLE, x: 1 };
 const cross = { ...IDLE, a: true };
@@ -487,15 +490,15 @@ for (const score of [[0, 0, 0, 0], [4, 5, 2, 0]]) {
   const snapshot = structuredClone(w);
   const result = createRingDingResult(w, draw ? undefined : order[0]);
   assert.equal(ringDing.isOver(w), true);
-  assert.deepEqual(result.advance(0), []);
+  assert.deepEqual(gameplay(result.advance(0)), []);
   assert.equal(result.balloons.get(o.bid)?.st, 9);
-  const [pop] = result.advance(1);
+  const [pop] = gameplay(result.advance(1));
   assert.deepEqual([pop.k, pop.s, pop.o, pop.x, pop.z, pop.v, pop.balloonType],
     ['pop', 0, 0, 7 * DD_S, 9 * DD_S, 799 * DD_S, 11]);
   assert.equal(result.balloons.size, 0);
   assert.equal(result.shown[0], score[0] + 1);
-  assert.deepEqual(result.advance(1), []);
-  assert.deepEqual(result.advance(90), []);
+  assert.deepEqual(gameplay(result.advance(1)), []);
+  assert.deepEqual(gameplay(result.advance(90)), []);
   assert.deepEqual(w, snapshot);
   assert.deepEqual(ringDing.placements(w), order);
   assert.equal(ringDing.isDraw!(w, order), draw);
@@ -513,12 +516,12 @@ for (const [initial, recolour] of [[1, 0], [0, 25]]) {
   const result = createRingDingResult(w, undefined);
   assert.equal(result.balloonSlot(result.balloons.get(older.bid)!), recolour ? 2 : 0);
   for (const [frame, state, positions] of [[1, 1, [[584, 2, 798], [1, -12, 798]]], [2, 9, [[600, 3, 797], [2, -18, 797]]]] as const) {
-    assert.deepEqual(result.advance(frame), []);
+    assert.deepEqual(gameplay(result.advance(frame)), []);
     const remaining = [...result.balloons.values()];
     assert.deepEqual(remaining.map(o => [o.x, o.z, o.hy]), positions);
     assert.deepEqual(remaining.map(o => [o.st, o.tc]), [[state, -1], [state, -1]]);
   }
-  assert.deepEqual(result.advance(3).map(e => [e.k, e.s, e.o, e.x, e.z]),
+  assert.deepEqual(gameplay(result.advance(3)).map(e => [e.k, e.s, e.o, e.x, e.z]),
     [['pop', -1, 0, 2 * DD_S, 18 * DD_S], ['pop', -1, 0, 600 * DD_S, -3 * DD_S]]);
   assert.equal(result.balloons.size, 0);
   assert.deepEqual(result.shown, d.score);
@@ -532,10 +535,10 @@ for (const [initial, recolour] of [[1, 0], [0, 25]]) {
   const o = balloon(894);
   Object.assign(o, { x: 17, z: -18 });
   const result = createRingDingResult(w, undefined);
-  assert.deepEqual(result.advance(1), []);
+  assert.deepEqual(gameplay(result.advance(1)), []);
   const moved = result.balloons.get(o.bid)!;
   assert.deepEqual([moved.x, moved.z, moved.hy, moved.st, moved.tc], [27, -26, 892, 9, -1]);
-  assert.deepEqual(result.advance(2).map(e => [e.k, e.s]), [['pop', -1]]);
+  assert.deepEqual(gameplay(result.advance(2)).map(e => [e.k, e.s]), [['pop', -1]]);
   assert.deepEqual(result.shown, [0, 0, 0, 0]);
 }
 
@@ -550,12 +553,12 @@ for (const [initial, recolour] of [[1, 0], [0, 25]]) {
   const black = balloon(799);
   Object.assign(black, { x: 600, z: 3, ty: 12, ow: -1, ot: 4 });
   const result = createRingDingResult(w, 0);
-  assert.deepEqual(result.advance(1).map(e => [e.k, e.o, e.s, e.balloonType]),
+  assert.deepEqual(gameplay(result.advance(1)).map(e => [e.k, e.o, e.s, e.balloonType]),
     [['pop', 2, 0, 11], ['hurt', -1, 0, undefined]]);
   assert.equal(result.players[0]?.st, 2);
   assert.equal(result.players[0]?.entered, -1);
   assert.equal(seats[0].st, 0);
-  assert.deepEqual(result.advance(3).map(e => [e.k, e.balloonType]), [['pop', 12], ['black', undefined]]);
+  assert.deepEqual(gameplay(result.advance(3)).map(e => [e.k, e.balloonType]), [['pop', 12], ['black', undefined]]);
   assert.equal(result.players[1]?.entered, 1);
   result.advance(45);
   assert.ok(result.players[0]!.entered > 1);
@@ -593,7 +596,7 @@ for (const [look] of DISC_CHARACTER.entries()) for (let slot = 0; slot < 4; slot
 // A crate callback between them must keep its place in both the live and terminal object passes.
 for (const recycledSlot of [false, true]) {
   const { w, d, balloon, crate, tick } = room();
-  w.rng = 7; // The black effect rolls recolour with or without the preceding crate sound draw.
+  w.rng = 8; // The black effect rolls recolour whether the crate and colour-pop sound draws precede it or not.
   const coloured = balloon(800);
   Object.assign(crate(550, 550), { st: 9, tc: 1 });
   const black = balloon(800);
