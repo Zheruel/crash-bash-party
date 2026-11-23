@@ -1,6 +1,6 @@
 import { seatedPilot, stepPilot, type BallistixPilot } from './ballistixPilot';
 import { atan2g } from '../ps1Angle';
-import { ps1SqrtQ6 } from '../ps1Sqrt';
+import { ps1SqrtQ6 } from '../ps1Sqrt'; // FUN_80032490
 /**
  * BALLISTIX (game id 'ballDefence') - port of Crash Bash's Ballistix overlay (levels 14-17, see re/notes/ballistix.md).
  *
@@ -111,7 +111,7 @@ const atan = (dx: number, dz: number) => (Math.round((Math.atan2(dx, dz) * 4096)
 const discAngle = (x: number, z: number) => atan2g(x, z) & 4095;
 /** signed difference b - a in -0x800..0x7ff (FUN_800154a0) */
 const adiff = (a: number, b: number) => { const d = (b - a) & 4095; return d >= 0x800 ? d - 4096 : d; };
-const aabs = (a: number, b: number) => Math.abs(adiff(a, b));
+const aabs = (a: number, b: number) => Math.abs(adiff(a, b)); // FUN_80015480
 const rnd = discRandomInt;
 
 // ---------------------------------------------------------------- state
@@ -241,7 +241,8 @@ interface Data {
 
 export type BallistixData = Data;
 
-/** FUN_800bfd14: the Sky Balls floor at a native horizontal position. */
+/** FUN_800bfd14: the Sky Balls floor at a native horizontal position (read through FUN_80025f44). The other stages use
+ * FUN_800bfd9c (y - 0x8005a5d8 = 0). */
 export function ballistixFloor(tilt: readonly number[] | undefined, x: number, z: number) {
   if (!tilt) return 0;
   const [rx, rz, y] = tilt;
@@ -301,7 +302,7 @@ function ballistixShipOrder(w: World): number[][] {
   });
 }
 
-/** USA L14 FUN_800bc0d8, before the shuffled seat callbacks. */
+/** USA L14 FUN_800bc0d8, before the shuffled seat callbacks: object 0x1504 (init FUN_800bff0c, update FUN_800bfe70). */
 function crashballFlash(w: World, d: Data, tick: number) {
   if (rnd(w, 15) === 0) {
     (d.beachPoolEffects ??= []).push({ beachPoolSlot: allocPoolSlot(d), releaseAt: tick + 5 });
@@ -325,6 +326,7 @@ function simulatesVictory(d: Data) {
   return d.variant === 'crashball' || d.variant === 'beach';
 }
 
+/** FUN_800c01b8 / FUN_800bc0d8: object 0x1501 at (0x1000, 0x1000, 0x1000) in state 0; FUN_800b9b6c is its init. */
 function newBall(w: World, d: Data): Ball {
   return {
     id: w.nextId++, beachPoolSlot: allocPoolSlot(d),
@@ -350,6 +352,8 @@ export const ballDefence: MiniGame = {
   variants: BD_VARIANTS,
   maxTime: Infinity, // Individual versus ends when one ship remains. The disc starts no round clock.
 
+  // FUN_800c0b94 installs FUN_800b36cc (per-stage hooks), FUN_800b3b20 (start: scores 15/12/20/20, facing, timers, rand(15),
+  // rand(18) x2; FUN_800b3528 reads each hull's markers) and FUN_800b40ac (frame). FUN_800c0b7c / FUN_800c0b84 are empty.
   setup(w, slots) {
     const variant = pickVariant(w, BD_VARIANTS);
     const start = BD_START_BY[variant] ?? BD_START;
@@ -359,19 +363,19 @@ export const ballDefence: MiniGame = {
     };
     w.data = d;
     d.random = discRandomState(w.rng);
-    // Creating each seat enters its idle script, then initializes its CPU record.
+    // Creating each seat (FUN_800b5238 -> state 0x1c, FUN_800c052c) enters its idle script, then initializes its CPU record.
     const idleTimers = Array.from({ length: MAX_SEATS }, () => {
       const idle = rnd(w, 150) + 180;
       rnd(w, 60);
       return idle - BALLISTIX_OPENING_TICKS;
     });
     d.shipOrder = ballistixShipOrder(w);
-    // Four L15 scenery actors advance their animation in 800bffa8, then stagger by rand(8).
+    // Four L15 scenery actors advance their animation in FUN_800bffa8 (update FUN_800bff78), then stagger by rand(8).
     if (variant === 'beach') d.beachSceneryPhases = Array.from({ length: 4 }, () => 1 + rnd(w, 8));
     d.postSeq = rnd(w, 15);
     rnd(w, 18); // First event table at 0x800c1c74.
     const skyIndex = rnd(w, 18); // Second event table at 0x800c1c7c.
-    if (variant === 'nballism') d.mach = { st: 0, t: 291, c: 0, yaw: 0, spin: 0 };
+    if (variant === 'nballism') d.mach = { st: 0, t: 291, c: 0, yaw: 0, spin: 0 }; // FUN_800c00b0: object 0x1507
     const opening = ballistixOpeningFrame(0);
     if (variant === 'sky') { // The 270-tick tilt timer has counted down to 171 at GO.
       d.sky = { ev: [0, 1, 2, 3].map(() => ({ pos: 0, vel: 0, max: 0x60, ap: 0, an: 0, dir: 0, st: 0, tm: 0 })), t: 171, i: skyIndex };
@@ -735,6 +739,7 @@ function launcherParticles(w: World, age: number) {
   for (let i = 0; i < count * 4; i++) rnd(w, 4096);
 }
 
+/** FUN_800b99e0: fewer than 8 balls; speed/target 0x80 at 13/128 of the yaw vector; effect 0x5c1 without a position. */
 function spit(w: World, d: Data, m: Mach) {
   if (d.balls.length >= 8) return;
   const b = newBall(w, d);
@@ -753,6 +758,7 @@ const TAUNT_POSE_TICKS = [0, 52, 49, 52, 50, 42, 42, 61, 40];
 const TAUNT_VOICES = [0, 7, 0x39, 0x6b, 0x9d, 0x133, 0x165, 0x101, 0xcf];
 const BEACH_WIN_VOICE_TICKS = [90, 24, 23, 26, 23, 23, 23, 26, 26];
 
+/** FUN_800b8a68 is the CPU; the kick cooldown +0x66 / penalty +0x68 count down in the seat update. */
 function tickKickCooldown(pl: Pl) {
   if (pl.kcd > 0) pl.kcd--;
   else if (pl.kpen > 0) pl.kpen--;
@@ -790,7 +796,7 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
   const edgeA = !!inp.a && !pl.pa; pl.pa = !!inp.a;
   const edgeB = catchB && !pl.pb; pl.pb = catchB;
   const edgeC = !!inp.c && !pl.pc; pl.pc = !!inp.c;
-  // --- slide (FUN_800b558c / FUN_800b58e8)
+  // --- slide (FUN_800b558c / FUN_800b566c; Sky FUN_800b58e8 / FUN_800b5a40). FUN_800b3a9c is a tail of FUN_800b36cc.
   let max = sky ? 0x28 : 0x68, acc = sky ? 0xd : 0x22, dec = sky ? 6 : 0x12;
   if (p === 1) acc = sky ? 0x15 : 0x2a;
   if (boost) { max = sky ? 0x48 : 0xa0; acc = sky ? 0x12 : 0x38; }
@@ -816,7 +822,9 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
     if (pl.vel === 0 && a !== 0) pl.vel = a < 0 ? -1 : 1;
   }
   pl.boost = boost;
-  // --- state machine (FUN_800b66d0 / b60fc)
+  // --- state machine: 0x1c FUN_800c052c / FUN_800b66d0, 0x1d FUN_800c04fc / FUN_800b6ae0, 0x1e FUN_800b68c8 / FUN_800b69e8,
+  // 0x1f FUN_800b7450 / FUN_800b7518, 0x21 FUN_800c02f8 / FUN_800b77f8, 0x22 FUN_800b6be8 / FUN_800b6cf0, 0x24 FUN_800b70cc /
+  // FUN_800c0448, 0x25 FUN_800b79f4 / FUN_800b7b60 (table 0x8009dd80). FUN_800b60fc: Cross -> 0x21 (Beach, FUN_800b627c), Square -> 0x1f.
   const previous = pl.st;
   const pilot = pl.pilot ??= seatedPilot(Math.max(0, d.f - 1 - pl.stateAt));
   const steering = dirv ? pl.vel : 0;
@@ -829,10 +837,11 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
   } else if (pl.st === 0x24) {
     if (--pl.dieT <= 0) finishDie(w, d, pl, p);
   } else if (pl.st === 0x22) {
-    // FUN_800b6cf0: the winner travels inward before the result screen.
+    // FUN_800b6cf0: the winner travels inward before the result screen; FUN_8008a810 sets the round-over flag when FUN_8008a200 finishes.
     const axis = ballistixSlidesHorizontally(p) ? 'z' : 'x';
     if (Math.abs(pl[axis]) > 0x500) pl[axis] -= Math.sign(pl[axis]) * 0x20;
   } else if (pl.score <= 0) {
+    // FUN_800c0624 / FUN_800c05b8: flag 0x2000 -> 0x24, 0x200 -> 0x22 (0x400 -> 0x23 never occurs in versus).
     enterDie(w, d, p);
   } else if (d.beachDecidedAt !== undefined) {
     pl.st = 0x22;
@@ -856,7 +865,7 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
     pl.idleAt = -1;
     if (pl.st === 0x1c) pl.idleT = rnd(w, 150) + 180;
   }
-  // --- apply motion (FUN_800b5c30 / b5ec8)
+  // --- apply motion (FUN_800b5c30 / FUN_800b5ec8)
   const sm = w.params.speed;
   if (sky) {
     pl.skyFloor = ballistixFloor(d.tilt, pl.x, pl.z);
@@ -879,7 +888,7 @@ function playerFrame(w: World, d: Data, p: number, inp: InputState, cpu = d.pl[p
   bump(d, pl, p); // The seat update finishes with the stage's bumper callback.
 }
 
-/** FUN_80089be8: the sinking hull emits three puffs on the shared RNG stream. */
+/** FUN_800b7b60 -> FUN_80089be8: the sinking hull emits three puffs on the shared RNG stream. */
 function knockoutSmokeFrame(w: World, d: Data, pl: Pl, puffs: BeachSmoke[]) {
   const y = -24 * (d.f - pl.stateAt);
   if (y < -0xa00) {
@@ -905,6 +914,8 @@ function knockoutSmokeFrame(w: World, d: Data, pl: Pl, puffs: BeachSmoke[]) {
   }
 }
 
+/** FUN_800b70cc: 60-tick timer, script 0x20, barrier 0x1505 / 0x1506 (init FUN_800bd00c / FUN_800bd228: wall bit, effect
+ * 0x591 once on the barrier's handle; update FUN_800bfdb0) or, on Sky, the wall bit and 0x591 on handle 0x800c1c60. */
 function enterDie(w: World, d: Data, p: number) {
   const pl = d.pl[p];
   pl.st = 0x24; pl.stateAt = d.f; pl.dieT = 61; pl.dead ||= d.f;
@@ -919,6 +930,7 @@ function enterDie(w: World, d: Data, p: number) {
   emit(w, 'ko', pl.x / BD_U, -pl.z / BD_U, p, 1);
 }
 
+/** FUN_800c0448 ends the timer; FUN_800b79f4 enters 0x25 (burst script 0 of 0762, 0x586, FUN_800898ec). */
 function finishDie(w: World, d: Data, pl: Pl, p: number) {
   pl.st = 0x25;
   emit(w, 'sfx', pl.x / BD_U, -pl.z / BD_U, p, 1, 1414);
@@ -931,7 +943,7 @@ function finishDie(w: World, d: Data, pl: Pl, p: number) {
   emit(w, 'sfx', pl.x / BD_U, -pl.z / BD_U, p, 1, 451 + rnd(w, 2));
 }
 
-/** push a ship out of the corner bumpers (FUN_800b42f4); true when it was pushed */
+/** push a ship out of the corner bumpers (FUN_800b42f4 / FUN_800b478c / FUN_800b53d4 / FUN_800b5410 tails; Sky's hook 0x800b453c also re-projects onto the ring); true when it was pushed */
 function bump(d: Data, pl: Pl, p: number): boolean {
   const sky = isSky(d);
   if (sky) {
@@ -956,6 +968,7 @@ function bump(d: Data, pl: Pl, p: number): boolean {
   return false;
 }
 
+/** FUN_800b7518: sweep ((kfr*0x600+0x1000)&0xffff)>>3, a hit clears the cooldown, back to 0x1c after four updates. */
 function kickUpdate(w: World, d: Data, p: number) {
   const pl = d.pl[p];
   const reach = ((pl.kfr * 0x600 + 0x1000) & 0xffff) >> 3;
@@ -993,6 +1006,7 @@ function kickBalls(w: World, d: Data, p: number, reach: number): boolean {
   return hit;
 }
 
+/** FUN_800b77f8 (Beach): 0x96-tick hold, release on the Cross release once 6 ticks have passed. */
 function catchUpdate(w: World, d: Data, p: number, bHeld: boolean, cpu: boolean) {
   const pl = d.pl[p];
   pl.kfr++;
@@ -1005,7 +1019,7 @@ function catchUpdate(w: World, d: Data, p: number, bHeld: boolean, cpu: boolean)
 
 const catchAngle = (pl: Pl, h: number) => Math.max(-0x220, Math.min(0x220, adiff(pl.face, h)));
 
-/** The hull's forward sphere and release marker share the ship's yaw and roll. */
+/** FUN_80015780: the hull's forward sphere and release marker share the ship's yaw and roll. */
 function hullPoint(pl: Pl, x: number, y: number, z: number) {
   const sr = sinq(pl.roll ?? 0), cr = cosq(pl.roll ?? 0);
   const sin = sinq(pl.face), cos = cosq(pl.face);
@@ -1113,7 +1127,8 @@ function discPushOut(b: Ball, cx: number, cz: number, radius: number, h: number)
   b.z = z - ((dz * t) >> 8);
 }
 
-/** FUN_800bf2bc: a force field repels every rolling ball within 0x859 of its ship */
+/** FUN_800bdd94 -> FUN_800bf2bc: a force field repels every rolling ball within 0x859 of its ship (241 updates, then 0x5d8).
+ * Init FUN_800bfc04 keys 0x5d6 and 0x5d7, which no N. Ballism VAB tone declares (only Crashball's bank 0157 has a silent stub). */
 function shieldFrame(w: World, d: Data, p: number) {
   const pl = d.pl[p];
   if (!pl.shield) return;
@@ -1171,7 +1186,7 @@ function wallNormal(walls: number, b: Ball): number {
   return n;
 }
 
-/** 800b4880 checks a closed goal after all bumpers; Sky's 800b4ae8 checks after each bumper. */
+/** FUN_800b4880 checks a closed goal after all bumpers; Sky's FUN_800b4ae8 checks after each bumper (0x592 every 4th hit). */
 function circleHit(w: World, d: Data, b: Ball, BR: number): number {
   const sky = isSky(d);
   let n = -1;
@@ -1243,7 +1258,7 @@ function ballFrame(w: World, d: Data, b: Ball) {
     return;
   }
   if (b.st === 0x12) { scoreBall(w, d, b); return; }
-  const fadingInGoal = b.st === 0x11 && b.tm === 0;
+  const fadingInGoal = b.st === 0x11 && b.tm === 0; // FUN_800bb184 is a Ghidra fragment of this state machine
   // speed towards target, then move
   if (b.spd < b.tgt) { b.spd += b.acc; if (b.tgt < b.spd) b.spd = b.tgt; }
   else if (b.tgt < b.spd) { b.spd -= b.dec; if (b.spd < b.tgt) b.spd = b.tgt; }
@@ -1382,6 +1397,7 @@ function spawnWait(w: World, d: Data, b: Ball) {
   b.tm = 0xf; b.st = 0xc;
 }
 
+/** FUN_800b9e54 state 0xc: serve aimed at the centre, jitter rand(0x1c7) - 0xe3, effect 0x5a0. */
 function launch(w: World, d: Data, b: Ball) {
   const a = atan(b.x, b.z);
   b.h = a; b.pshA = (a + rnd(w, 0x1c7) - 0xe3) & 4095;
@@ -1443,7 +1459,7 @@ function bounce(w: World, d: Data, b: Ball, n: number) {
   emit(w, 'bounce', b.x / BD_U, -b.z / BD_U, -1, 0.4);
 }
 
-/** FUN_800bb41c: shield push bends the heading */
+/** FUN_800bb41c / FUN_800bb4fc: shield push bends the heading (the same vector sum as the uncalled FUN_800c0804) */
 function applyPush(d: Data, b: Ball) {
   if (d.tilt) {
     // FUN_800bb41c, Sky Balls: the disc's tilt replaces the push with a downhill pull (it only bends the heading)
@@ -1611,7 +1627,8 @@ function cpuSkill(d: Data, slot: number): number {
   return d.pl[slot].skill ?? BOT_SKILLS[d.variant][2];
 }
 
-/** FUN_800b7c60 / FUN_800b808c: intersect two segments in 16 u steps, then interpolate on the goal line. */
+/** FUN_800b7c60 / FUN_800b808c (segment test FUN_800b7ee4, line FUN_800b8098): intersect two segments in 16 u steps,
+ * then interpolate on the goal line. FUN_800b85dc / FUN_800b8964 are the kick and catch checks below. */
 function cpuRay(d: Data, slot: number, b: Ball, heading: number, goal: boolean, draw: (n: number) => number) {
   const skill = cpuSkill(d, slot);
   const win = WIN[Math.max(0, 0x20 - skill - d.off)];
@@ -1636,6 +1653,7 @@ function ballistixCpuPad(w: World, d: Data, slot: number): InputState {
   const pl = d.pl[slot];
   // The engine keeps calling the planner until the sinking hull is hidden.
   if ((pl.st === 0x25 && !pl.beachSmoke) || (d.beachResultAt !== undefined && d.f > d.beachResultAt)) return IDLE;
+  // FUN_800b96f4 is a fragment of this planner. FUN_800b84b8 draws the target by the weights at 0x8009d87c + 4 (16 each; spectator mode 32 / 4, FUN_800b40ac).
   const state = pl.beachCpu ??= {
     target: -1, roamX: 0, roamZ: 0, mode: 0, lapse: 0, catchT: 0, wait: 8,
   };
@@ -1769,6 +1787,6 @@ function ballistixCpuPad(w: World, d: Data, slot: number): InputState {
       state.roamZ = lateralX ? pl.z : draw(1024) - 512;
       state.mode = 4;
   }
-  state.nextPad = input;
+  state.nextPad = input; // FUN_80013c94 queues the bits for the next pad read
   return pad;
 }

@@ -1,6 +1,7 @@
 // The seated pilot has a 28-pose steering cycle in addition to the ship's roll.
 // USA 800c13ac, indexed by the physics character (also used by custom pilots).
 const WORD_BASE = [0, 0x417f, 0x41ff, 0x41ff, 0x41ff, 0x407f, 0x417f, 0x41ff, 0x407f];
+// Each state's init starts its script with FUN_800854c0; FUN_8008502c (the VM) runs when FUN_800b649c returns 1.
 const ENTRY_SCRIPT: Record<number, number> = {
   0x1c: 0x19, 0x1d: 0x1a, 0x1e: 0x1c, 0x1f: 0x1d, 0x21: 0x1d, 0x24: 0x20,
 };
@@ -36,7 +37,7 @@ export function stepPilot(pilot: BallistixPilot, character: number, slot: number
   const enter = () => {
     if (next === 0x22) return; // The winner holds the last pose until the next callback.
     if (next === 0x1c || next === 0x1d || next === 0x1f || next === 0x21) {
-      // 800b62f4 snaps phases within one step of either neutral stop.
+      // FUN_800b62f4 snaps phases within one step of either neutral stop.
       const phase = pilot.lean;
       if (Math.abs(phase - neutral) <= 1 || Math.abs(phase - 28) <= 1 || phase === 1)
         pilot.lean = direction < 0 ? neutral : 28;
@@ -44,7 +45,7 @@ export function stepPilot(pilot: BallistixPilot, character: number, slot: number
     start(pilot, ENTRY_SCRIPT[next]);
   };
   const steer = () => {
-    // 800b649c advances around the cycle, even when the direction reverses.
+    // FUN_800b649c advances around the cycle, even when the direction reverses.
     const rest = pilot.lean > neutral ? 28 : neutral;
     if (!direction && pilot.lean === rest) { advance(pilot); return; }
     let target = rest;
