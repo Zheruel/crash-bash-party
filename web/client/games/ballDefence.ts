@@ -345,7 +345,7 @@ function fillCracks(root: THREE.Object3D) {
   for (const [m, k] of add) m.add(k);
 }
 
-// USA 800bd00c / 800bd228. The six or seven linked meshes all show the same frame.
+// FUN_800bd00c / FUN_800bd228 (objects 0x1505 / 0x1506). The six or seven linked meshes all show the same frame.
 function goalBarriers(group: THREE.Group, segments: number) {
   const half = segments * 256;
   const origins = [[-half, -2176, 0x200, 0], [-half, 2176, 0x38e, 0],
@@ -920,7 +920,7 @@ export function createBallDefenceView(): ClientMiniGame {
         const blink = ballistixGoalLight(age, !!((stageData.goalHold ?? 0) & (1 << light.seat))) ? 1 : 0;
         light.frames.forEach((meshes, i) => { for (const mesh of meshes) mesh.visible = i === blink; });
       }
-      if (stage.beachScenery) {
+      if (stage.beachScenery) { // FUN_800bffa8 / FUN_800bff78 (object 0x1508): the actors loop their pose words
         const playFrame = result ? stageData.f : Math.floor(w.time * 30 + 1e-7);
         const age = (opening?.pose ?? BALLISTIX_OPENING_TICKS + playFrame) - 1;
         stage.beachScenery.forEach((actor, i) => {
@@ -1140,6 +1140,7 @@ export function createBallDefenceView(): ClientMiniGame {
       for (const [id, v] of balls) if (!seenBalls.has(id)) { removeBall(v); balls.delete(id); }
 
       // N.Ballism power-up post: the level's looping effect script 1 at its marker (FUN_800bd770); it ends with the post
+      // (FUN_8007a464 starts the script in its looping mode; FUN_8007a524 starts the one-shot bursts)
       if (stageData.post) {
         const [cx, cy, cz] = BD_POST_AT[stageData.post.i];
         if (!post || post.x !== cx / BD_U || post.z !== -cz / BD_U) {
@@ -1175,7 +1176,7 @@ export function createBallDefenceView(): ClientMiniGame {
           if (strip[0]) strip[0].visible = pl.score > 0;
           if (strip[1]) strip[1].visible = pl.score <= 0;
         }
-        // Collision starts at spawn. 800bfdb0 reveals the meshes on their fifth callback.
+        // Collision starts at spawn. FUN_800bfdb0 reveals the meshes on their fifth callback.
         const visible = blocked && (pl.st !== 0x24 || wallTick - pl.stateAt >= 5);
         stage.barriers?.[slot].forEach((frame, part) => { frame.visible = visible && part === (wallTick & 7); });
       });

@@ -90,6 +90,7 @@ export class BallistixResult {
     return this.arena;
   }
 
+  /** FUN_800b6be8 (FUN_80085718 win script) then FUN_800b6cf0: FUN_80085890 switches to the queued win script once its disc load ends. */
   private winnerMotion(data: BallistixData, age: number) {
     const player = data.pl[this.slot];
     const position = this.simulatedWinner ? player : this.initial;

@@ -401,3 +401,12 @@ Remaining gaps:
 - The goal light blink (`ballistixGoalLight`) is timed from emulator frames to within one tick: the screenshots trail the frame counter by two frames, and that offset was inferred, not measured.
 - Near polygons: the PS1 drops whole polygons at the near plane, the browser clips them. The near housings were compared at the play camera only.
 - State 0x20 and the Adventure rules (crystal, relic, boss rounds) are not ported. Team rounds share the versus paths and were not compared.
+
+## Audit index pass (2026-11-23)
+
+Every row of `re/audit/ballistix/index.md` now has a status in `re/notes/ballistix-audit.tsv`; ported logic carries a `// FUN_` citation. No mismatch was found. New facts from this pass:
+- Callback tables (L14 RAM): player states 0x1c-0x25 at 0x8009dd80 as (init, update) pairs: 0x1c c052c/b66d0, 0x1d c04fc/b6ae0, 0x1e b68c8/b69e8, 0x1f b7450/b7518, 0x20 c039c/b7688, 0x21 c02f8/b77f8, 0x22 b6be8/b6cf0, 0x23 b6fe0/c04b8, 0x24 b70cc/c0448, 0x25 b79f4/b7b60. Object types 0x1501-0x1508 at 0x80098c1c (12-byte rows): ball b9b6c/b9e54, post -/bdab8, shield bfc04/bdd94, Crashball flash bff0c/bfe70, barriers bd00c/bd228 + bfdb0, N. Gin c00b0/bbc3c, Beach scenery bffa8/bff78.
+- `FUN_80022a3c` runs the object's init before it returns, so barrier wall bits and the first 0x591 belong to the knockout frame.
+- Uncalled code (no call, no pointer anywhere in the L14 RAM): `800b97d8` (ball split), `800bf474` (marker-2 repulsion with a heading test), `800bfa24` (nearest ship), `800c0804` (vector-sum helper). State 0x23 (`800b6fe0` / `800c04b8`) needs flag 0x400, which versus never sets.
+- Sound ids: 0x5d6 / 0x5d7 (shield init) and 0x5d8 / 0x5da are declared only by Crashball's bank 0157, as one silent stub tone; N. Ballism's bank 0155 declares none of them, so the shield is silent on disc. `FUN_8008a200`'s 0x1a4 / 0x1a5 / 0x1ae / 0x1b1 / 0x1b2 / 0x1b8-0x1ba are team, draw and Adventure announcer lines (banks 0277 / 0278); versus only reaches the name call (id 1 is Crash's), 0x1b0 and the cheer.
+- `FUN_80029100(0x80054514)` in the frame controller animates pack 0762's textures (tex 18/19 frame swaps by LoadImage, tex 17 scrolled by MoveImage). Only parts 24-32 use them and versus never draws those render ids, so nothing on screen depends on it. The t08 decoder lists the same data as the 0761 kind-8 extra.

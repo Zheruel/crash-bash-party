@@ -1,0 +1,144 @@
+addr	status	ours(file:line)	note
+800b3528	match	ballDefence.ts:356	hull markers 1/2 (table 800c1a88): forward sphere and release marker offsets used by hullPoint
+800b36cc	match	ballDefence.ts:355	per-stage hooks: bumper 800b42f4 (Sky 800b453c), slide, ship update, wall/goal/clear tests, floor hook, CPU tables
+800b3a9c	match	ballDefence.ts:799	Ghidra tail of 800b36cc (default-stage hook tables)
+800b3b20	match	ballDefence.ts:355	scores 15/12/20/20 (Sky 10 only with Adventure 0x80), facing (atan+0x7f)&0xc00, c1f0a/c1f0c 180, rand(15) post seq, rand(18) x2, Sky 0x5c8 on handle c1bc4
+800b40ac	match	ballDefence.ts:356	frame: c1c88 post-verdict count, spectator skills 0x20/0 and weights 4/0x20 for the lowest score, bc0d8, bca30, Sky bd510
+800b42f4	match	ballDefence.ts:946	bumper radius + 345, push along the slide axis
+800b478c	match	ballDefence.ts:946	Ghidra fragment of 800b42f4
+800b4880	match	ballDefence.ts:1189	bumpers (r + 0x80, light timer 3) then closed-goal walls at 0x800, 0x592 per wall hit; wall bits = [1,2,8,4][seat]
+800b4ae8	match	ballDefence.ts:1189	Sky: walls tested after each bumper, 0x592 only when the c1efe counter (3) is zero
+800b4d9c	match	ballDefence.ts:1222	Sky radial goal lines 0x980 / 0xc00
+800b4efc	match	ballDefence.ts:1419	state 6 -> 8 once clear of the bumpers and the 0x900 box
+800b5238	match	ballDefence.ts:366	seat init: start table, clamp +-0x880, hull 0x2004, marker 0x50, state 0x1c, y = floor + bob - 0x80
+800b53d4	match	ballDefence.ts:946	Ghidra tail of 800b5238
+800b5410	match	ballDefence.ts:946	Ghidra tail of 800b5238
+800b558c	match	ballDefence.ts:799	slide accel 0x22 (seat 1 0x2a) / boost 0x38, top 0x68 / 0xa0, decel 0x12, bumper push adds max/2
+800b566c	match	ballDefence.ts:799	Ghidra body of 800b558c: velocity stored to c1ef0 for the pilot lean
+800b58e8	match	ballDefence.ts:799	Sky ring slide 0xd / 0x15, top 0x28 / 0x48, decel 6
+800b5a40	match	ballDefence.ts:799	Ghidra body of 800b58e8
+800b5c30	match	ballDefence.ts:868	move, roll ease >>2, ship vs ball, hull 0x2004 / 0x2006
+800b5ec8	match	ballDefence.ts:868	Sky ship update: ring angle +-vel per seat, floor sampled before the step, hull words
+800b60fc	match	ballDefence.ts:827	Beach Cross -> 0x21; Square -> 0x1f only with kcd 0 (else clears the held bit); 0x20 Adventure only
+800b627c	match	ballDefence.ts:827	enter 0x21 (Beach catch)
+800b62f4	match	ballistixPilot.ts:40	lean snap to neutral (14/15) or 28 within one step; table 800c13ac per character
+800b649c	match	ballistixPilot.ts:4	lean steps +1 to 24/10 (21/7 for chars 5-7), wrap 28 -> 1; returns 1 to run the script VM
+800b66d0	match	ballDefence.ts:775	idle: gesture timer, Triangle taunt, catch/kick/move transitions
+800b68c8	match	ballDefence.ts:825	taunt script 0x1c, voice block*0x32+7 at the ship (CPU 1 in 3)
+800b69e8	match	ballDefence.ts:825	taunt update: end-of-round choice, then 800b60fc and 0x1d on movement
+800b6ae0	match	ballDefence.ts:825	move update
+800b6be8	match	ballDefence.ts:826	win init: FUN_80085718, FUN_80089fa4 voice sequence
+800b6cf0	match	ballDefence.ts:826	winner runs to the 0x500 line, camera mode 1, FUN_8008a200 then FUN_8008a810
+800b6fe0	n/a(state 0x23 needs flag 0x400, which individual versus never sets)		
+800b70cc	match	ballDefence.ts:826	60-tick timer, script 0x20, rumble 0x3c, barrier 0x1505/0x1506 or Sky wall bit + 0x591 once
+800b7450	match	ballDefence.ts:826	kick init: kpen += 0x1e (cap 0x5a), kcd = kpen, swing 1409+seat at the ship
+800b7518	match	ballDefence.ts:826	kick sweep over 4 updates, ring 0x2001 scale/fade
+800b7688	n/a(state 0x20, the Adventure kick (flag 0x80): never entered in versus)		
+800b77f8	match	ballDefence.ts:826	catch hold 0x96, release after 6 ticks, ring 0x2003
+800b79f4	match	ballDefence.ts:827	gone: burst script 0 of 0762, 0x586, spirit, 451/452
+800b7b60	match	ballDefence.ts:827	spirit / smoke update (FUN_80089be8); its 0x200/0x400 branches never run in versus
+800b7c60	match	ballDefence.ts:1630	CPU defence ray (ROM regressions in test-ballistix-cpu)
+800b7ee4	match	ballDefence.ts:1630	segment test inside cpuRay
+800b808c	match	ballDefence.ts:1630	CPU kick ray
+800b8098	match	ballDefence.ts:1630	line choice inside cpuRay
+800b84b8	match	ballDefence.ts:1656	target draw by the weights at 0x8009d87c+4; the partner field +0x30 only matters in team rounds
+800b85dc	match	ballDefence.ts:1631	CPU kick check (aimedKick)
+800b8964	match	ballDefence.ts:1631	CPU catch check (close)
+800b8a68	match	ballDefence.ts:761	CPU pad; 5400 controlled cases matched
+800b96f4	match	ballDefence.ts:1656	Ghidra fragment of the CPU pad
+800b9728	match	ballDefence.ts:473	spectator Cross: the first highest score wins
+800b97d8	n/a(uncalled: no call and no pointer in the overlay or in the L14 RAM (ball split))		
+800b99e0	match	ballDefence.ts:742	N. Gin spit: < 8 balls, speed 0x80, 0x5c1 centred
+800b9b6c	match	ballDefence.ts:329	ball node init 0x2009 / Beach 0x2017
+800b9e54	match	ballDefence.ts:183	ball state machine; emulator replays
+800bb184	match	ballDefence.ts:1261	Ghidra fragment of 800b9e54
+800bb41c	match	ballDefence.ts:1462	push / Sky downhill pull bends the heading
+800bb4fc	match	ballDefence.ts:1462	Ghidra fragment of 800bb41c
+800bb674	match	ballDefence.ts:1033	release 0xe0 / 0x30 toward marker 4, 1459+seat
+800bb924	match	ballDefence.ts:1354	held-ball separation
+800bbc3c	match	ballDefence.ts:625	N. Gin launcher states 0-5, 1470-1472
+800bc0d8	match	ballDefence.ts:305	post timer rand(90)+30, flash rand(15) then 0x1800/0x200/0x800, ball ramp ef8/300+1 (Beach 4, else 5), Sky events rand(9)*30+270
+800bc564	match	ballDefence.ts:231	corner pairs, serve markers, goal lights
+800bca30	match	ballDefence.ts:247	per-frame art
+800bca38	match	ballDefence.ts:69	goal light blink, Sky tilt sum
+800bd00c	match	ballDefence.ts:917	barrier 0x1505: wall bit, 0x591 once on its handle, 6 lightning segments of 0762
+800bd228	match	ballDefence.ts:917	barrier 0x1506 (N. Ballism, 7 segments)
+800bd43c	match	ballDefence.ts:1481	Sky lurch rand(0x1e)+0x3c, 0x5c9 on c1bc4, then table 800c139c[rand(4)] = 0x5ca..0x5cd
+800bd510	match	ballDefence.ts:1481	Sky platform event integration
+800bd770	match	ballDefence.ts:625	N. Ballism post spawn, rand(8)
+800bdab8	match	ballDefence.ts:1154	post pickup at r + 0x80 + 0x40, 0x5da; expiry 0x5d8
+800bdd94	match	ballDefence.ts:1130	shield field: 241 repulsions, then 0x5d8; freed silently when the seat is out
+800be1c4	match	ballDefence.ts:1079	push the ball back along its path to radius + 8
+800be4d4	match	ballDefence.ts:1050	ship vs ball, 1404-1407 by rand(4); emulator traces
+800befd4	match	ballDefence.ts:980	kick sweep, 0x585, tgt 0x40 / 0x90 / 0x80
+800bf2bc	match	ballDefence.ts:1130	shield repulsion from marker 1, radius 0x800 + 0x59
+800bf474	n/a(uncalled: no call and no pointer (marker-2 repulsion variant with a heading test))		
+800bf640	match	ballDefence.ts:1333	ball vs ball, 0x580
+800bfa24	n/a(uncalled: no call and no pointer (nearest-ship helper))		
+800bfc04	match	ballDefence.ts:1131	shield init: 0x5d6 (centred) and 0x5d7 (on its handle) are silent on N. Ballism: bank 0155 declares neither id, only 0157 has a silent stub
+800bfd9c	match	ballDefence.ts:245	floor hook: y - 0x8005a5d8 (0 off Sky)
+800bfdb0	match	ballDefence.ts:918	barrier update: shown on the 5th callback, frame 0x2001 + (frame & 7), freed 30 ticks after the verdict
+800bfe70	match	ballDefence.ts:305	Crashball flash scale table
+800bff0c	match	ballDefence.ts:305	flash 0x1504 init (render id 0x2017)
+800bff78	match	ballDefence.ts:373	Beach scenery update
+800bffa8	match	ballDefence.ts:373	Beach scenery init: rand(8) phase
+800c00b0	match	ballDefence.ts:378	N. Gin 0x1507 init
+800c01b8	match	ballDefence.ts:329	ball spawn helper (< 9 balls)
+800c02f8	match	ballDefence.ts:826	catch init, loop 1451+seat on the ship handle
+800c039c	n/a(state 0x20 init, Adventure only)		
+800c0448	match	ballDefence.ts:827	dying timer: 0x25 when it reaches 0
+800c04b8	n/a(state 0x23 update, never entered in versus)		
+800c04fc	match	ballDefence.ts:825	move init: lean snap, script 0x1a
+800c052c	match	ballDefence.ts:366	idle init: lean snap, script 0x19, timer rand(150)+180
+800c05b8	match	ballDefence.ts:844	end-of-round choice 0x22 / 0x23
+800c0624	match	ballDefence.ts:844	end-of-round choice 0x22 / 0x24 / 0x23
+800c069c	match	ballDefence.ts:530	ship shadow fan
+800c0760	match	ballDefence.ts:530	ship shadow fade
+800c0804	n/a(uncalled helper; FUN_800bb41c inlines the same vector sum)	ballDefence.ts:1462	
+800c0a74	match	ballDefence.ts:1222	goal lines 0xa00 / 0xb80
+800c0b7c	n/a(empty hook)	ballDefence.ts:356	
+800c0b84	n/a(empty hook)	ballDefence.ts:356	
+800c0b94	match	ballDefence.ts:355	overlay entry: installs the hooks
+80013c94	match	ballDefence.ts:1790	CPU pad injection (pad +0x30); our planner hands the pad over directly
+800142d4	n/a(engine: rotation matrix from angles (marker transform))		
+80015480	match	ballDefence.ts:114	unsigned angle difference (aabs)
+80015758	n/a(engine: transform a marker point (hullPoint does it))		
+80015780	match	ballDefence.ts:1022	marker world position (hullPoint)
+80015870	n/a(engine: matrix helper of the 800bc564 marker setup)		
+80018f3c	n/a(engine: attach a model node chain (barrier meshes, seat hull))		
+8001cd04	n/a(engine: load the GTE matrix for a marker transform)		
+8001d390	n/a(engine: wrapper of 80018f3c)		
+80024e30	n/a(engine: attach an animation track (N. Gin, Beach scenery))		
+800250b0	n/a(engine: advance an animation track; the view plays the pose words)		
+80025a48	n/a(engine: find a model marker by flag)		
+80025b10	n/a(engine: copy the collision marker to +0x84..0x90 (ships mask 0x50; balls get none, hence r + 0x80 and the 0x800 wall))		
+80025bbc	n/a(engine: floor snap through the 8005aa94 hook)		
+80025f44	match	ballDefence.ts:244	floor height through the hook
+80025fac	n/a(engine: set an animation frame)		
+80026540	n/a(engine: allocate a 0x800 sub-record (ball motion block))		
+80026684	n/a(engine: allocate a 0x1000 sub-record)		
+8002672c	n/a(engine: allocate a model node)		
+8002689c	n/a(engine: allocate a sub-record)		
+8002694c	n/a(engine: set a node scale)		
+80026980	n/a(engine: unlink from the mode-1 camera list (camera mode 7 is fixed in play))		
+80026a04	n/a(engine: link the winner into the mode-1 camera list (ballDefenceResult camera))		
+80026ad8	n/a(engine: node flag helper)		
+80026b70	n/a(engine: list insert)		
+80026c38	n/a(engine: node helper of the post)		
+80027f7c	match	rumble.ts:1	pad rumble
+80028018	match	ballDefence.ts:1216	pad rumble on knockout
+80029100	n/a(engine VRAM texture animation of pack 0762 (LoadImage frames of tex 18/19, MoveImage scroll of tex 17); only parts 24-32 use those textures and no versus render id (0x2001-0x2017) draws them)		
+80032490	match	ballDefence.ts:3	integer square root (ps1SqrtQ6)
+8007a464	match	ballDefence.ts:1143	looping effect script start (post)
+8007a524	match	ballDefence.ts:1143	one-shot effect script start (knockout burst, N. Gin puff)
+8007d144	n/a(Adventure HUD (flag 0x40 with 8005a680))		
+8008502c	match	ballistixPilot.ts:4	anim script VM (pilot scripts)
+800854c0	match	ballistixPilot.ts:4	start an anim script
+80085718	match	ballDefenceResult.ts:93	win anim start
+80085890	match	ballDefenceResult.ts:93	switches the winner to the queued win script after its disc load
+80086f78	n/a(engine: clears a per-frame list)		
+800898ec	match	ballDefence.ts:933	knockout spirit, smoke delays, 451/452
+80089be8	match	ballDefence.ts:891	spirit rise and smoke puffs on the shared RNG
+80089fa4	match	ballDefence.ts:848	winner voice sequence start
+8008a200	match	ballDefence.ts:840	winner voices: versus uses case 0 (name; id 1 = Crash), 1 (0x1b0) and 2 (cheer) in voice.ts; 0x1a4/0x1a5/0x1ae/0x1b1/0x1b2/0x1b8/0x1b9/0x1ba belong to the team, draw and Adventure sequences
+8008a810	match	ballDefence.ts:840	round-over flag after the winner sequence (beachResultAt)
