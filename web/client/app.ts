@@ -27,7 +27,7 @@ import { GameClient, type Status } from './session';
 import { initPortraits, resetPortraits } from './shell/avatar';
 import { Confetti } from './shell/confetti';
 import { sfx } from './shell/sound';
-import { announceHero, announceStage, preloadRoundVoices, preloadStageCall } from './shell/voice';
+import { announceStage, confirmHero, preloadRoundVoices, preloadStageCall } from './shell/voice';
 import { TouchControls } from './shell/touch';
 import { FinalOverlay } from './ui/final';
 import { $, div, esc } from './ui/dom';
@@ -329,7 +329,7 @@ export class App {
   private async createParty(p: Profile, solo: boolean) {
     this.title.show({ busy: this.lan ? 'Connecting to the LAN server...' : solo || this.nopeer ? 'Starting party...' : 'Opening your room...', lan: this.lan });
     sfx.unlock();
-    announceHero(p.look.char);
+    confirmHero(p.look.char);
     try {
       let make: () => ClientTransport;
       let room = '';
@@ -370,7 +370,7 @@ export class App {
   private async joinParty(p: Profile, code: string) {
     this.title.show({ room: code, busy: this.lan ? 'Joining...' : `Looking for room ${code}...`, lan: this.lan });
     sfx.unlock();
-    announceHero(p.look.char);
+    confirmHero(p.look.char);
     try {
       await this.connect(p, this.lan ? () => new WsTransport() : () => new PeerTransport(code), code);
     } catch (e) {
