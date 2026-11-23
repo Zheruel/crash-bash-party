@@ -21,3 +21,4 @@ re/*
 !re/scripts/
 !re/*.py
 !re/*.sh
+.claude/worktrees/
