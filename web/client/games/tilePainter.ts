@@ -173,6 +173,8 @@ export function createTilePainterView(): ClientMiniGame {
     if (catchingUp) return;
     let n = SND[lv.sfx]?.[id];
     if (n === undefined && id >= 0x55a && id <= 0x56d) n = RUN[lv.sfx] + (id - 0x55a);
+    // FUN_800b87dc: the line notes 0x516..0x51c are one sample, the one after 0x515, at rising pitch.
+    if (n === undefined && id >= 0x516 && id <= 0x51c) n = SND[lv.sfx][0x515] + 1;
     if (n === undefined) return;
     const f = bankIdx?.[lv.sfx]?.[n]?.file;
     if (f) sfx.playFile(f, vol, kit.over.done, sfxRate(lv.sfx, id));
@@ -376,10 +378,12 @@ export function createTilePainterView(): ClientMiniGame {
           const stun = (d.stun?.[slot] ?? 0) > 0;
           const taz = (d.taz?.[slot] ?? 0) > 0;
           const counter = d.cnt?.[slot] ?? -1, fast = d.item?.[slot] === 5;
-          const playScript = stun ? 0x31 : taz ? 0x30 : fast ? 0x2f : 0x2e;
+          const playScript = stun ? 0x31 : taz ? 0x30 : (d.fastIdle ? d.fastIdle[slot] : fast) ? 0x2f : 0x2e;
           const script = entered < 0 ? playScript : win ? WIN_SCRIPT : RESULT_HOP_SCRIPT;
           // The loser spins on the first pose. FUN_800b6ae0 never advances its script.
-          const scriptFrame = entered < 0 ? (stun ? d.stun[slot] - 1 : taz ? BEAM_FRAMES - d.taz[slot] : undefined)
+          // The sim restarts the idle bounce at every idle entry (FUN_800b6370), so its landings match the pose.
+          const idle: number | undefined = counter < 0 ? d.idle?.[slot] : undefined;
+          const scriptFrame = entered < 0 ? (stun ? d.stun[slot] - 1 : taz ? BEAM_FRAMES - d.taz[slot] : idle)
             : lose ? 0 : kit.over.frame - entered;
           if (result) a.face = b.face;
           a.update(b, dt, { role: stun ? 'hit' : taz ? 'action' : air ? 'hop' : 'idle', freeze: true,

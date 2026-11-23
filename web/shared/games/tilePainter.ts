@@ -56,6 +56,20 @@ export const BEAM_FRAMES = 20; // FUN_800c2be8 starts the counter at 0x14; FUN_8
 const BEAM_SPARK_AGES = [[], [1, 6, 11, 16], [1, 5, 9, 15, 19], [1, 5, 9, 13, 17],
   [1, 5, 9, 13, 17], [1, 6, 11, 16], [1, 5, 9, 15, 19], [1, 6, 11, 16], [1, 5, 10, 15, 17]];
 const CRATE_GROW = 16; // scale +0x100 per frame up to 0x1000 (FUN_800baba8 case 2)
+/** FUN_800bad74 / 800baef0: an item crate starts 0x1000 above its tile, falls at +14 per frame up to 160 and lands on its 32nd update. */
+export const POGO_ITEM_LAND = 32;
+/** Level and object updates that run under the countdown, before the first playable frame. */
+export const POGO_INTRO_TICKS = 112;
+const STUN_LOCK = 9; // 8009d576 is held at 10 through the stun and blocks the next nine idle frames
+// Idle scripts 0x2e and 0x2f per family: loop length and the VM events 0x11 dust + flash, 0x13 / 0x14 dust, 0x12 landing
+// (FUN_800b6438). Tick 1 is the first idle update after FUN_800b6370.
+type IdleLoop = { n: number; ev: Record<number, number> };
+const IDLE_LOOP: (IdleLoop | null)[] = [null, { n: 17, ev: { 14: 0x14, 17: 0x12 } }, { n: 17, ev: { 13: 0x14, 17: 0x12 } },
+  { n: 16, ev: { 1: 0x13, 16: 0x12 } }, { n: 16, ev: { 1: 0x13, 16: 0x12 } }, { n: 16, ev: { 13: 0x14, 16: 0x12 } },
+  { n: 18, ev: { 14: 0x14, 18: 0x12 } }, { n: 17, ev: { 4: 0x11, 14: 0x12 } }, { n: 16, ev: { 2: 0x11, 15: 0x12 } }];
+const IDLE_FAST_LOOP: (IdleLoop | null)[] = [null, { n: 9, ev: { 4: 0x12, 5: 0x14 } }, { n: 8, ev: { 7: 0x14, 8: 0x12 } },
+  { n: 8, ev: { 1: 0x13, 8: 0x12 } }, { n: 8, ev: { 1: 0x13, 8: 0x12 } }, { n: 9, ev: { 7: 0x14, 9: 0x12 } },
+  { n: 9, ev: { 7: 0x14, 9: 0x12 } }, { n: 9, ev: { 2: 0x11, 8: 0x12 } }, { n: 9, ev: { 2: 0x11, 8: 0x12 } }];
 /** per char family 1..8 (c502c, c5050, c5074): hop move window start / frames (measured in-game for 1, 5, 6, 8) */
 const FAM_S = [0, 3, 3, 5, 5, 5, 4, 3, 3];
 const FAM_M = [0, 9, 9, 13, 13, 11, 12, 9, 13];
@@ -87,7 +101,7 @@ export const TP_LEVEL: Record<string, number> = { pogo: 10, agogo: 11, elpogoloc
 /** Item id -> short names (view). */
 export const TP_ITEMS: Record<string, number[]> = { pogo: [1, 5], agogo: [2, 3, 5], elpogoloco: [1, 5], padlock: [4, 5] };
 
-interface Crate { id: number; k: 'item' | 'arrow'; t: number; rx: number; rz: number; age: number }
+interface Crate { id: number; k: 'item' | 'arrow'; t: number; rx: number; rz: number; age: number; dir?: number; yaw?: number; nextDir?: number; nextYaw?: number }
 interface Cash { st: number; tm: number; rx: number; rz: number; age: number; id: number }
 interface Pad { st: number; tm: number; rx: number; rz: number; age: number; stage: number; left: number; hop: number; tx: number; tz: number; px: number; pz: number; id: number }
 interface Mon { st: number; tm: number; cyc: number; x: number; z: number; sx: number; sz: number; ax: number; az: number; dir: number; act: number; idx: number; hops: number; bf4: number; yaw?: number; goalYaw?: number; pose?: number; head?: number; shadowX?: number; shadowZ?: number; id: number; walking: number; lat: number }
@@ -107,6 +121,13 @@ interface Data {
   cashPaint?: Record<number, { owner: number; edges: number; locked: boolean }>;
   score: number[]; shown?: number[]; item: number[]; itemT: number[]; itemAge: number[]; stun: number[]; hd: number[]; cnt: number[]; fam: number[]; fastHop?: boolean[];
   itemYaw?: number[];
+  idle?: number[]; // idle script clock since FUN_800b6370
+  fastIdle?: boolean[]; // script 0x2f was started by the last idle entry
+  lock?: number[]; // idle frames left without movement after a stun
+  carry?: boolean[]; // move flag 0x40 left set by an interrupted hop: one extra stride on the next hop's first update
+  extra?: boolean[]; // the current hop took that stride
+  shadow?: number[]; // rider shadow scale (4096 = 1)
+  note?: number[]; // per tile: ripple number 2..8 from FUN_800b8660, played when the flip ends
   random?: [number, number];
   updateOrders?: number[][];
   freeQueued?: number; // transient during the live player pass, omitted from snapshots
@@ -212,7 +233,13 @@ export function tickPogoTiles(w: World) {
     const i = tidx(rx, rz);
     const expiry = d.st[i] === 10 ? 0 : 1; // flip, cash and mine callbacks expire as the timer passes below 2
     if (d.tm[i] > 0 && --d.tm[i] <= expiry) {
-      if (d.st[i] === 0) d.st[i] = 1;
+      if (d.st[i] === 0) {
+        d.st[i] = 1;
+        // An arrow or cross line plays its rising notes 0x516..0x51c as each tile turns over.
+        const note = d.note?.[i] ?? 0;
+        if (note >= 2 && note <= 8) sfx(w, 0x514 + note, rx, rz);
+        if (note) d.note![i] = 0;
+      }
       else if (d.st[i] === 3) { d.st[i] = 1; d.tiles[i] = -1; d.tm[i] = 0; }
       else if (d.st[i] === 5) boom(w, d, rx, rz);
       else if (d.st[i] === 10) { d.st[i] = 1; d.cap[i] = 0; }
@@ -270,6 +297,11 @@ function unlockAll(w: World, d: Data, p: number) {
 }
 /** FUN_800c1cf0: drop the held item (shield ends, speed ends) */
 function clearItem(w: World, d: Data, p: number) {
+  // Losing the speed item under script 0x2f re-enters idle: a hop in flight stops on the nearest tile without landing.
+  if (d.item[p] === 5 && d.fastIdle?.[p] && !d.over && d.stun[p] === 0 && d.taz[p] === 0) {
+    stopHop(d, p);
+    enterIdle(d, p);
+  }
   if (d.item[p] === 6) unlockAll(w, d, p);
   d.item[p] = 0; d.itemT[p] = 0;
 }
@@ -287,11 +319,12 @@ function lockAll(w: World, d: Data, p: number) {
 
 /** FUN_800b8660: paint a line of tiles from (rx,rz) along (dx,dz), rippling in (+4 frames per tile) */
 function line(w: World, d: Data, rx: number, rz: number, dx: number, dz: number, p: number) {
-  let tm = 6;
+  let tm = 6, note = 2;
+  const notes = d.note ??= new Array(64).fill(0);
   while (inb(rx, rz)) {
     const i = tidx(rx, rz);
     const s = d.st[i];
-    if (s !== 5 && s !== 6 && s !== 7) { setTile(d, rx, rz, p, 0, tm, d.tiles[i]); tm += 4; }
+    if (s !== 5 && s !== 6 && s !== 7) { setTile(d, rx, rz, p, 0, tm, d.tiles[i]); notes[i] = note++ & 0xff; tm += 4; }
     rx += dx; rz += dz;
   }
 }
@@ -389,18 +422,28 @@ function removeBeam(w: World, d: Data, slot: number) {
   w.bodies = w.bodies.filter(b => b.id !== beam.id);
 }
 
-/** FUN_800b6c14 / 800b6df4. Contact sets the flag after the rider update. */
-function enterStun(w: World, d: Data, slot: number) {
-  d.pendingStun = (d.pendingStun ?? 0) & ~(1 << slot);
-  d.stun[slot] = 1;
-  d.taz[slot] = 0; d.cnt[slot] = -1;
-  clearItem(w, d, slot);
-  removeBeam(w, d, slot);
+/** FUN_800c159c + 800c2810: snap to the nearest tile and drop the reservation. The move flag 0x40 stays as the hop left it. */
+function stopHop(d: Data, slot: number) {
+  if (d.cnt[slot] >= 0 && hopSteps(d, slot, d.cnt[slot] + hopRate(d, slot)) > hopSteps(d, slot, d.cnt[slot])) {
+    (d.carry ??= [false, false, false, false])[slot] = true;
+  }
   const x = rnd(d.px[slot]), z = rnd(d.pz[slot]);
   d.px[slot] = d.fx[slot] = d.tx[slot] = x;
   d.pz[slot] = d.fz[slot] = d.tz[slot] = z;
+  d.cnt[slot] = -1;
   clearReservation(d, slot + 1);
-  d.rsv[tidx(x, z)] = slot + 1;
+}
+
+/** FUN_800b6c14 / 800b6df4. Contact sets the flag after the rider update. */
+function enterStun(w: World, d: Data, slot: number) {
+  d.pendingStun = (d.pendingStun ?? 0) & ~(1 << slot);
+  stopHop(d, slot);
+  d.stun[slot] = 1;
+  d.taz[slot] = 0;
+  clearItem(w, d, slot);
+  removeBeam(w, d, slot);
+  const x = d.fx[slot], z = d.fz[slot];
+  if (inb(x, z)) d.rsv[tidx(x, z)] = slot + 1;
   emit(w, 'stun', ...tileWorld(x, z), slot, STUN_FRAMES / 30);
 }
 
@@ -617,33 +660,61 @@ function pickup(w: World, d: Data, p: number) {
 // ------------------------------------------------------------------ landing (FUN_800b5ee4 -> b8af8 + b8be4)
 function land(w: World, d: Data, p: number, rx = d.tx[p], rz = d.tz[p]) {
   d.fx[p] = rx; d.fz[p] = rz; d.px[p] = rx; d.pz[p] = rz;
-  d.cnt[p] = -1;
-  if (!d.over && (d.lvl === 11 || d.lvl === 12)) {
-    (d.cpuLandedAt ??= [-2, -2, -2, -2])[p] = w.tick;
-  }
   sfx(w, 0x55e + d.fam[p] - 1, rx, rz, p); // FUN_800b8af8: landing sound per character
   applyLanding(w, d, p, rx, rz);
+  enterIdle(d, p);
+}
+
+/** FUN_800b6370: every idle entry restarts the bounce script, 0x2f while the speed item is held. */
+function enterIdle(d: Data, p: number, clock = 0) {
+  d.cnt[p] = -1;
+  (d.idle ??= [0, 0, 0, 0])[p] = clock;
+  (d.fastIdle ??= [false, false, false, false])[p] = d.item[p] === 5;
+}
+
+/** FUN_800b6438: the idle bounce lands on its tile again, with the landing sound, on VM event 0x12. */
+function tickIdle(w: World, d: Data, p: number) {
+  const idle = d.idle ??= [0, 0, 0, 0], fast = d.fastIdle ??= [false, false, false, false];
+  const loop = (fast[p] ? IDLE_FAST_LOOP : IDLE_LOOP)[d.fam[p]];
+  if (!loop) return;
+  const event = loop.ev[idle[p]++ % loop.n + 1];
+  if (!event) return;
+  const rx = rnd(d.px[p]), rz = rnd(d.pz[p]);
+  if (event === 0x12) {
+    sfx(w, 0x55e + d.fam[p] - 1, rx, rz, p);
+    applyLanding(w, d, p, rx, rz);
+    if (fast[p] && d.item[p] !== 5) enterIdle(d, p);
+  } else {
+    takeQueued(d);
+    emit(w, 'pogoDust', ...tileWorld(d.px[p], d.pz[p]), p, event === 0x11 ? 6 : 4);
+  }
 }
 
 /** FUN_800b8be4: resolve the tile separately from the hop animation and landing sound. */
-function applyLanding(w: World, d: Data, p: number, rx: number, rz: number) {
+function applyLanding(w: World, d: Data, p: number, rx: number, rz: number, silent = false) {
+  if (!inb(rx, rz)) return;
   const i = tidx(rx, rz);
   d.rsv[i] = 0;
+  if (!silent && !d.over) (d.cpuLandedAt ??= [-2, -2, -2, -2])[p] = w.tick; // 800c5ae0
   const stepped = d.tiles[i] !== p;
-  if (stepped) { sfx(w, 0x55a + p, rx, rz, p); d.fl[i] |= 0x10; } // FUN_800b8dfc
+  if (stepped) { if (!silent) sfx(w, 0x55a + p, rx, rz, p); d.fl[i] |= 0x10; } // FUN_800b8dfc
   const [x, z] = tileWorld(rx, rz);
   // FUN_800c1ea8 (lvl 12): the cross tile paints its whole row and column
   if (d.lvl === 12 && d.st[i] === 7) {
-    setTile(d, rx, rz, p, 1, 0, d.tiles[i]);
-    line(w, d, rx - 1, rz, -1, 0, p); line(w, d, rx + 1, rz, 1, 0, p); line(w, d, rx, rz - 1, 0, -1, p); line(w, d, rx, rz + 1, 0, 1, p);
+    paintTile(d, rx, rz, p);
+    // FUN_800b8660 starts every arm on the centre tile, which flips first.
+    if (rx > 0) line(w, d, rx, rz, -1, 0, p);
+    if (rx < 7) line(w, d, rx, rz, 1, 0, p);
+    if (rz > 0) line(w, d, rx, rz, 0, -1, p);
+    if (rz < 7) line(w, d, rx, rz, 0, 1, p);
     capture(w, d, p);
-    sfx(w, 0x515, rx, rz, p);
+    if (!silent) sfx(w, 0x515, rx, rz, p);
     emit(w, 'cross', x, z, p, 1);
     return;
   }
   // FUN_800c1da4 (lvl 13)
   if (d.lvl === 13) {
-    if (d.st[i] === 10) { sfx(w, 0x54e + p, rx, rz, p); return; }
+    if (d.st[i] === 10) { if (!silent) sfx(w, 0x54e + p, rx, rz, p); return; }
     if (d.tiles[i] === p && !(d.fl[i] & 0x10)) { wipe(w, d, p); return; }
   }
   const o = d.tiles[i];
@@ -691,21 +762,30 @@ function hopDirection(d: Data, p: number, dir: number, input: InputState): numbe
   if (d.item[p] === 5 && dir < 0) dir = d.hd[p]; // speed state hops on its own in the facing direction
   return dir >= 0 && canMove(d, p, rx + DX[dir], rz + DZ[dir], false, false) ? dir : -1;
 }
-function decide(d: Data, p: number, dir: number, input: InputState) {
+function decide(w: World, d: Data, p: number, dir: number, input: InputState) {
   dir = hopDirection(d, p, dir, input);
   if (dir < 0) return;
   const nx = d.fx[p] + DX[dir], nz = d.fz[p] + DZ[dir];
+  clearReservation(d, p + 1);
   d.rsv[tidx(nx, nz)] = p + 1;
   d.tx[p] = nx; d.tz[p] = nz; d.hd[p] = dir; d.cnt[p] = 0;
   (d.fastHop ??= [false, false, false, false])[p] = d.item[p] === 5;
+  (d.extra ??= [false, false, false, false])[p] = !!d.carry?.[p];
+  if (d.carry) d.carry[p] = false;
+  // FUN_800c2dcc: taking off lands on the tile once more, without the step sound.
+  applyLanding(w, d, p, d.fx[p], d.fz[p], true);
+}
+const hopRate = (d: Data, p: number) => (d.fastHop?.[p] ?? (d.item[p] === 5)) ? 2 : 1;
+/** Strides taken once the hop counter reads `cnt`. The previous counter gates movement. Fast hops visit only even counters. */
+function hopSteps(d: Data, p: number, cnt: number) {
+  const fam = d.fam[p], pre = FAM_S[fam] - 2, span = FAM_M[fam], rate = hopRate(d, p);
+  const first = Math.floor(pre / rate);
+  return Math.max(0, Math.min(Math.floor((pre + span) / rate) - first, cnt / rate - first - 1));
 }
 function hopPos(d: Data, p: number) {
   if (d.cnt[p] < 0) { d.px[p] = d.fx[p]; d.pz[p] = d.fz[p]; return; }
-  const fam = d.fam[p], pre = FAM_S[fam] - 2, span = FAM_M[fam];
-  const rate = (d.fastHop?.[p] ?? (d.item[p] === 5)) ? 2 : 1;
-  // The previous counter gates movement. Fast hops visit only even counters.
-  const first = Math.floor(pre / rate);
-  const steps = Math.max(0, Math.min(Math.floor((pre + span) / rate) - first, d.cnt[p] / rate - first - 1));
+  const span = FAM_M[d.fam[p]], rate = hopRate(d, p);
+  const steps = hopSteps(d, p, d.cnt[p]) + (d.extra?.[p] && d.cnt[p] >= rate ? 1 : 0);
   const stride = rate * Math.floor(512 / (rate === 2 ? span + span % 2 : span));
   const prog = steps * stride / 512;
   d.px[p] = d.fx[p] + (d.tx[p] - d.fx[p]) * prog;
@@ -715,6 +795,8 @@ function hopPos(d: Data, p: number) {
 function advanceHop(w: World, d: Data, slot: number) {
   const previous = d.cnt[slot], family = d.fam[slot];
   d.cnt[slot] += hopAdvance(w, d, slot);
+  // FUN_800b5ee4: the shadow shrinks to 0xc00 at the top of the hop and stays at its landing size while idle.
+  (d.shadow ??= [0x1a00, 0x1a00, 0x1a00, 0x1a00])[slot] = 0xc00 + 0x100 * Math.abs((HOP_END[family] >> 1) - Math.min(HOP_END[family], Math.floor(d.cnt[slot])));
   if (d.cnt[slot] >= HOP_END[family]) {
     land(w, d, slot);
     return;
@@ -779,9 +861,9 @@ function advanceBeam(w: World, d: Data, body: Body) {
   }
   if (!d.taz[s]) {
     removeBeam(w, d, s);
-    d.cnt[s] = -1;
     d.fx[s] = d.tx[s] = x;
     d.fz[s] = d.tz[s] = z;
+    enterIdle(d, s);
   }
 }
 
@@ -1392,6 +1474,8 @@ export const tilePainter: MiniGame = {
       fx: START_RX.slice(), fz: START_RZ.slice(), tx: START_RX.slice(), tz: START_RZ.slice(), px: START_RX.slice(), pz: START_RZ.slice(),
       on: [false, false, false, false], prevFire: [false, false, false, false], taz: z4(), wx: z4(), wz: z4(),
       crates: [], cash: [], pad: null, mon: null, proj: [], beams: [],
+      idle: new Array(4).fill(POGO_INTRO_TICKS), fastIdle: [false, false, false, false], lock: z4(), shadow: new Array(4).fill(0x1a00),
+      note: new Array(64).fill(0),
       arT: 24, arN: 0, itT: 28, itN: 0,
       border: 0, bdir: 1, bsteps: 0, bwait: 0, btype: 0, bwarn: 0, over: false,
     };
@@ -1403,6 +1487,7 @@ export const tilePainter: MiniGame = {
       d.on[s.slot] = true;
       const rx = START_RX[s.slot], rz = START_RZ[s.slot];
       d.tiles[tidx(rx, rz)] = s.slot;
+      d.fl[tidx(rx, rz)] |= 0x10; // painted by the first idle landing under the countdown
       const [x, z] = tileWorld(rx, rz);
       b.x = x; b.z = z; b.face = Math.atan2(DX[d.hd[s.slot]], -DZ[d.hd[s.slot]]);
       d.wx[s.slot] = rx; d.wz[s.slot] = rz;
@@ -1453,6 +1538,8 @@ export const tilePainter: MiniGame = {
         if (++d.stun[s] > STUN_FRAMES) {
           d.stun[s] = 0;
           clearReservation(d, s + 1);
+          (d.lock ??= [0, 0, 0, 0])[s] = STUN_LOCK;
+          enterIdle(d, s, 1); // FUN_800b6f34 runs the script once more after the idle entry
         }
       } else if (d.taz[s] > 0) {
         advanceBeam(w, d, p);
@@ -1460,7 +1547,12 @@ export const tilePainter: MiniGame = {
         if (fireNow && d.item[s] > 0) fire(w, d, s, dir, inp, locked);
         if (d.taz[s] === 0) {
           if (d.cnt[s] >= 0) advanceHop(w, d, s);
-          else if (!locked) decide(d, s, dir, inp);
+          else {
+            // FUN_800b574c: the input lock only clears the reservation
+            if (d.lock?.[s]) { d.lock[s]--; clearReservation(d, s + 1); }
+            else if (!locked) decide(w, d, s, dir, inp);
+            if (d.cnt[s] < 0) tickIdle(w, d, s);
+          }
         }
       }
       if (d.cnt[s] < 0 && d.stun[s] === 0 && d.taz[s] === 0) { d.px[s] = d.fx[s]; d.pz[s] = d.fz[s]; }
