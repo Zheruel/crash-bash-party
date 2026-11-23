@@ -176,6 +176,21 @@ above were read against 0179 (Dragon Drop's bank) and are superseded by `DD_SFX`
 pops 0x5dc-0x5eb = two ids per sample (9,9,10,10 / 11,11,12,12 / 13,13,14,14 / 15,15,16,16), ring loop 0x5ec = 17,
 black 0x5ed = 18, recolour 0x5ee, reverse 0x5f0 = 21, pop others 0x5f1 = 22, magnet 0x5f2 = 23, hover 0x5f3 = 24, crate spawn 0x3fa = 31.
 
+## Sound audit (2026-11-23)
+`re/audit/ringDing` is generated from `re/out_ringDing`, which holds the Dragon Drop overlay (the level 27/28 name swap). Ring Ding's
+overlay is `re/out_dragonDrop`, so its sound list is `re/audit/dragonDrop/sfx.md`. Its 0x6xx ids belong to our `dragonDrop` game.
+Every literal id in the real Ring Ding overlay, checked against the L27 tone table (`0x80064508 + id*2`) and VAB 0180:
+- Wired: 0x5ec-0x5f3, 0x3fa and the break table 0x3f5/0x3f7/0x3f8 (literal in `DD_SFX`). The winner calls in `FUN_8008a200` come from
+  `winnerVoice` in voice.ts (name block*0x32+1, 0x1b0, block*0x32+7).
+- Added: 0x5ef. `FUN_800b6044` / `FUN_800b6608` play it without a position. In the last 30 recolour ticks, each colour balloon's update
+  checks bit 1 of the timer. A clear bit resets flag `DAT_800bbd68`. A set bit plays 0x5ef once while the flag is clear. With colour
+  balloons live, the cue plays at timer 27, 23, 19, 15, 11, 7 and 3. The sim emits `flash` and stores the flag as `rcCue`.
+  `scripts/test-ring-ding-sfx.ts` checks this.
+- Silent: 0x3f0 (crate kind 5) and 0x41c (hover-boot pickup) have slot 0xff in L27 and no tone in VAB 0180.
+- Unreachable: 0x1a4/0x1a5/0x1ae (team), 0x1b1/0x1b2 (level 0x20), 0x1b8-0x1ba (flag 0x1e0 modes) in `FUN_8008a200`.
+- All tones and programs in 0180 use volume 127 and pan 64. The view's 0.7 (pops), 0.8 (black, crates, flash) and 0.55 (ring loop) levels
+  are its own mix. The original scales positional calls by camera distance.
+
 ## Horizontal contact and result motion
 
 US L27 RAM matches disc overlay `0720.t64.bin` for ring, crate, contact and limit routines. The scheduler, movement, attack query and all four spin handlers match `0991.code.bin`. The RAM cosine and bearing tables match the shared fixed-point math.

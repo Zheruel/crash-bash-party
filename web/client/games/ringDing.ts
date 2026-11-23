@@ -432,6 +432,9 @@ export function createRingDingView(): ClientMiniGame {
         case 'reverse':
           clockSound();
           break;
+        case 'flash': // recolour flicker, FUN_800b6044 / FUN_800b6608
+          play(SFX.flash, 0.8);
+          break;
         case 'punch':
           if (e.v === 2) {
             kit.actorForSlot(e.s)?.hit();
