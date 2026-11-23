@@ -7,6 +7,10 @@ interface AudioIndex { music: Record<string, MusicMeta>; sfx?: { ui?: { guesses?
 
 // FUN_8002bea8 changes SEQ volume from 0x7f to 0x55. FUN_800447dc squares it for the SPU.
 const RESULT_MUSIC_GAIN = (0x55 / 0x7f) ** 2;
+// The disc's default balance (music option 70, effects 100), measured on emulator captures of four arenas: against a
+// full-level effect (FUN_80022660 volume 0x1000) the music sits 1.3-7.5 dB (mean 3.9 dB) above what our RMS-normalised
+// tracks gave at the default sliders. The two trims move the default mix there and keep the summed peak where it was.
+const MUSIC_TRIM = 1.25, SFX_TRIM = 0.8;
 const DRAW_DUCK_MS = 2 * 1000 / 30;
 
 export type Sfx =
@@ -159,8 +163,8 @@ class SoundSystem {
   setVolume(kind: 'music' | 'sfx', v: number) {
     this.vol[kind] = Math.min(1, Math.max(0, v));
     try { localStorage.setItem('cbp-vol-' + kind, String(this.vol[kind])); } catch { /* ignore */ }
-    if (kind === 'music' && this.musicBus) this.musicBus.gain.value = this.vol.music;
-    if (kind === 'sfx' && this.sfxBus) this.sfxBus.gain.value = this.vol.sfx;
+    if (kind === 'music' && this.musicBus) this.musicBus.gain.value = this.vol.music * MUSIC_TRIM;
+    if (kind === 'sfx' && this.sfxBus) this.sfxBus.gain.value = this.vol.sfx * SFX_TRIM;
   }
 
   /**
@@ -271,10 +275,10 @@ class SoundSystem {
       this.master.gain.value = this.muted ? 0 : 0.5;
       this.master.connect(this.ctx.destination);
       this.sfxBus = this.ctx.createGain();
-      this.sfxBus.gain.value = this.vol.sfx;
+      this.sfxBus.gain.value = this.vol.sfx * SFX_TRIM;
       this.sfxBus.connect(this.master);
       this.musicBus = this.ctx.createGain();
-      this.musicBus.gain.value = this.vol.music;
+      this.musicBus.gain.value = this.vol.music * MUSIC_TRIM;
       this.musicBus.connect(this.master);
       // menu blips from the disc (small files)
       void this.loadIndex().then((idx) => { for (const p of Object.values(idx?.sfx?.ui?.guesses ?? {})) void this.loadBuffer(p.replace(/^sfx\//, 'sfx/')); });
