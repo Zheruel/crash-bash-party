@@ -161,3 +161,9 @@ The descending ballistic callback asks `FUN_800bac5c` and `FUN_80025e00` for the
 ### Equal-health timeout
 
 With the clock advanced to expiry and health set to 8 / 16 / 16 / 8, the USA game set its draw flag without marking any player a winner. The live characters remained visible while their current actions settled. The common TIE cue `0x1af` fired 23 updates after dispatch. Jungle reset after 120 updates. The web result leaves the Party and Cup awards at zero and keeps the arena visible for four seconds with the two-update TIE lead-in.
+
+## Player object 0x8009d540 and the player grid
+
+- `FUN_80083708` gives each player a second type-3 child (`0x8009d540`, 4 nodes) drawn with the character pack. Engine characters 3 and 4 use render word 0x2002 (part 1 of 0986 Cortex / 0984 Brio: a 16 px camera-facing additive glow); the others use word 0, which draws nothing. The engine clears its visible bit at the start of every player update.
+- The crate states place its root node at model marker 0x40 (Cortex's ray-gun muzzle, Brio's flask; no other character has the marker). Pickup `800c013c` stores the raw bytes of 0x800c4790 as scale (X = byte 2, Y = byte 1, so about 2 %, effectively invisible). Carry `800c02d4` / `800c05a8` pulse X and Y by 1 + sin(((frame & 15) * 0x100 - 0x400)) / 8. Throw `800c07f4` uses 0x8009dc68 (X = column 2, Y = column 1: 5x, 4x/2x, 1.5x/1x, 0.5x/0.625x, 1/8x) for five updates, then hides it. The spin `8008900c` uses the same table with additive flag 0x20000000. Port: `web/client/games/crateToss.ts` `updateGlow`, markers `ON_FOOT_GLOW_MARKERS` from `tools/player_poses.py`.
+- `FUN_80086d88` ORs `0x80 | slot << 5` into the 3x3 grid cells around every player each update (after `800bb7e8` marks objects). Crate, fruit and power-up spawns need an empty cell, so nothing spawns beside a player.

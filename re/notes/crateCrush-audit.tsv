@@ -4,18 +4,18 @@ addr	status	ours(file:line)	note
 800b3dd8	match	crateToss.ts:116	setup constants, spawn points and object types 0x1101/0x1102
 800b432c	match	crateToss.ts:619	
 800b44b0	match	crateToss.ts:62	Snow ice movement hook
-800b46b8	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
-800b478c	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
-800b4848	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
+800b46b8	match	crateToss.ts:2085	danger heading: first live player with effect 0x14 within 1024, else the running penguin (state 3) within 1536; heads away
+800b478c	match	crateToss.ts:2085	tail of 800b46b8: penguin branch
+800b4848	fixed	crateToss.ts:2067	Drain fire check: ring needs a live player within 0x51000 sq; orb and missile always find a slot (bearing < 0x800 over all other slots); firing clears the route target
 800b4ab0	match	crateToss.ts:1871	AI hook; covered by test-crate-cpu ROM regressions
-800b53d4	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
-800b5410	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
-800b566c	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
-800b5a40	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
-800b5be0	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
+800b53d4	match	crateToss.ts:2189	fragment of 800b4ab0 state 2: touching the target object presses Circle
+800b5410	n/a(tail call to 800b5be0)		
+800b566c	n/a(jump-table dispatch inside 800b4ab0)		
+800b5a40	match	crateToss.ts:2150	fragment of 800b4ab0 state 0xc: a lit TNT is thrown when its fuse is below rand(4)
+800b5be0	match	crateToss.ts:2062	AI pad tail: heading to 8-way direction bits
 800b5e28	match	crateToss.ts:2016	
 800b6138	match	crateToss.ts:1983	
-800b627c	todo(AI fragment not re-audited this pass)	crateToss.ts:2029	
+800b627c	match	crateToss.ts:2072	tail of 800b6138: blocked route turns 0x31c, state 5 for 30 updates, saves the route at +0x22; otherwise presses Cross
 800b62ec	match	crateToss.ts:1933	
 800b6da4	match	crateToss.ts:1991	
 800b6f0c	match	crateToss.ts:1912	spectator force victory
@@ -40,9 +40,9 @@ addr	status	ours(file:line)	note
 800b96f4	match	crateToss.ts:1657	shot spawn
 800b97a8	match	crateToss.ts:1688	
 800b9a34	match	crateToss.ts:1757	missile init, 0x43c
-800b9b70	todo(missile update not re-audited this pass)	crateToss.ts:1757	
+800b9b70	match	crateToss.ts:1777	missile: 8 nodes 0x200 apart, speed 32 +8 to 160, fall +1 to 128, floor or 0x20 contact blasts at floor height
 800b9dd8	match	crateToss.ts:1673	orb init, 0x43b
-800ba02c	todo(orb update not re-audited this pass)	crateToss.ts:1757	
+800ba02c	match	crateToss.ts:1787	orb: speed 32 +8 to 160, homing diff>>3 or 0x40 wobble, height toward target+160 within 512, floor or 100 updates blast at floor, 0x80 contact blasts in place, dies past 0x1000
 800ba354	match	crateToss.ts:1738	ring init, 0x43a
 800ba488	match	crateToss.ts:1737	
 800ba780	match	crateToss.ts:1646	
@@ -88,10 +88,10 @@ addr	status	ours(file:line)	note
 800bfc30	match	crateToss.ts:690	fruit cell reroll
 800bfd2c	fixed	crateToss.ts:1232	hurt entry: 30-update lock, boots and Drain ammo cleared, Aku sets no lock
 800bff1c	fixed	crateToss.ts:88	lethal hit counts out at event 8 per character
-800c013c	todo(effect object d540 not identified)		pickup state 0xe
-800c02d4	todo(effect object d540 not identified)		carry idle 0xf
-800c05a8	todo(effect object d540 not identified)		carry walk 0x10
-800c07f4	todo(effect object d540 not identified)	crateToss.ts:1358	throw 0x11
+800c013c	added	client crateToss.ts:368	object 0x8009d540 = second type-3 child of the player (FUN_80083708): render 0x2002 of the character pack for engine chars 3/4 (Cortex 0986, Brio 0984 part1, camera-facing additive glow), nothing for the others. Pickup scales it by the raw bytes of 0x800c4790 (X=b2, Y=b1, about 2%) at marker 0x40
+800c02d4	added	client crateToss.ts:368	carry idle: d540 glow at marker 0x40, X/Y = 1 + sin((frame&15)*0x100-0x400)/8
+800c05a8	added	client crateToss.ts:368	carry walk: same pulse as 800c02d4
+800c07f4	added	client crateToss.ts:368	throw: d540 glow scales through 0x8009dc68 (X=col2, Y=col1: 5x to 1/8) for five updates, then hides
 800c09f4	fixed	crateToss.ts:968	weight timeout: out at once, 0x453
 800c0bac	fixed	crateToss.ts:92	weight drop 256/update, 0x455 at 16, squash, spirit at 44
 800c0de4	fixed	crateToss.ts:92	in-play spirit after script 0x13
@@ -125,9 +125,9 @@ addr	status	ours(file:line)	note
 800250b0	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
 80025a48	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
 80025b10	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
-80025d40	todo(shared on-foot engine player code; not re-audited here)		
+80025d40	match	crateToss.ts:718	support query through hook 800bac5c; snaps within 0x20
 80025e00	match	crateToss.ts:712	
-80025f44	todo(shared on-foot engine player code; not re-audited here)		
+80025f44	match	crateToss.ts:718	floor query through hook 800bac5c
 80025fac	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
 80026540	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
 80026684	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
@@ -148,24 +148,24 @@ addr	status	ours(file:line)	note
 8007b7fc	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
 8007eb1c	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
 80084e04	n/a(handicap disabled in versus: DAT_8005a646&3=1)	crateToss.ts:385	
-8008502c	todo(shared on-foot engine player code; not re-audited here)		
-800854c0	todo(shared on-foot engine player code; not re-audited here)		
-80085718	todo(shared on-foot engine player code; not re-audited here)		
-80085890	todo(shared on-foot engine player code; not re-audited here)		
-800860d4	todo(shared on-foot engine player code; not re-audited here)		
+8008502c	match	crateToss.ts:448	anim script VM: script/frame per state (groundPose, grip scripts); render words replay-verified in crateCrush.md
+800854c0	match	crateToss.ts:772	script start: pickup 0xf, carry 0x10/0x11, throw 0x12 inits (rows 800c2e58..800c2f60)
+80085718	match	crateTossResult.ts:41	winner clip load
+80085890	match	crateTossResult.ts:18	winner clip switch to 0x0d
+800860d4	match	crateToss.ts:1100	jump integrator: 108/10 or 72/6, cut 40 above 64; 431 traced samples in crateCrush.md
 800864cc	match	crateToss.ts:1391	
-80086d88	todo(shared on-foot engine player code; not re-audited here)		
-80086f78	todo(shared on-foot engine player code; not re-audited here)		
-800871e4	todo(shared on-foot engine player code; not re-audited here)		
+80086d88	fixed	crateToss.ts:229	players mark their 3x3 grid cells; crate, fruit and power-up spawns no longer land beside a player
+80086f78	match	crateToss.ts:224	grid clear: occupancy is rebuilt from live bodies on every query
+800871e4	match	crateToss.ts:1217	loss of floor sends ground, carry and action states to the fall entry
 800898ec	fixed	crateToss.ts:447	spirit 0x1c3/0x1c4 after script 0x13
-80089be8	todo(shared on-foot engine player code; not re-audited here)		
-80089fa4	todo(shared on-foot engine player code; not re-audited here)		
+80089be8	match	client crateToss.ts:477	spirit update through the shared knockout ghost
+80089fa4	match	client crateToss.ts:585	winner voice sequence (voice.ts)
 8008a200	match	crateToss.ts:878	
-8008a810	todo(shared on-foot engine player code; not re-audited here)		
-8008ab50	todo(shared on-foot engine player code; not re-audited here)		
-8008abf8	todo(shared on-foot engine player code; not re-audited here)		
-8008ac74	todo(shared on-foot engine player code; not re-audited here)		
-8008acf0	todo(shared on-foot engine player code; not re-audited here)		
+8008a810	match	client crateToss.ts:585	winner sequence end (voice.ts)
+8008ab50	match	crateToss.ts:1235	hurt-pending test in the carry states; the hit drops the crate
+8008abf8	match	crateToss.ts:1235	hurt state switch
+8008ac74	match	crateToss.ts:772	carry walk returns to carry idle without stick input
+8008acf0	match	crateToss.ts:772	carry idle: jump hook d728 is the stub 8008ab48 (returns 0), so a carrier never jumps; stick input enters carry walk
 8008d6c8	match	crateToss.ts:98	
 8008ddc0	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
 8008dec8	match	crateToss.ts:399	
