@@ -61,7 +61,7 @@ function paintTank(root: THREE.Object3D, paint: TankPaint) {
  * (FUN_800b77e8 / FUN_800baffc); pack 0784 parts 24-32 = the smoke puff (object 0x1306) left where a shell ends on levels 6-8.
  */
 const PACK = 786, SMOKE = 784, U = TA_K / 1024;
-const SMOKE_FRAMES = Array.from({ length: 9 }, (_, i) => 24 + i);
+const SMOKE_FRAMES = Array.from({ length: 9 }, (_, i) => 24 + i); // smoke object 0x1306 (FUN_800c7350 / FUN_800c7300)
 
 /**
  * Tank Wars view. The four pens are the real Crash Bash stages (assets/stages/tankArena.json, scale TA_K, centred on
@@ -285,7 +285,7 @@ function makeTank(hex: number, boat: boolean): THREE.Group {
   return g;
 }
 
-/** The L5 shield draws pack 0774 part 14 at the origin of each pulse. */
+/** The L5 shield (object 0x1321, FUN_800c6f88 / FUN_800c0200) draws pack 0774 part 14 at the origin of each pulse. */
 function boatShield() {
   const root = fxPartTemplate(774, 14, TA_K)?.clone();
   if (!root) return null;
@@ -545,7 +545,7 @@ export function createTankArenaView(): ClientMiniGame {
           // The sim restarts the pilot script as the overlay does (FUN_800854c0 / FUN_800b6ed8).
           const age = Math.max(0, tick - (tk?.animAt ?? 0));
           const action = tk?.anim ?? 0x59;
-          // FUN_800babcc / FUN_800bacd4: the winner spins the pilot and turret;
+          // FUN_800babcc / FUN_800bacd4 (lead-in FUN_80085718, chain FUN_80085890): the winner spins the pilot and turret;
           // on the tracked tanks the hull counter-rotates to keep its bearing.
           const win = nativeResult ? nativeResult.winner === b.slot && nativeResult.poseAt !== undefined
             : kit.over.done && kit.over.winners.has(b.slot);
@@ -562,6 +562,7 @@ export function createTankArenaView(): ClientMiniGame {
             if (damageState === 0x6a && damageFrame >= TANK_WRECK_TICKS[tk.char - 1]) damageState = 0x6b;
           }
           let ghost = ghosts.get(b.slot);
+          // State 0x6b: FUN_800baf64 swaps in the spirit, FUN_800c7d04 runs it.
           if (damageState === 0x6b && tk.ghostAt !== undefined) {
             const age = d.f + endFrame - tk.ghostAt;
             if (!ghost && age <= 110) {

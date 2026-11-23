@@ -225,7 +225,7 @@ function gridMove(w: World, d: Data, p: number, t: Tk) {
   if (t.st === S_TURN) {
     t.hull = (t.hull + t.td) & 0xfff;
     if (--t.tn <= 0) {
-      // FUN_800c7db8, entering state 0x6e, restarts the idle script.
+      // FUN_800c7db8, entering state 0x6e (also reached from FUN_800c7ef8), restarts the idle script.
       t.st = S_RUN;
       pilotScript(w, t, 0x59, true);
       if (pad & 0xf0) gridStep(d, p, t);
@@ -257,6 +257,7 @@ function gridMove(w: World, d: Data, p: number, t: Tk) {
 
 const JUNGLE_PEDESTAL = [{ x: 2048, z: 2048 }];
 
+/** FUN_800b993c (Jungle Fox) with the statue input block at 0x800c7d44. */
 function freeMove(d: Data, p: number, t: Tk) {
   const L = L_(d);
   let pad = t.pad;
@@ -291,6 +292,7 @@ function freeMove(d: Data, p: number, t: Tk) {
   }
 }
 
+/** FUN_800b9430 (Swamp Fox boat) and the boat bump FUN_800b96f4; FUN_800c8294 clamps to the pen. */
 function boatMove(d: Data, p: number, t: Tk) {
   const L = L_(d), pad = t.pad, sp = t.speed;
   const turn = Math.trunc((sp * 3) / 2);
@@ -325,6 +327,8 @@ function boatMove(d: Data, p: number, t: Tk) {
 // ---------------------------------------------------------------- weapons
 const SHELL_HEIGHT: Record<number, number> = { 2: -0xe6, 8: -0xfa, 9: -0x104, 10: -0x14a, 11: -0x113 };
 
+/** Shell objects 0x130c/0x130d/0x130e/0x130f/0x1302 (inits FUN_800c7b38, FUN_800c7aac, FUN_800c798c, FUN_800c78b4,
+ * FUN_800c76a8); FUN_800c7c08 scales the Swamp Fox speed and life. */
 function spawnShell(w: World, d: Data, p: number, t: Tk, wpn: number, offset: number) {
   const [, , life, speed] = SHELL[wpn];
   const double = wpn === 2;
@@ -348,6 +352,7 @@ function spawnShell(w: World, d: Data, p: number, t: Tk, wpn: number, offset: nu
   else emit(w, 'shellMuzzle', px(L, sx), pz(L, sz), p, -(SHELL_HEIGHT[wpn] + t.hy) * G, MUZZLE[wpn], -t.yaw * TAU / 4096);
 }
 
+/** The fire part of FUN_800b77e8 / FUN_800b7ee4 / FUN_800b8098 (one routine split by the decompiler). */
 function fire(w: World, d: Data, p: number, t: Tk) {
   const L = L_(d), wp = t.wpn;
   // FUN_800b77e8 switches on rand(4) for cases 5-7, so every shot plays script 0x5d.
@@ -414,6 +419,7 @@ function mineRack(d: Data) {
   return rack;
 }
 
+/** Timed mine 0x1303 (FUN_800c7614) or the Swamp Fox floating mine 0x131d (FUN_800c7598). */
 function spawnMine(w: World, d: Data, owner: number, x: number, z: number) {
   const id = mk(w, d, 'mine', owner, x, z, 0x80);
   const mine: Mn = { id, rack: mineRack(d).indexOf(undefined), o: owner, x, z, n: 120, born: d.f };
@@ -424,6 +430,7 @@ function spawnMine(w: World, d: Data, owner: number, x: number, z: number) {
   d.mines.push(mine);
 }
 
+/** The mine part of FUN_800b8098. */
 function layMine(w: World, d: Data, p: number, t: Tk) {
   const L = L_(d), X = px(L, t.x), Z = pz(L, t.z);
   if (t.mines <= 0) { if (!t.cpu) sfx(w, 0x4f2, X, Z, p); return; }
@@ -462,6 +469,8 @@ function stepDoubleShot(w: World, d: Data, s: Sh): 0 | 2 {
   return 2;
 }
 
+/** FUN_800baffc (with its tails FUN_800bb184 / FUN_800bb4fc) driven by the shell callbacks FUN_800bb6d4 (11),
+ * FUN_800bb874 (8), FUN_800bba9c (10) and FUN_800bbef4 (9). */
 function shellStep(w: World, d: Data, s: Sh): number {
   const L = L_(d);
   if (s.w === 8 && (d.f & 7) === 0) emit(w, 'shellTrail', px(L, s.x), pz(L, s.z), s.o, -s.y * G, 2);
@@ -547,6 +556,7 @@ function floatingMine(frame: number) {
   return { angle: (frame + TANK_INTRO_TICKS) & 0xfff, age: 0, y: -20, armed: false };
 }
 
+/** FUN_800bd084 */
 function stepFloatingMine(w: World, d: Data, m: Mn): boolean {
   const drift = m.drift ??= floatingMine(m.born ?? d.f); // snapshots from before drift was recorded
   drift.y += MINE_BOB[drift.age++ & 15];
@@ -564,6 +574,8 @@ function stepFloatingMine(w: World, d: Data, m: Mn): boolean {
   return true;
 }
 
+/** FUN_800bcd80 and its blast FUN_800bd654: area damage (L5/L7) or four flames 0x1304 (FUN_800c73b0 / FUN_800bd868)
+ * leaving trail objects 0x1305 (FUN_800c7494 / FUN_800c7428). */
 function explodeMine(w: World, d: Data, m: Mn) {
   const L = L_(d), X = px(L, m.x), Z = pz(L, m.z);
   if (m.drift) emit(w, 'floatingMineBlast', X, Z, m.o, -m.drift.y * G);
@@ -586,6 +598,7 @@ function explodeMine(w: World, d: Data, m: Mn) {
   }
 }
 
+/** FUN_800bc27c (object 0x130b, init FUN_800c7714) */
 function explodeBomb(w: World, d: Data, b: Bm, all: boolean) {
   const L = L_(d), X = px(L, b.x), Z = pz(L, b.z);
   sfx(w, 0x4ba + R(w, 4), X, Z); sfx(w, R(w, 4) < 2 ? 0x490 : 0x491, X, Z);
@@ -635,6 +648,7 @@ function spawnPickup(w: World, d: Data, rack: number, x: number, y: number, z: n
   return k;
 }
 
+/** Collection in FUN_800be988 (crate object 0x1308, init FUN_800be7dc). */
 function collect(w: World, d: Data, p: number, k: TankPickup): boolean {
   const t = d.tk[p], L = L_(d), X = px(L, k.x), Z = pz(L, k.z);
   const ty = k.t;
@@ -666,6 +680,7 @@ function collect(w: World, d: Data, p: number, k: TankPickup): boolean {
 // ---------------------------------------------------------------- AI
 const hasHuman = (d: Data) => d.tk.some((t) => !t.cpu && t.hp > 0);
 const skillOf = (d: Data, t: Tk) => (d.hum === 0 ? 30 : t.skill);
+/** FUN_800b3c7c (Desert / Metal lane scan) and FUN_800b3b24 (= FUN_800b3a9c) weighted choice. */
 function pickTarget(w: World, d: Data, p: number): number {
   const scanLanes = d.variant === 'desert' || d.variant === 'metal';
   const start = scanLanes ? R(w, 4) : 0;
@@ -695,6 +710,7 @@ function routePickup(d: Data, t: Tk) {
   return supplyRack(d).find(k => k && Math.abs(t.x - k.x) + t.z - k.z < 0x600);
 }
 
+/** Pickup route inside FUN_800b4a28 (decompiler tail FUN_800b478c); tile probes use FUN_800c8950. */
 function seek(w: World, d: Data, t: Tk) {
   const pickup = routePickup(d, t);
   let bit = 0;
@@ -734,6 +750,7 @@ function away(w: World, d: Data, t: Tk, ox: number, oz: number) {
   }
 }
 
+/** FUN_800b4490 */
 function avoidMine(w: World, d: Data, t: Tk): boolean {
   if (!d.hum || R(w, t.skill + 1) < 8 || t.ai.mode === 2) return false;
   const a = t.ai;
@@ -751,6 +768,7 @@ function avoidMine(w: World, d: Data, t: Tk): boolean {
   return true;
 }
 
+/** FUN_800b4a28 (land decide; jumptables 0x800b3338 / 0x800b3350, tails FUN_800b53d4 / FUN_800b5410). */
 function decide(w: World, d: Data, p: number, t: Tk) {
   const a = t.ai;
   a.timer = 30; a.target = pickTarget(w, d, p);
@@ -785,6 +803,7 @@ function shootGate(w: World, d: Data, t: Tk): boolean {
   const index = row * L.W + col;
   return !L.tiles[index] && !metalWallAt(d.metalWalls, index % L.W, Math.floor(index / L.W));
 }
+/** FUN_800b4688 (Swamp Fox decide; jumptables 0x800b3300 / 0x800b3318, weight tables from FUN_800b5788). */
 function decide5(w: World, d: Data, p: number, t: Tk) {
   const a = t.ai;
   a.target = pickTarget(w, d, p);
@@ -819,6 +838,7 @@ function decide5(w: World, d: Data, p: number, t: Tk) {
     a.timer = 90;
   }
 }
+/** FUN_800b5228 (land) and FUN_800b4fac (Swamp Fox), installed by FUN_800b5588; FUN_80013c94 sets their pad hold. */
 function aiFrame(w: World, d: Data, p: number, t: Tk) {
   const a = t.ai, L = L_(d);
   if (L.level === 5) {
@@ -909,7 +929,7 @@ function tankStep(w: World, d: Data, p: number, t: Tk, inp: InputState) {
     }
     return;
   }
-  if (t.st === S_DIE) {
+  if (t.st === S_DIE) { // FUN_800c7d24 enters wreck script 0x58; the state update ends it with script 14 and 0x4f0
     stepGun(w, d, p, t);
     if (++t.stT >= TANK_WRECK_TICKS[t.char - 1]) {
       t.st = S_DEAD;
@@ -1068,6 +1088,7 @@ function objects(w: World, d: Data) {
   if (d.dropper) stepDropper(w, d, d.dropper);
 }
 
+/** FUN_800be47c (drone 0x1307). */
 function stepDropper(w: World, d: Data, q: Dr) {
   if (q.born === d.f) return;
   q.x += q.vx;
@@ -1088,6 +1109,7 @@ function stepDropper(w: World, d: Data, q: Dr) {
   else k.t = R(w, 1000) < 501 ? 4 : 5;
 }
 
+/** FUN_800bdc50 (supply controller 0x1309). */
 function stepSupply(w: World, d: Data) {
   const L = L_(d);
   if (L.level === 5 || d.over) return;
@@ -1169,6 +1191,8 @@ export const tankArena: MiniGame = {
     if (t && !t.cpu) t.prev = humanPad(pad, L_(d).level) & 0xe000; // fire, mine and shield use rising edges
   },
 
+  /** FUN_800b58b0 / FUN_800b5a40 (level setup, BCD clock FUN_8007b7fc), FUN_800c83d8 (engine hooks) and FUN_800b6658
+   * (per seat; FUN_800c8334 clears its motion), stock weapon FUN_800b6ff4. FUN_800c8360 frees the loop channels at the end. */
   setup(w, slots) {
     const variant = pickVariant(w, TA_VARIANTS);
     const lv = TA_LV.findIndex((l) => l.id === variant);
@@ -1244,6 +1268,7 @@ export const tankArena: MiniGame = {
         firstLaterId: w.nextId,
         onWave: () => sfx(w, 0x501, 0, 0),
         onSink: () => { d.sinkSnd = 2; },
+        // FUN_800c0348 (wave controller 0x1310) and FUN_800c04e0 (platform 0x1311)
         onRise: wall => breakPickupAt(w, d, wall.x, wall.y, wall.z),
       });
     }
