@@ -111,6 +111,8 @@ export class Party {
   private game: MiniGame | null = null;
   private world: World | null = null;
   private frozen: SeatInfo[] = [];
+  /** Stages already played this party: the draw leaves them (and their mini-game) out until the pool runs dry. */
+  private played: StageOption[] = [];
   private next: { game: MiniGame; mod: Modifier | null; showdown: boolean; variant: { id: string; name: string } | null } | null = null;
   private lastWheel: WheelMsg | null = null;
   private lastRound: RoundMsg | null = null;
@@ -492,6 +494,7 @@ export class Party {
     this.scores = [0, 0, 0, 0];
     this.stats = [newStats(), newStats(), newStats(), newStats()];
     this.round = 0;
+    this.played = [];
     this.ballot = undefined;
     this.lastWheel = null;
     this.rematch.clear();
@@ -513,10 +516,11 @@ export class Party {
       this.startRound(now);
       return;
     }
-    if (this.stages.length > 1) {
+    const fresh = this.freshStages();
+    if (fresh.length > 1) {
       this.ballot = {
         id: ++this.ballotId, round: this.round,
-        options: shuffle([...this.stages]).slice(0, 3), votes: [],
+        options: shuffle([...fresh]).slice(0, 3), votes: [],
       };
       this.setPhase('vote', this.timing.vote, now);
       return;
@@ -524,7 +528,17 @@ export class Party {
     this.drawStage(now);
   }
 
+  /** Stages of mini-games not played yet; once every mini-game has had a turn, stages not played yet; then everything again. */
+  private freshStages(): StageOption[] {
+    const games = new Set(this.played.map((s) => s.gameId)), ids = new Set(this.played.map((s) => s.id));
+    const newGames = this.stages.filter((s) => !games.has(s.gameId));
+    if (newGames.length) return newGames;
+    const newStages = this.stages.filter((s) => !ids.has(s.id));
+    return newStages.length ? newStages : this.stages;
+  }
+
   private prepareStage(stage: StageOption) {
+    if (!this.played.some((s) => s.id === stage.id)) this.played.push(stage);
     const game = this.pool.find((g) => g.id === stage.gameId)!;
     const mods = this.cupTarget === undefined && this.twists ? modifiersFor(game.id) : [];
     const mod = mods.length && Math.random() < 0.65 ? mods[Math.floor(Math.random() * mods.length)] : null;
@@ -535,9 +549,12 @@ export class Party {
 
   private drawStage(now: number) {
     // Every arena has two tickets. Each accepted vote adds one ticket to that arena.
-    const options = shuffle([...this.stages]);
+    const options = shuffle([...this.freshStages()]);
     const tickets = options.flatMap((stage) => [stage, stage]);
-    for (const vote of this.ballot?.votes ?? []) tickets.push(options.find((stage) => stage.id === vote.stageId)!);
+    for (const vote of this.ballot?.votes ?? []) {
+      const stage = options.find((s) => s.id === vote.stageId);
+      if (stage) tickets.push(stage);
+    }
     const pick = options.indexOf(tickets[Math.floor(Math.random() * tickets.length)]);
     this.ballot = undefined;
     const { showdown, mod } = this.prepareStage(options[pick]);
@@ -694,6 +711,7 @@ export class Party {
   private toLobby(now: number) {
     this.world = null; this.game = null; this.lastRound = null; this.lastResults = null; this.lastSnap = ''; this.lastWheel = null;
     this.round = 0;
+    this.played = [];
     this.rematch.clear();
     for (const m of this.members.values()) m.ready = false;
     this.setPhase('lobby', 0, now);

@@ -707,9 +707,14 @@ ok('3 rounds played', A.log.rounds.length === 3 && A.log.results.length === 3);
 ok('legacy wheel, round, and results messages omit the cup battle marker',
   [...A.log.wheels, ...A.log.rounds, ...A.log.results].every(msg => !('cupsToWin' in msg)));
 ok('N. Brio reaches gameplay', A.log.rounds[0].seats.some((s: { name: string; look: { char: number } }) => s.name === 'Bob' && s.look.char === brioIdx));
-ok('all 28 arenas are distinct roulette entries on every draw', A.log.wheels.length === 3
-  && A.log.wheels.every((w) => w.options.length === stageIds.length && w.pick >= 0 && w.pick < stageIds.length
-    && isDeepStrictEqual(w.options.map((s: { id: string }) => s.id).sort(), [...stageIds].sort())));
+ok('the roulette offers distinct arenas, only from mini-games not played yet', A.log.wheels.length === 3
+  && A.log.wheels.every((w, i) => {
+    const ids = w.options.map((s: { id: string }) => s.id);
+    const played = new Set(A.log.rounds.slice(0, i).map((r: { gameId: string }) => r.gameId));
+    return w.pick >= 0 && w.pick < ids.length && new Set(ids).size === ids.length && ids.every((id: string) => stageIds.includes(id))
+      && w.options.every((s: { gameId: string }) => !played.has(s.gameId));
+  }));
+ok('no mini-game repeats within the party', new Set(A.log.rounds.map((r: { gameId: string }) => r.gameId)).size === A.log.rounds.length);
 ok('wheel pick matches the exact round arena', A.log.wheels.every((w, i) => w.options[w.pick].gameId === A.log.rounds[i].gameId
   && w.options[w.pick].variantId === (A.log.rounds[i].variant?.id ?? null)));
 ok('last round is the showdown', !A.log.rounds[0].showdown && !A.log.rounds[1].showdown && A.log.rounds[2].showdown);

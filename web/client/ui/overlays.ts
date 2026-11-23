@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { ballistixSlidesHorizontally } from '../../shared/games/ballDefence';
 import { COUNT_FRAMES, COUNT_LABELS, type ResultsMsg, type RoundMsg, type StageBallot, type StageOption, type WheelMsg } from '../../shared/protocol';
 import { sfx, sfxRate } from '../shell/sound';
+import { announceStage, preloadStageCall } from '../shell/voice';
 import { ASSET_BASE, ModelInstance, ready } from '../crash';
 import { div, esc, face, icon, MENU_PLAYERS, pop } from './dom';
 import type { SeatView } from './hud';
@@ -45,6 +46,9 @@ export function controlsHtml(text: string, touch: boolean, game = '', variant?: 
   return text.split(/(?<=\.)\s+(?=[{A-Z])/).map(s =>
     `<li>${esc(s).replace(/\{(\w+)\}/g, (_, token: string) => `<span class="keys">${key(token)}</span>`)}</li>`).join('');
 }
+
+// The reel's clicks and landing use the warp-room cursor and select samples.
+const REEL_TICK = 'sfx/0272/7.mp3', REEL_LAND = 'sfx/0272/9.mp3';
 
 function stageArt(stage: StageOption) {
   return `<img class="stage-art" src="${esc(thumb(stage.gameId, stage.variantId))}" alt="" draggable="false">`;
@@ -136,6 +140,9 @@ export class WheelOverlay {
     this.hide();
     const token = this.token;
     const picked = m.options[m.pick];
+    preloadStageCall(picked.gameId, picked.variantId);
+    sfx.preloadFile(REEL_TICK);
+    sfx.preloadFile(REEL_LAND);
     const n = m.options.length;
     // a long strip: several laps, the pick lands on card LAND
     const LAPS = 2, LAND = LAPS * n + m.pick, total = LAND + 4;
@@ -154,8 +161,9 @@ export class WheelOverlay {
     const elapsed = m.elapsedMs ?? 0;
     const spinMs = Math.max(1, (m.ms + elapsed) * 0.52);
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const announce = m.ms > 300 && elapsed < spinMs + 250;
     const start = performance.now() - elapsed;
-    let last = -1;
+    let last = -1, lastTick = 0;
     const frame = (now: number) => {
       if (token !== this.token) return;
       const k = reducedMotion ? 1 : Math.min(1, (now - start) / spinMs);
@@ -165,15 +173,23 @@ export class WheelOverlay {
       const x = reel.clientWidth / 2 - firstBox.width / 2 - (1.5 + (LAND - 1.5) * e) * step;
       strip.style.transform = `translateX(${x}px)`;
       const under = Math.floor((reel.clientWidth / 2 - x) / step);
-      if (k < 1 && under !== last) { last = under; sfx.play('move'); }
+      if (k < 1 && under !== last) {
+        last = under;
+        // one click per card, at most every 45 ms; it softens and drops a little in pitch as the reel slows
+        if (now - lastTick >= 45) {
+          lastTick = now;
+          const speed = 1 - k;
+          sfx.playFile(REEL_TICK, 0.32 + 0.4 * speed, false, 0.94 + 0.14 * speed);
+        }
+      }
       if (k < 1) { this.raf = requestAnimationFrame(frame); return; }
-      this.land(m, strip.querySelector(`.rcard[data-i="${LAND}"]`) as HTMLElement, token);
+      this.land(m, strip.querySelector(`.rcard[data-i="${LAND}"]`) as HTMLElement, token, announce);
     };
     this.raf = requestAnimationFrame(frame);
   }
 
-  private land(m: WheelMsg, card: HTMLElement, token: number) {
-    sfx.play('select');
+  private land(m: WheelMsg, card: HTMLElement, token: number, announce: boolean) {
+    if (!sfx.playFile(REEL_LAND, 0.85)) sfx.play('select');
     this.el.classList.add('landed');
     const reel = card.closest<HTMLElement>('.reel')!;
     const strip = card.parentElement!;
@@ -186,6 +202,7 @@ export class WheelOverlay {
     card.classList.add('win');
     const stage = m.options[m.pick];
     this.el.querySelector('.wheel-announcement')!.textContent = stage.name;
+    if (announce) this.timers.push(window.setTimeout(() => announceStage(stage.gameId, stage.variantId), 70));
     if (m.modifier) {
       const mod = this.el.querySelector('.wheel-mod') as HTMLElement;
       mod.innerHTML = `<img class="uka" src="${UKA}" alt="" draggable="false"><div class="bubble"><b class="gt red">${esc(m.modifier.name.toUpperCase())}</b><span class="sm">${esc(m.modifier.desc)}</span></div>`;

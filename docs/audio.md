@@ -146,7 +146,8 @@ Nothing was listened to by a human.
   has no original counterpart and is silent; the podium scene brings its own bank-0181 cues.
 * Stage names: the disc has no recording of an arena name. The arena is named in text on the CHOOSE LEVEL screen and the rules
   card. A 40 s capture from the game options screen through loading to the rules card contains no speech. Nothing announces a
-  stage; `announceStage` / `preloadStageCall` (TTS in `sfx/custom/stages`) are ours and no longer called.
+  stage. Ours does on purpose (party feature, by request): `announceStage` plays a custom call from `sfx/custom/stages` when the reel
+  lands, and on round 1 of a host-picked stage. The reel clicks use warp-room samples 0272/7 (tick) and 0272/9 (landing).
 * Nothing is synthesised: `sound.ts` has no oscillator or noise code.
 * Podium (family 0x102): no character bank is loaded. The winner's crowd cheer is 0x352 (engine 1, 2), 0x354 (3, 4, 6, 8) or 0x353
   (5, 7) from bank 0181.
