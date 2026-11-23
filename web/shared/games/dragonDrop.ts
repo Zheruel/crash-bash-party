@@ -351,7 +351,7 @@ function rayHits(rx: number, rz: number, cx: number, cz: number, r: number): boo
   return !(t1 < 0 && t2 < 0);
 }
 
-/** FUN_800b33d8: weighted random pick of the rival to go for (all weights equal here) */
+/** FUN_800b33d8 (team check FUN_800b485c is 0 outside team modes): weighted random pick of the rival to go for (all weights equal here) */
 function pickVictim(w: World, d: DragonDropData, me: number): number {
   const r1 = ri(w, 4), r2 = ri(w, 0x1000);
   for (let k = r1; k < r1 + 4; k++) {
@@ -367,7 +367,7 @@ function pickVictim(w: World, d: DragonDropData, me: number): number {
   }
   return -1;
 }
-/** FUN_800b49ac: is a barge at the picked nearest rival worth it right now */
+/** FUN_800b49ac: is a barge at the picked nearest rival worth it right now (ray test FUN_800b475c) */
 function bargeChance(w: World, d: DragonDropData, me: number): boolean {
   // After a win every rival has flag 0x8000 and the target scan ends before the random pick.
   if (d.winner >= 0) return false;
@@ -402,6 +402,7 @@ function aiPad(p: RDPlayer) {
   if (p.lock === 0) p.ang = a.pa;
 }
 const jfree = (j: RDJewel) => j.st === 0 || j.st === 3 || j.st === 4;
+// FUN_800b3760 (validity FUN_800bd2b8)
 function nearestFree(w: World, d: DragonDropData, p: RDPlayer): number {
   let best = 0x7fffffff, bi = -1;
   const s = ri(w, 3);
@@ -414,6 +415,7 @@ function nearestFree(w: World, d: DragonDropData, p: RDPlayer): number {
   }
   return bi;
 }
+// FUN_800b38bc (carried FUN_800bd204)
 function nearestCarried(w: World, d: DragonDropData, me: number): number {
   const p = d.P[me]!;
   let best = 0x7fffffff, bi = -1;
@@ -427,11 +429,13 @@ function nearestCarried(w: World, d: DragonDropData, me: number): number {
   }
   return bi;
 }
+// FUN_800b478c: ray at the target
 const aimsAtTarget = (d: DragonDropData, p: RDPlayer) => {
   const rx = Math.floor((RAY * 4 * SIN(p.yaw)) / 4096), rz = Math.floor((RAY * 4 * T(p.yaw)) / 4096);
   return rayCircle(rx, rz, d.tx - p.x, d.tz - p.z, 0x300);
 };
 
+// FUN_800b5424 (via FUN_800bd08c; idle handler LAB_800bd1fc, carrying FUN_800bd258)
 function aiTick(w: World, d: DragonDropData, p: RDPlayer, me: number) {
   const a = p.ai;
   // The pad poll clears the previous CPU directions before this handler can write new ones.
@@ -460,7 +464,7 @@ function aiTick(w: World, d: DragonDropData, p: RDPlayer, me: number) {
   const toIdle = () => { a.jw = -1; a.h = H_IDLE; };
   const setMe = () => { a.cx = p.x; a.cz = p.z; };
   switch (a.h) {
-    case H_JEWEL: {
+    case H_JEWEL: { // FUN_800b3a38 / FUN_800b3a9c (FUN_800bd1b8)
       const j = nearestFree(w, d, p);
       if (j !== -1) a.jw = j;
       if (!d.J[a.jw] || !jfree(d.J[a.jw])) {
@@ -473,7 +477,7 @@ function aiTick(w: World, d: DragonDropData, p: RDPlayer, me: number) {
       aiPad(p);
       break;
     }
-    case H_CHASE: {
+    case H_CHASE: { // FUN_800b3c1c
       const j = a.jw >= 0 ? d.J[a.jw] : null;
       if (j && j.st === 1) {
         setMe(); a.tx = j.x; a.tz = j.z;
@@ -483,7 +487,7 @@ function aiTick(w: World, d: DragonDropData, p: RDPlayer, me: number) {
       } else toIdle();
       break;
     }
-    case H_DIRECT: {
+    case H_DIRECT: { // FUN_800b3d90
       if (p.carry < 0) { toIdle(); break; }
       if (!bargeChance(w, d, me)) {
         setMe(); a.tx = d.tx; a.tz = d.tz;
@@ -492,7 +496,7 @@ function aiTick(w: World, d: DragonDropData, p: RDPlayer, me: number) {
       } else { a.t40 = ri(w, 15) + 0x3c; a.mode = 4; }
       break;
     }
-    case H_TOX5: {
+    case H_TOX5: { // FUN_800b4b14
       if (!bargeChance(w, d, me)) {
         if (p.carry < 0) { toIdle(); break; }
         setMe(); a.tx = 0; a.tz = -0xb00;
@@ -503,7 +507,7 @@ function aiTick(w: World, d: DragonDropData, p: RDPlayer, me: number) {
       } else { a.t40 = 0x5a; a.mode = 4; }
       break;
     }
-    case H_INZONE: {
+    case H_INZONE: { // FUN_800b3fdc (FUN_800b53d4)
       if (p.carry < 0) { toIdle(); break; }
       if (rdZone(p.x, p.z) === 1) {
         setMe(); a.tx = d.tx; a.tz = d.tz;
@@ -515,7 +519,7 @@ function aiTick(w: World, d: DragonDropData, p: RDPlayer, me: number) {
       } else { a.t40 = 0x3c; a.mode = 4; a.h = H_EVADE; }
       break;
     }
-    case H_EVADE: {
+    case H_EVADE: { // FUN_800b4d6c (nearest rival FUN_800bd0ac, floor test FUN_800b4c70)
       if (p.carry < 0) { toIdle(); break; }
       a.t40--;
       let rv = 0, best = 0x7fffffff;
@@ -567,6 +571,7 @@ function aiTick(w: World, d: DragonDropData, p: RDPlayer, me: number) {
 }
 
 // ---------------------------------------------------------------- players
+// enter handlers: idle FUN_800bcac0, run FUN_800bca18, throw FUN_800bc948, barge FUN_800ba574, recoil FUN_800b9e68
 function setState(w: World, d: DragonDropData, p: RDPlayer, s: number, st: number) {
   p.st = st;
   p.poseFrame = 0;
@@ -618,6 +623,7 @@ function collide(w: World, d: DragonDropData, p: RDPlayer, s: number) {
       setState(w, d, p, s, ST_IDLE);
       E(w, 'bargehit', o.x, o.z, u, 1, s);
     }
+    // FUN_800b9534 (equal masses 0x100: a velocity swap)
     const k = 0x19e - dist;
     p.x -= Math.floor((k * T((a & 0xfff) - 0x400)) / 4096);
     p.z -= Math.floor((k * T(a & 0xfff)) / 4096);
@@ -658,7 +664,8 @@ function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?
   }
   if (p.st === ST_THROW) { p.tvx = 0; p.tvz = 0; }
   if (result === 'win') p.vx = p.vz = p.tvx = p.tvz = 0;
-  // state handler
+  // state handlers: idle FUN_800bca38/FUN_800bc878, run FUN_800b9c10/FUN_800bc820, throw FUN_800bc8d0, barge FUN_800ba724/FUN_800bc774,
+  // recoil FUN_800ba468, result FUN_800bd01c
   switch (p.st) {
     case ST_IDLE:
       collide(w, d, p, s);
@@ -702,7 +709,7 @@ function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?
   p.poseFrame = (p.poseFrame ?? 0) + 1;
   if (p.st === ST_THROW && p.tt >= 15) setState(w, d, p, s, ST_IDLE);
   if (p.st === ST_BARGE && p.poseFrame >= 28) setState(w, d, p, s, ST_IDLE);
-  // FUN_800b9778: turn, accelerate, move, wall
+  // FUN_800b9778: turn (FUN_800b96a0), accelerate, move, wall (FUN_800b86c8)
   if (p.st === ST_RESULT) p.yaw = (p.yaw + (adiff(p.yaw, 0) >> 2)) & 0xfff;
   else if (p.lock === 0) p.yaw = (p.yaw + (adiff(p.yaw, p.hd) >> 2)) & 0xfff;
   if (result === 'win') p.st = ST_RESULT;
@@ -727,7 +734,7 @@ function playerTick(w: World, d: DragonDropData, p: RDPlayer, s: number, result?
   return x !== p.x || z !== p.z;
 }
 
-/** Objects 1902 and 1903 run after all riders, including contacts from a later seat. */
+/** FUN_800bc1bc (marks, 0x1902) and FUN_800b88e0 (smoke 0x1903). Objects 1902 and 1903 run after all riders, including contacts from a later seat. */
 function bargeEffects(w: World, d: DragonDropData, moved: boolean[]) {
   for (let s = 0; s < d.P.length; s++) {
     const p = d.P[s];
@@ -793,6 +800,7 @@ export function createDragonDropResult(source: World, winner: number | undefined
 }
 
 // ---------------------------------------------------------------- jewels (FUN_800bb3ec)
+// FUN_800bad18
 function tryPickup(w: World, d: DragonDropData, j: RDJewel, jj: number): boolean {
   if (j.st === 1) return false;
   for (let i = 0; i < 4; i++) {
@@ -833,7 +841,7 @@ function jewelTick(w: World, d: DragonDropData, j: RDJewel, jj: number) {
     return false;
   };
   switch (j.st) {
-    case 0: {
+    case 0: { // caseD_0 at FUN_800bb574 (clash FUN_800bae94 / FUN_800bb184)
       shadow.visible = true;
       j.yaw = (j.yaw + 0x20) & 0xfff;
       for (let u = 0; u < 3; u++) {
@@ -911,7 +919,7 @@ function jewelTick(w: World, d: DragonDropData, j: RDJewel, jj: number) {
       E(w, 'jdrop', j.x, j.z, -1, ri(w, 4));
       break;
     }
-    case 7: {
+    case 7: { // FUN_800bb4fc
       j.st = 0;
       E(w, 'jspawn', j.x, j.z);
       break;
@@ -980,6 +988,7 @@ export const dragonDrop: MiniGame = {
   settlesAfterTimeout: true,
   bot: () => cpuRequest,
 
+  // FUN_800b6fe4 / FUN_800b7664 (jewel objects FUN_800bb23c, target lookup FUN_800b714c)
   setup(w, slots) {
     const chars = w.data?.chars as number[] | undefined; // optional host override: roster index per slot
     const d: DragonDropData = {
@@ -1031,7 +1040,7 @@ export const dragonDrop: MiniGame = {
     const d = w.data as DragonDropData;
     if (dragonDrop.isOver(w)) return;
     if (d.random) ri(w, 2); // FUN_800155fc advances the engine RNG before the arena update.
-    targetTick(w, d);
+    targetTick(w, d); // FUN_800b85dc
     for (const p of players(d)) if (p.cd > 0) p.cd--;
     d.t++;
     if (d.t === 0x546) d.J[2].st = 7;
