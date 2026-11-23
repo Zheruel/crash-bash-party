@@ -96,6 +96,13 @@ def generate():
             (None, "POGO A GO-GO!"),
             (None, "Pogo agogo!"),
         ], seed=31, max_tokens=44, temperature=0.55)
+        render([
+            (None, "Enn! BAL-lizm!"),
+            (None, "EN, BAL-lizm!"),
+            (None, "En: Ballism!"),
+            ("ballDefence_nballism", "N! Ball-ism!"),
+            (None, "N-BALLISM!"),
+        ], seed=43, max_tokens=44, temperature=0.55)
 
 
 if __name__ == "__main__":
