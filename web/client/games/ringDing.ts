@@ -11,7 +11,7 @@ import { discStereo } from '../shell/discStereo';
 import { DISC_CHARACTER } from '../../shared/look';
 import { Actor, Kit, catalogInstance, nativeCharScale, preloadCatalogFor } from './kit';
 import { poseTicks } from './playerPose';
-import { pickupShadow, preloadFx } from './realFx';
+import { fxPartTemplate, pickupShadow, preloadFx } from './realFx';
 import { specialCrate } from './partyBits';
 import { applyPose, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type Placements } from './ps1cam';
 let placements: Placements | null = null;
@@ -146,7 +146,7 @@ export function createRingDingView(): ClientMiniGame {
     stopClock?.();
     stopClock = sfx.loopFile(DD_SFX[0x5ec][0], 0.0034, 1);
   }
-  /** FUN_800b5a40 keys 0x5f3 / 0x5f2 on the item's handle with its live origin, so the stereo follows the item. */
+  /** FUN_800b5a40 keys 0x5f3 / 0x5f2 on the item handle with its live origin, so the stereo follows the holder. */
   function equippedSound(slot: number, kind: number, source?: number, elapsed = 0, at?: [number, number, number]) {
     const current = equippedSounds.get(slot);
     if (current?.kind === kind && current.source === source) {
@@ -209,6 +209,7 @@ export function createRingDingView(): ClientMiniGame {
     const R = kit.root;
     sphereGeo = new THREE.SphereGeometry(1, 20, 14);
     gears.length = itemsHeld.length = 0;
+    seatDiscs.clear();
     // the clock tower exactly as the real level places it (RAM object list of level 0x1b); the rotating ring is ours
     const ref = getCatalog().arenas.ringDing;
     const lvl = ref ? levelStage(ref, placements, (r) => catalogInstance(r)?.root ?? null, { skip: ['extra_149c', 'extra_1f68'] }) : null;
@@ -250,7 +251,23 @@ export function createRingDingView(): ClientMiniGame {
     const have = kit.actors.get(b.id);
     if (have) return have;
     const look = kit.look(b.slot);
-    return kit.actor(b, () => ({ inst: createCharacter(look, { ring: false }), scale: nativeCharScale(look, S), shadow: 0.9 }));
+    const a = kit.actor(b, () => ({ inst: createCharacter(look, { ring: false }), scale: nativeCharScale(look, S), shadow: 0.9 }));
+    a.shadow.mesh.removeFromParent(); // the level replaces the shadow with the seat's disc (FUN_800bb560)
+    return a;
+  }
+
+  /** FUN_800bb560 swaps each player's shadow node (0x8009d538) for pack 0794 word DAT_800bc04c[seat] = [0x2013, 0x2012, 0x2010,
+   *  0x2011], drawn additive (entity flags 0x8021). FUN_8008672c keeps it under the player on the ground each frame. */
+  const seatDiscs = new Map<number, THREE.Object3D>();
+  function seatDisc(slot: number) {
+    let disc = seatDiscs.get(slot);
+    if (!disc) {
+      disc = fxPartTemplate(PACK, 15 + POP_FX[slot % 4], S, true)?.clone() ?? new THREE.Group();
+      disc.name = 'ringDingSeatDisc';
+      kit.root.add(disc);
+      seatDiscs.set(slot, disc);
+    }
+    return disc;
   }
 
   return {
@@ -319,7 +336,7 @@ export function createRingDingView(): ClientMiniGame {
         if (index < 2) node.rotation.set(0, angle, 0);
         else node.rotation.set(0, index === 2 ? -768 * ANGLE : 0, angle, 'YXZ');
       }
-      const seen = new Set<number>(), seenB = new Set<number>(), seenC = new Set<number>();
+      const seen = new Set<number>(), seenSlots = new Set<number>(), seenB = new Set<number>(), seenC = new Set<number>();
       for (const b of arena.bodies) {
         if (b.kind === 'player') {
           seen.add(b.id);
@@ -340,6 +357,9 @@ export function createRingDingView(): ClientMiniGame {
           const resultState = ending && ending.entered >= 0;
           const win = decided && winners.has(s);
           if (resultState) {
+            // FUN_800b9a04 / FUN_800b9ce0 stop the player handle (and the item handle) on win and lose entry.
+            voiceHandles.get(s)?.();
+            voiceHandles.delete(s);
             const resultTick = frame - ending.entered;
             const scale = win ? 0x1000 : 0x1000 - DD_LOSE_SCALE_STEP * resultTick;
             const hidden = ending.hidden;
@@ -385,6 +405,10 @@ export function createRingDingView(): ClientMiniGame {
               role: hit ? 'hit' : taunt !== undefined ? 'taunt' : spin ? 'spin' : air ? 'jump' : moving ? 'run' : 'idle' });
             a.holder.scale.setScalar(1);
           }
+          const disc = seatDisc(s);
+          disc.position.set(body.x, 0, body.z);
+          disc.visible = !ending?.hidden;
+          seenSlots.add(s);
           const equip = itemsHeld[s];
           const carried = p && ddHeldItem(p, (ending ? result?.itemActors : playerData.itemActors)?.[s]);
           equip.hover.visible = !!carried?.visible && carried.kind === 1;
@@ -392,7 +416,7 @@ export function createRingDingView(): ClientMiniGame {
           const stopped = ending?.hidden || (resultState && !win && (carried?.elapsed ?? 0) > 0);
           const kind = stopped ? 0 : carried?.kind;
           equippedSound(s, kind === 1 ? SFX.hover : kind === 2 ? SFX.magnet : 0, carried?.source, carried?.elapsed,
-            carried ? [body.x, carried.height * DD_S, body.z] : undefined);
+            [body.x, body.y, body.z]); // FUN_800b6c50 keeps the item origin on the player; the 0x40 lift is in its render node
           if (carried?.kind) {
             const item = carried.kind === 1 ? equip.hover : equip.magnet;
             item.position.set(body.x, carried.height * DD_S, body.z);
@@ -440,6 +464,7 @@ export function createRingDingView(): ClientMiniGame {
         }
       }
       kit.prune(seen);
+      for (const [slot, disc] of seatDiscs) if (!seenSlots.has(slot)) disc.visible = false;
       for (const [id, v] of balloons) if (!seenB.has(id)) { kit.root.remove(v.obj, v.shadow); balloons.delete(id); }
       for (const [id, v] of crates) if (!seenC.has(id)) { kit.root.remove(v.obj); crates.delete(id); }
       applyPose(ctx.camera, ps1Pose(LEVEL_CAMS[27], getCatalog().arenas.ringDing)); // the real camera (level 0x1b)
