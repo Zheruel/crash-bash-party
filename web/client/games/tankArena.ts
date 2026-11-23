@@ -320,6 +320,8 @@ export function createTankArenaView(): ClientMiniGame {
   const ghosts = new Map<number, NonNullable<ReturnType<typeof makeKnockoutGhost>>>();
   const missileSounds = new Map<number, () => void>();
   const shields = new Map<number, NonNullable<ReturnType<typeof boatShield>>>();
+  /** Object 0x1320 (FUN_800c7074 / FUN_800c6fb8): pack 0774 part 6 on the water under each boat. */
+  const wakes = new Map<number, THREE.Object3D>();
   const tanks = new Map<number, TankVis>();
   const shells = new Map<number, { art: ReturnType<typeof createTankShell>; born: number }>();
   const lastHp: number[] = [3, 3, 3, 3];
@@ -447,7 +449,7 @@ export function createTankArenaView(): ClientMiniGame {
       kit.realFx(TA_K);
       for (const n of [23, 24]) sfx.preloadFile('sfx/0154/' + n + '.mp3');
       for (const file of new Set(Object.values(TANK_SFX[variant] ?? {}))) sfx.preloadFile(file);
-      tanks.clear(); shells.clear(); objs.clear(); lastHp.fill(TA_HP);
+      tanks.clear(); shells.clear(); objs.clear(); wakes.clear(); lastHp.fill(TA_HP);
       build(world);
       statues = variant === 'jungle' ? new JungleStatueView(kit.root, {
         sound: id => {
@@ -551,6 +553,19 @@ export function createTankArenaView(): ClientMiniGame {
             }
             ghost?.pose(b.x, b.y, b.z, age, ctx.camera);
           } else if (ghost) ghost.root.visible = false;
+          if (variant === 'swamp' && tk) {
+            let wake = wakes.get(b.slot);
+            if (!wake) {
+              const ref = getCatalog().props.taHover;
+              wake = (ref && catalogInstance({ ...ref, parts: ['part6'] })?.root) || new THREE.Group();
+              wakes.set(b.slot, wake);
+              kit.root.add(wake);
+            }
+            // It copies the boat's position and heading and is deleted once the health mirror reaches zero.
+            wake.visible = tk.hp > 0;
+            wake.position.set(b.x, 0, b.z);
+            wake.rotation.y = face;
+          }
           const pulse = tk?.shield;
           const frame = pulse ? swampShieldFrame(d.f + endFrame - pulse.start) : -1;
           let shield = shields.get(b.slot);
@@ -760,6 +775,8 @@ export function createTankArenaView(): ClientMiniGame {
       statues = undefined;
       for (const shield of shields.values()) for (const mat of shield.materials) mat.dispose();
       shields.clear();
+      for (const wake of wakes.values()) kit.root.remove(wake);
+      wakes.clear();
       for (const o of objs.values()) { kit.root.remove(o); if (o.userData.sh) kit.fx.removeShadow(o.userData.sh); }
       objs.clear();
       tanks.clear();
