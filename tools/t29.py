@@ -340,7 +340,7 @@ def build_gltf(info, stem, texroot=None, outdir='.'):
                 COLOR_0=B.acc(bytes(colr), 5121, 'VEC4', n, 34962, norm=True),
                 TEXCOORD_0=B.acc(f32(uvs), 5126, 'VEC2', n, 34962))
             prim = dict(attributes=attrs, material=mi, mode=4)
-            if stem in STOCK_CHARACTERS:
+            if stem in STOCK_CHARACTERS or (stem == '0131' and 14 <= m.index <= 21):
                 # 0 is two-sided, 1 faces clockwise, 2 faces counterclockwise after strip expansion.
                 prim['extras'] = dict(ps1Facing=''.join(str(t['facing']) for t in trs))
             if ans:

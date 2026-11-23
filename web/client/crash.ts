@@ -162,7 +162,7 @@ export function ps1Material(src: THREE.Material, nativeFacing = false): THREE.Ma
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
         #ifdef PS1_FACE
-          if (nativeRaster && vPs1Facing > 0.5 && gl_FrontFacing != (vPs1Facing > 1.5)) discard;
+          if (vPs1Facing > 0.5 && gl_FrontFacing != (vPs1Facing > 1.5)) discard;
         #endif`)
       .replace('#include <color_fragment>', `#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
         diffuseColor.rgb *= vColor.rgb * (nativeRaster ? gl_FragCoord.w : 1.0) * PS1_X2;
