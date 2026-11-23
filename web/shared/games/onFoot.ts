@@ -1,4 +1,4 @@
-import { ON_FOOT_MARKERS } from './onFootItemMarkers';
+import { ON_FOOT_GLOW_MARKERS, ON_FOOT_MARKERS } from './onFootItemMarkers';
 import { CRATE_ATTACK } from './crateGripData';
 
 /** Script 2 in the eight common on-foot models, in 30 Hz ticks. */
@@ -13,7 +13,15 @@ export function attackHull(character: number, frame: number, facing: number) {
 }
 
 export function onFootItemMarker(character: number, script: number, elapsed: number) {
-  const track = ON_FOOT_MARKERS[script]?.[character - 1];
+  return markerAt(ON_FOOT_MARKERS[script]?.[character - 1], elapsed);
+}
+
+/** Marker 0x40 (FUN_80015780 tag 0x40) of crate scripts 0xf-0x12; only Cortex and Brio carry it. */
+export function onFootGlowMarker(character: number, script: number, elapsed: number) {
+  return markerAt(ON_FOOT_GLOW_MARKERS[script]?.[character - 1], elapsed);
+}
+
+function markerAt(track: (typeof ON_FOOT_MARKERS)[number][number] | undefined, elapsed: number) {
   if (!track) return;
   const length = track.length - 1;
   const loop = track[0];

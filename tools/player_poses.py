@@ -135,6 +135,7 @@ def crate_grips():
              'export const CRATE_GRIPS: number[][][][] = [']
     ring_ram = (ROOT / 're/dumps/L27.ram').read_bytes()
     marker_tracks = {script: [] for script in (1,2,5,6,7,8,9,10,12,13,15,16,17,18,19,0x2b,0x2c)}
+    glow_tracks = {script: [] for script in (15, 16, 17, 18)}
     bodies, attacks = [], []
     for char, name in enumerate(('crash', 'coco', 'cortex', 'brio', 'tiny', 'rilla', 'dingodile', 'koala'), 1):
         model = (ROOT / f'disc/dat/{chars[name]:04}.t29.bin').read_bytes()
@@ -161,12 +162,12 @@ def crate_grips():
             markers = struct.iter_unpack('<3hH', model[ptr+4:ptr+4+8*struct.unpack_from('<H', model, ptr)[0]])
             points = {tag: xyz for *xyz, mask in markers for tag in (1, 16, 32) if mask & tag}
             return [*points[16], *points[32]] if 16 in points else points[1]
-        def item_marker(pose):
+        def item_marker(pose, tag=0x80):
             ptr = marker_table(pose)
             if ptr:
                 count = struct.unpack_from('<H', model, ptr)[0]
                 for x, y, z, mask in struct.iter_unpack('<3hH', model[ptr+4:ptr+4+8*count]):
-                    if mask & 0x80:
+                    if mask & tag:
                         return [x, -y, z]
             return 0
 
@@ -174,6 +175,10 @@ def crate_grips():
             source = ring_ram if script in (8, 12, 13, 0x2b, 0x2c) else ram
             track, _ = decode(source, char, script)
             offsets = [item_marker(w + j*step) for w, n, step in zip(track[2::3], track[3::3], track[4::3]) for j in range(n)]
+            rows.append([track[1], *offsets] if any(offsets) else [-1, 0])
+        for script, rows in glow_tracks.items():
+            track, _ = decode(ram, char, script)
+            offsets = [item_marker(w + j*step, 0x40) for w, n, step in zip(track[2::3], track[3::3], track[4::3]) for j in range(n)]
             rows.append([track[1], *offsets] if any(offsets) else [-1, 0])
         bodies.append(cylinder(0x2001, 0x40)[2:])
         attack, _ = decode(ram, char, 10)
@@ -198,6 +203,13 @@ def crate_grips():
              'type MarkerTrack = readonly [loop: number, ...frames: (Marker | 0)[]];',
              'export const ON_FOOT_MARKERS: Record<number, readonly MarkerTrack[]> = {']
     for script, rows in marker_tracks.items():
+        lines.append(f'  0x{script:02x}: [')
+        lines.extend('    ' + json.dumps(row, separators=(',', ':')) + ',' for row in rows)
+        lines.append('  ],')
+    lines.append('};')
+    lines.append('// Marker 0x40 (FUN_80015780 tag 0x40): where the crate states place the player object 0x8009d540.')
+    lines.append('export const ON_FOOT_GLOW_MARKERS: Record<number, readonly MarkerTrack[]> = {')
+    for script, rows in glow_tracks.items():
         lines.append(f'  0x{script:02x}: [')
         lines.extend('    ' + json.dumps(row, separators=(',', ':')) + ',' for row in rows)
         lines.append('  ],')

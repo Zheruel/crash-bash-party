@@ -17,6 +17,9 @@ import type { ModelInstance, ModelRef } from '../crash';
 import { arenaClockSprites, hudFace, SLOT_X, type HudSprite } from '../ui/ps1hud';
 import { knockoutGhostRef, makeKnockoutGhost } from './knockoutGhost';
 import { CrateTossResult } from './crateTossResult';
+import { fxPartTemplate, preloadFx } from './realFx';
+import { onFootGlowMarker } from '../../shared/games/onFoot';
+import { CHARACTERS } from '../../shared/look';
 
 const S = 3.6;
 const CRATE_GHOST = knockoutGhostRef(S);
@@ -348,6 +351,48 @@ export function createCrateTossView(): ClientMiniGame {
     const eff = d.eff?.[slot] ?? 0;
     return EFFECT_ICON[eff] ? eff : 0;
   };
+  /**
+   * The player object 0x8009d540 (FUN_80083708: render word 0x2002 of the character pack for engine characters 3 and 4,
+   * none for the others): part 1 of Cortex's and Brio's models, a camera-facing additive glow. The crate states put it
+   * at model marker 0x40 (the ray gun's muzzle, Brio's flask). FUN_800c013c (pickup) scales it by the raw bytes of
+   * 0x800c4790, a 2% speck the original never shows at full size; FUN_800c02d4 / 800c05a8 (carry) pulse X and Y by
+   * 1 + sin/8 on the frame counter's 16-frame cycle; FUN_800c07f4 (throw) flashes it through 0x8009dc68 (5x to 1/8)
+   * for five updates. The engine hides it at the start of every player update, so it shows only in these states.
+   */
+  const GLOW_MODEL: Record<string, number> = { cortex: 986, brio: 984 };
+  const PICKUP_GLOW = [[80, 48], [56, 48], [24, 32], [16, 16], [8, 10], [10, 10], [16, 8], [10, 10], [8, 16], [10, 10], [16, 8],
+    [10, 10], [8, 16], [10, 10], [16, 8], [10, 10], [8, 16], [10, 10], [16, 8], [10, 10], [8, 16], [10, 10]];
+  const THROW_GLOW = [[20480, 20480], [16384, 8192], [6144, 4096], [2048, 2560], [512, 512]];
+  const glows = new Map<number, THREE.Object3D>();
+  const glowAt = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
+  function updateGlow(slot: number, script: number, frame: number | undefined, tick: number, b: Body, face: number) {
+    const model = GLOW_MODEL[CHARACTERS[kit.look(slot).char]?.id];
+    const character = model === 986 ? 3 : 4;
+    const marker = model && frame !== undefined && script >= 0xf && script <= 0x12 ? onFootGlowMarker(character, script, frame) : undefined;
+    // The handler's counter starts at 0 on the first update after the state's init has shown script frame 0.
+    const index = (frame ?? 0) - 1;
+    const scale = !marker ? undefined : script === 0xf ? PICKUP_GLOW[Math.max(0, index)]
+      : script === 0x12 ? THROW_GLOW[Math.max(0, index)]
+      : [4096 + (Math.round(4096 * Math.sin(((((tick & 15) * 256 - 1024) & 4095) * Math.PI) / 2048)) >> 3)];
+    let obj = glows.get(slot);
+    if (!marker || !scale) { if (obj) obj.visible = false; return; }
+    if (!obj) {
+      const template = fxPartTemplate(model, 1, S);
+      if (!template) return;
+      obj = new THREE.Group();
+      obj.add(template.clone());
+      obj.name = 'carry-glow';
+      kit.root.add(obj);
+      billboards.add(obj);
+      glows.set(slot, obj);
+    }
+    const [x, h, z] = marker;
+    glowAt.set(x, h, -z).multiplyScalar(CT_U).applyAxisAngle(UP, face);
+    obj.position.set(b.x + glowAt.x, b.y + glowAt.y, b.z + glowAt.z);
+    obj.scale.set(scale[0] / 4096, (scale[1] ?? scale[0]) / 4096, 1);
+    obj.visible = true;
+  }
+
   /** FUN_800c09f4 / 800c0bac: the dropped weight (0736 part 1) falls 4096 raw at 256 per update onto the holder. */
   const weightDrops = new Map<number, THREE.Object3D>();
   const spiritCue = new Map<number, number>();
@@ -499,7 +544,7 @@ export function createCrateTossView(): ClientMiniGame {
   return {
     id: 'crateToss',
     async preload() {
-      await Promise.all([bankIndexReady, preloadCatalogFor('crateToss', ['ctWood', 'ctFruit0', 'ctPenguin'], [CRATE_GHOST]), ...Object.entries(LEVEL_ID).map(async ([v, l]) => placements.set(v, await loadPlacements('L' + l)))]);
+      await Promise.all([bankIndexReady, preloadCatalogFor('crateToss', ['ctWood', 'ctFruit0', 'ctPenguin'], [CRATE_GHOST]), preloadFx([986, 984]), ...Object.entries(LEVEL_ID).map(async ([v, l]) => placements.set(v, await loadPlacements('L' + l)))]);
       loaded = true;
     },
 
@@ -509,7 +554,7 @@ export function createCrateTossView(): ClientMiniGame {
       void bankIndexReady.then(preloadSfx);
       kit = new Kit(ctx, 'crateToss', { bg: lv.bg, hemi: [0xffffff, 0xaaaaaa, 1.5] });
       weightDrops.clear(); spiritCue.clear();
-      crates.clear(); items.clear(); shots.clear(); weaponIcons.clear(); tiles.length = 0; tileRims.length = 0; pieces.length = 0; billboards.clear(); arena = null; penguin = null; builtArena = false;
+      crates.clear(); items.clear(); shots.clear(); weaponIcons.clear(); glows.clear(); tiles.length = 0; tileRims.length = 0; pieces.length = 0; billboards.clear(); arena = null; penguin = null; builtArena = false;
       follow = null;
       result = undefined;
       ghosts.clear();
@@ -586,6 +631,7 @@ export function createCrateTossView(): ClientMiniGame {
           if (result) {
             const state = result.scene.actors.get(b.slot)!;
             if (state.state === 'out') ghost(b, state.outAge);
+            updateGlow(b.slot, -1, undefined, tick, b, b.face);
             a.face = b.face;
             a.update(b, dt, result.actor(b, a.inst, !!carriedBody));
             if (b.fall || !floorAt(d, b.x, b.z)) a.shadow.visible = false;
@@ -653,6 +699,7 @@ export function createCrateTossView(): ClientMiniGame {
           if (crushed && !hidden && !anims?.carry) pose = undefined;
           a.update(b, dt, { hidden, role: b.fall ? 'jump' : b.alive ? role : crushed ? 'idle' : 'lose', pose,
             script: anims?.carry != null || kit.over.done ? undefined : script, scriptFrame: b.fall ? undefined : frame });
+          updateGlow(b.slot, kit.over.done || !b.alive || b.fall ? -1 : script, frame, tick, b, a.face);
           // FUN_800c0bac flattens the holder to 1/16 height once the weight reaches the floor.
           if (crushed && deadAge >= CT_WEIGHT_DROP) a.pivot.scale.y /= 16;
           updateWeightDrop(b.slot, crushed ? deadAge : undefined, b.x, b.z);
@@ -845,7 +892,7 @@ export function createCrateTossView(): ClientMiniGame {
       syncPenguinLoop(undefined);
       scrapes.clear();
       for (const shot of shots.values()) removeShot(shot);
-      crates.clear(); items.clear(); shots.clear(); weaponIcons.clear(); tiles.length = 0; pieces.length = 0; billboards.clear();
+      crates.clear(); items.clear(); shots.clear(); weaponIcons.clear(); glows.clear(); tiles.length = 0; pieces.length = 0; billboards.clear();
       for (const ghost of ghosts.values()) ghost.dispose();
       ghosts.clear();
       result = undefined;
