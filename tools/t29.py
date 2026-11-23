@@ -13,8 +13,9 @@ import json, os, struct, sys
 
 SCALE = 1.0 / 1024.0
 MAX_MESH_TRIS = 20000
-# Stock on-foot models, checked against the vertex flags in every animation key.
-STOCK_RUNNERS = {f'{n:04}' for n in range(976, 991, 2)}
+# Stock character models: riders, equipped models, pilots, and on-foot models.
+# The flags are constant across the animation keys of each part.
+STOCK_CHARACTERS = {f'{n:04}' for n in range(800, 991, 2)}
 
 
 def u32(d, o):
@@ -339,7 +340,7 @@ def build_gltf(info, stem, texroot=None, outdir='.'):
                 COLOR_0=B.acc(bytes(colr), 5121, 'VEC4', n, 34962, norm=True),
                 TEXCOORD_0=B.acc(f32(uvs), 5126, 'VEC2', n, 34962))
             prim = dict(attributes=attrs, material=mi, mode=4)
-            if stem in STOCK_RUNNERS:
+            if stem in STOCK_CHARACTERS:
                 # 0 is two-sided, 1 faces clockwise, 2 faces counterclockwise after strip expansion.
                 prim['extras'] = dict(ps1Facing=''.join(str(t['facing']) for t in trs))
             if ans:
