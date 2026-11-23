@@ -3,7 +3,7 @@
 // floors and walls that the disc stores elsewhere are rebuilt here from the same level textures.
 import { playerPose } from './playerPose';
 import * as THREE from 'three';
-import { BALLISTIX_OPENING_TICKS, ballistixFloor, ballistixLauncherFrame, BD_BALL_R, BD_HALF, BD_TRAIL_LENGTH, BD_POST_AT, BD_U, ballistixOpeningFrame, type BallistixData } from '../../shared/games/ballDefence';
+import { BALLISTIX_OPENING_TICKS, ballistixFloor, ballistixGoalLight, ballistixLauncherFrame, BD_BALL_R, BD_HALF, BD_TRAIL_LENGTH, BD_POST_AT, BD_U, ballistixOpeningFrame, type BallistixData } from '../../shared/games/ballDefence';
 import type { Body } from '../../shared/types';
 import type { BlobShadow } from '../fx';
 import { ASSET_BASE, getCatalog, type ModelInstance, type ModelRef } from '../crash';
@@ -917,7 +917,7 @@ export function createBallDefenceView(): ClientMiniGame {
       const shownTick = result ? stageData.f : Math.floor(w.time * 30 + 1e-7);
       for (const light of stage.goalLights ?? []) {
         const age = shownTick - (stageData.goalLit?.[light.seat] ?? -99);
-        const blink = age >= 4 && age <= 35 && ((35 - age) & 4) ? 1 : 0;
+        const blink = ballistixGoalLight(age, !!((stageData.goalHold ?? 0) & (1 << light.seat))) ? 1 : 0;
         light.frames.forEach((meshes, i) => { for (const mesh of meshes) mesh.visible = i === blink; });
       }
       if (stage.beachScenery) {

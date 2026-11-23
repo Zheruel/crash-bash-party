@@ -65,6 +65,14 @@ const SPAWN_Y: Record<string, number> = { crashball: -256, beach: -256, nballism
 const SPAWN_AFTER = [[0, 1], [2, 3], [1, 3], [0, 2]];
 /** ship rest positions (u, game z) */
 const START: [number, number][] = [[0, -2176], [0, 2176], [2176, 0], [-2176, 0]];
+/**
+ * FUN_800bca38, table 0x800c1d38: a goal light `age` ticks after a ball crossed its line. The timer waits 4 ticks,
+ * holding the mesh it had (`held`), then counts 31..0 and shows the alternate mesh while bit 2 is set.
+ */
+export function ballistixGoalLight(age: number, held: boolean) {
+  if (age < 0 || age > 35) return false;
+  return age < 4 ? held : ((35 - age) & 4) !== 0;
+}
 /** quantised facing (angle of the outward direction) */
 const FACE = [0x800, 0, 0x400, 0xc00];
 /** AI defence segments (0x800c1900): [x1, z1, x2, z2] */
@@ -210,7 +218,8 @@ interface Data {
   last: number; // side that conceded last (0x800c1f16), -1 none
   walls: number; // closed goals bitmask 1=z- 2=z+ 4=x- 8=x+ (game axes)
   wallSoundAt?: number;
-  goalLit?: number[]; // CRASHBALL: frame of the last ball over each seat's goal line (0x800c1d48 / 4a blink the goal strip)
+  goalLit?: number[]; // CRASHBALL: frame of the last ball over each seat's goal line (0x800c1d48 / 4a blink the goal light)
+  goalHold?: number; // CRASHBALL: seats whose goal light showed its alternate mesh when that timer was armed
   skyWallSoundDelay?: number;
   cool: number[]; // spawn corner cooldowns
   bumperHitAt?: number[];
@@ -1512,8 +1521,14 @@ function skyTiltState(d: Data, sk: NonNullable<Data['sky']>) {
 function goal(w: World, d: Data, b: Ball, side: number, tm: number) {
   b.who = side;
   b.sink = 0;
-  // The goal strip's blink timer starts as the ball crosses the line, not when the point is taken.
-  if (d.variant === 'crashball') (d.goalLit ??= [-99, -99, -99, -99])[side] = d.f;
+  // The goal light's blink timer starts as the ball crosses the line, not when the point is taken.
+  // Its 4-tick delay keeps the mesh a running blink had reached.
+  if (d.variant === 'crashball') {
+    const lit = (d.goalLit ??= [-99, -99, -99, -99]);
+    const held = ballistixGoalLight(d.f - lit[side], !!((d.goalHold ?? 0) & (1 << side)));
+    d.goalHold = ((d.goalHold ?? 0) & ~(1 << side)) | (held ? 1 << side : 0);
+    lit[side] = d.f;
+  }
   if (isSky(d)) { b.st = 99; b.tm = tm === 4 ? 4 : 0x10; return; }
   b.tm = tm === 4 ? 4 : 8;
   if (d.variant === 'crashball') { b.st = 0x11; return; }
