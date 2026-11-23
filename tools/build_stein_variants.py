@@ -10,6 +10,10 @@ from scipy.spatial import cKDTree
 from scipy.spatial.transform import Rotation
 
 MODELS = Path(__file__).resolve().parents[1] / 'assets/models'
+# A face atlas the size of a disc texture page: 128 texels, a 256-colour CLUT and 15-bit colour.
+PS1_TEXTURE = ['-filter', 'Lanczos', '-resize', '128x128!', '+dither', '-colors', '256',
+               '-channel', 'RGB', '-fx', 'round(u*31)/31', '+channel', '-strip',
+               '-define', 'png:exclude-chunk=time,date', 'png:-']
 # Cortex is the animation and equipment donor for Big Stein.
 DONORS = [970, 954, 890, 828, 812, 844, 938, 858, 874, 906]
 
@@ -94,24 +98,46 @@ def limb_basis(up, lateral):
     return np.stack([x, y, unit(np.cross(x, y))], axis=-1)
 
 
-def fit_arm(shoulder, elbow, hand, forward):
-    """Keep the grip and the plane of the original bend, with plausible limb lengths."""
-    upper = np.clip(np.linalg.norm(elbow - shoulder, axis=1, keepdims=True), 45, 108)
-    fore = np.clip(np.linalg.norm(hand - elbow, axis=1, keepdims=True), 73, 137)
-    reach = hand - shoulder
+def two_bone(root, hint, target, first, second, fallback):
+    """Place a joint so both segments keep the given lengths, bending in the plane of the hint joint."""
+    reach = target - root
     direction = unit(reach)
-    distance = np.clip(np.linalg.norm(reach, axis=1, keepdims=True), abs(upper - fore) + .01, upper + fore - .01)
-    along = (distance**2 + upper**2 - fore**2) / (2 * distance)
-    above = np.sqrt(np.maximum(0, upper**2 - along**2))
-    bend = elbow - shoulder
+    distance = np.clip(np.linalg.norm(reach, axis=1, keepdims=True), abs(first - second) + .01, first + second - .01)
+    along = (distance**2 + first**2 - second**2) / (2 * distance)
+    above = np.sqrt(np.maximum(0, first**2 - along**2))
+    bend = hint - root
     bend -= np.sum(bend * direction, axis=1, keepdims=True) * direction
-    fallback = forward - np.sum(forward * direction, axis=1, keepdims=True) * direction
+    fallback = fallback - np.sum(fallback * direction, axis=1, keepdims=True) * direction
     bend = np.where(np.linalg.norm(bend, axis=1, keepdims=True) > .01, bend, fallback)
-    return shoulder + along * direction + above * unit(bend), shoulder + distance * direction
+    return root + along * direction + above * unit(bend), root + distance * direction
 
 
-def poses(points, has_legs, on_foot):
-    """Local Y follows each limb. Local X uses the actor's lateral direction."""
+# Rest lengths of the custom rig's segments in donor units: the mesh length times the bone's size.
+REST = {'Jacket': .45*282, 'Shoulder': .231*260, 'Elbow': .29*250, 'Hip': .278*225, 'Knee': .38*235}
+# A segment keeps one length through every clip of a model, so it never stretches between frames. The torso takes
+# the donor's median length. An arm or leg scales both its segments by one factor, from the donor's median length
+# for the whole limb, so the elbow and knee stay where the rest model has them. Past these factors of the rest
+# length, a hand or foot stops short of the donor's.
+STRETCH = {('Jacket',): (.85, 1.35), ('Shoulder', 'Elbow'): (.95, 1.4), ('Hip', 'Knee'): (.8, 1.2)}
+
+
+def proportions(samples):
+    """One length per segment from the per-frame lengths the donor's joints ask for."""
+    result = {}
+    for names, (low, high) in STRETCH.items():
+        if not all(name in s for s in samples for name in names):
+            continue
+        limb = np.concatenate([sum(s[name] for name in names) for s in samples])
+        factor = np.clip(np.median(limb) / sum(REST[name] for name in names), low, high)
+        result.update({name: float(factor * REST[name]) for name in names})
+    return result
+
+
+def poses(points, has_legs, on_foot, lengths=None):
+    """Local Y follows each limb. Local X uses the actor's lateral direction.
+
+    Without `lengths`, return the per-frame segment lengths the donor's joints ask for.
+    """
     def at(x, y, z):
         return points[(x, y, z)]
     shoulder = [at(s*80, -232, 6) for s in (-1, 1)]
@@ -119,6 +145,10 @@ def poses(points, has_legs, on_foot):
     collar = sum(shoulder) / 2
     lateral = shoulder[1] - shoulder[0]
     result = {}
+    wanted = {}
+
+    def size(v):
+        return np.linalg.norm(v, axis=1)
 
     def bone(name, origin, up, size, length=None, right=lateral, pitch=0):
         rot = Rotation.from_matrix(limb_basis(up, right))
@@ -135,7 +165,8 @@ def poses(points, has_legs, on_foot):
     rise = unit(spine) * (72 if on_foot else 0)
     collar = collar + rise
     shoulder = [p + rise for p in shoulder]
-    torso = unit(spine) * np.clip(np.linalg.norm(spine, axis=1, keepdims=True), 105, 191)
+    wanted['Jacket'] = [np.clip(size(spine), 105, 191)]
+    torso = unit(spine) * (lengths['Jacket'] if lengths else wanted['Jacket'][0][:, None])
     waist_adjust = spine - torso
     waist = collar - torso
     spine = torso
@@ -150,9 +181,12 @@ def poses(points, has_legs, on_foot):
     for i, (s, side) in enumerate([(-1,'R'), (1,'L')]):
         elbow = at(s*79,-162,-20) + rise*.5
         hand = at(s*53,-10,-22)
-        elbow, hand = fit_arm(shoulder[i], elbow, hand, forward)
-        bone('Shoulder'+side, shoulder[i], shoulder[i]-elbow, 260, .231)
-        bone('Elbow'+side, elbow, elbow-hand, 250, .29)
+        wanted.setdefault('Shoulder', []).append(size(elbow - shoulder[i]))
+        wanted.setdefault('Elbow', []).append(size(hand - elbow))
+        if lengths:
+            elbow, hand = two_bone(shoulder[i], elbow, hand, lengths['Shoulder'], lengths['Elbow'], forward)
+            bone('Shoulder'+side, shoulder[i], shoulder[i]-elbow, 260, .231)
+            bone('Elbow'+side, elbow, elbow-hand, 250, .29)
         if has_legs:
             if (s*16,-99,-8) in points:
                 stance = unit(lateral)*s*(21 if on_foot else 0)
@@ -164,8 +198,14 @@ def poses(points, has_legs, on_foot):
                 hip = waist + s*right*34
                 knee = hip + s*right*43 + unit(np.cross(right, up))*38 - up*34
                 heel = knee - up*70
-            bone('Hip'+side, hip, hip-knee, 225, .278)
-            bone('Knee'+side, knee, knee-heel, 235, .38)
+            wanted.setdefault('Hip', []).append(size(hip - knee))
+            wanted.setdefault('Knee', []).append(size(knee - heel))
+            if lengths:
+                knee, heel = two_bone(hip, knee, heel, lengths['Hip'], lengths['Knee'], forward)
+                bone('Hip'+side, hip, hip-knee, 225, .278)
+                bone('Knee'+side, knee, knee-heel, 235, .38)
+    if lengths is None:
+        return {name: np.concatenate(values) for name, values in wanted.items()}
     return result
 
 
@@ -241,12 +281,12 @@ def build(donor, number, body, *, base_model=9001, rig_name='BigSteinRig'):
         view = base['bufferViews'][base['images'][0]['bufferView']]
         base_data = (MODELS / base['buffers'][0]['uri']).read_bytes()
         start = view.get('byteOffset', 0)
-        atlas = subprocess.check_output(['magick','jpeg:-','-colorspace','Gray','-evaluate','multiply','0.9',
+        atlas = subprocess.check_output(['magick','-','-colorspace','Gray','-evaluate','multiply','0.9',
             '-evaluate','add','10%','-colorspace','sRGB','-channel','R','-evaluate','set','0','+channel',
-            '-strip','-sampling-factor','4:4:4','-quality','92','jpeg:-'], input=base_data[start:start+view['byteLength']])
+            *PS1_TEXTURE], input=base_data[start:start+view['byteLength']])
         frozen_texture = len(doc['textures'])
         doc['textures'].append(dict(source=len(doc['images']), sampler=ns))
-        doc['images'].append(dict(name='Frozen portrait atlas', mimeType='image/jpeg', bufferView=add_view(atlas)))
+        doc['images'].append(dict(name='Frozen portrait atlas', mimeType='image/png', bufferView=add_view(atlas)))
         frozen_material = len(doc['materials'])
         for m in base['materials']:
             pbr = m['pbrMetallicRoughness']
@@ -291,11 +331,26 @@ def build(donor, number, body, *, base_model=9001, rig_name='BigSteinRig'):
         doc['accessors'][palette_time].update(min=[0], max=[0])
         palette_scale = [append([scale], 'VEC3') for scale in ([0,0,0], [1,1,1])]
 
-    def add_clip(name, part, sampler, weights):
+    def points(part, weights):
         tracks, _ = vertex_tracks[part]
-        points = {k: center + weights @ delta for k, (center, delta) in tracks.items()}
-        pose = poses(points, 'HipR' in parts, donor in (858,874))
-        anim = dict(name=name,channels=[],samplers=[])
+        return {k: center + weights @ delta for k, (center, delta) in tracks.items()}
+
+    has_legs, on_foot = 'HipR' in parts, donor in (858,874)
+    clips = []
+    for a in source['animations']:
+        part = a['channels'][0]['target']['node']
+        if part not in vertex_tracks: continue
+        sampler = a['samplers'][0]
+        clips.append((a, part, sampler, read(source,data,sampler['output']).reshape(-1,vertex_tracks[part][1])))
+    lengths = proportions([poses(points(part, weights), has_legs, on_foot) for _, part, _, weights in clips])
+    print(number, 'segment stretch', {k: round(v / REST[k], 2) for k, v in lengths.items()})
+
+    def add_clip(source_clip, part, sampler, weights):
+        pose = poses(points(part, weights), has_legs, on_foot, lengths)
+        anim = dict(name=source_clip['name'],channels=[],samplers=[])
+        if 'extras' in source_clip:
+            # The frame count tells nativePose when a word runs past the group's table.
+            anim['extras'] = source_clip['extras']
 
         def channel(node, path, values):
             anim['channels'].append(dict(sampler=len(anim['samplers']),target=dict(node=node,path=path)))
@@ -324,16 +379,12 @@ def build(donor, number, body, *, base_model=9001, rig_name='BigSteinRig'):
                 anim['samplers'].append(dict(input=palette_time, output=palette_scale[int(visible)]))
         doc['animations'].append(anim)
 
-    for a in source['animations']:
-        part = a['channels'][0]['target']['node']
-        if part not in vertex_tracks: continue
-        sampler = a['samplers'][0]
-        weights = read(source,data,sampler['output']).reshape(-1,vertex_tracks[part][1])
-        add_clip(a['name'], part, sampler, weights)
+    for clip in clips:
+        add_clip(*clip)
     if melt:
         # Render word 0x2002 uses the static alternate mesh's bind pose.
         weights = np.zeros((1, vertex_tracks[1][1]))
-        add_clip('Frozen', 1, dict(input=palette_time, output=append(weights.flatten(), 'SCALAR')), weights)
+        add_clip({'name': 'Frozen'}, 1, dict(input=palette_time, output=append(weights.flatten(), 'SCALAR')), weights)
     doc['buffers'].append(dict(uri=f'{number}.bin',byteLength=len(extra)))
     (MODELS/f'{number}.bin').write_bytes(extra)
     (MODELS/f'{number}.gltf').write_text(json.dumps(doc,separators=(',',':'),allow_nan=False)+'\n')

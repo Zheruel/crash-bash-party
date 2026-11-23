@@ -9,6 +9,9 @@ import struct
 import subprocess
 from collections import defaultdict
 
+from build_stein_variants import PS1_TEXTURE
+from custom_character_assets import add_group_clips, gouraud
+
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'assets/models'
 portrait = ROOT / 'assets/portraits/big-stein.png'
@@ -62,8 +65,8 @@ def tri(n, points, color, uv=None):
     if length < 1e-12:
         return
     normal = tuple(k/length for k in normal)
-    shade = .78 + .22*sum(k*l for k,l in zip(normal,(-.4,.75,.52))) if uv is None else 1
-    rgb = tuple((int(color[i:i+2],16)/255)*shade for i in (0,2,4))
+    # Untextured corners keep their base colour here and are Gouraud shaded per surface below.
+    rgb = tuple(int(color[i:i+2],16)/255 for i in (0,2,4))
     for i, p in enumerate(points):
         geometry[n, int(uv is not None)].append((p,normal,rgb,uv[i] if uv else None))
 
@@ -236,9 +239,8 @@ for s,label in [(-1,'R'),(1,'L')]:
     lathe(knee,[(-.38,.101,.151,.055,0),(-.361,.105,.162,.055,0)],'68606a')
 
 # One mesh per moving rigid part, one primitive per material on that part.
-atlas=subprocess.check_output(['magick',str(portrait),'-background','#252434','-alpha','remove',
-    '-resize','512x512!','-strip','-sampling-factor','4:4:4','-quality','92','jpeg:-'])
-g['images']=[dict(name='Portrait atlas',mimeType='image/jpeg',bufferView=view(atlas))]
+atlas=subprocess.check_output(['magick',str(portrait),'-background','#252434','-alpha','remove',*PS1_TEXTURE])
+g['images']=[dict(name='Portrait atlas',mimeType='image/png',bufferView=view(atlas))]
 g['samplers']=[dict(magFilter=9728,minFilter=9728,wrapS=33071,wrapT=33071)]
 g['textures']=[dict(source=0,sampler=0)]
 for name,texture in [('Facets',False),('Portrait',True)]:
@@ -248,7 +250,9 @@ for name,texture in [('Facets',False),('Portrait',True)]:
 for (n,m),vs in sorted(geometry.items()):
     if 'mesh' not in g['nodes'][n]:
         g['nodes'][n]['mesh']=len(g['meshes']); g['meshes'].append(dict(primitives=[]))
-    # Deduplicate within each material; only coplanar, same-colour corners are shared.
+    if not m:
+        vs=[(p,normal,rgb,uv) for (p,normal,_,uv),rgb in zip(vs,gouraud([v[:3] for v in vs]))]
+    # Deduplicate within each material; only corners with one position, normal and colour are shared.
     unique=list(dict.fromkeys(vs)); lookup={v:i for i,v in enumerate(unique)}
     attrs={key:accessor([v[k] for v in unique],size,True) for k,(key,size) in
            enumerate([('POSITION',3),('NORMAL',3),('COLOR_0',3)]+([('TEXCOORD_0',2)] if m else []))}
@@ -317,13 +321,28 @@ clip('run',[0,.14,.28,.42,.56],run)
 clip('action',[0,.16,.28,.44,.67],{chest:[Z,(3,-24,5),(11,27,-8),(9,19,-5),Z],
  arms[0]:[Z,(-41,-18,-22),(-94,-4,-8),(-88,0,-9),Z],elbows[0]:[Z,(-86,0,0),(-5,0,0),(-10,0,0),Z],
  arms[1]:[Z,(-25,0,9),(29,0,13),(22,0,11),Z]})
-clip('hit',[0,.09,.21,.46],{chest:[Z,(-24,9,-14),(-16,6,-8),Z],head:[Z,(-19,-12,11),(-9,-3,5),Z],
- arms[0]:[Z,(-27,0,-32),(-20,0,-15),Z],arms[1]:[Z,(-31,0,26),(-18,0,13),Z]})
+# A hit knocks him flat on his back and he sits up again, as Cortex's group 0 does in 26 frames.
+clip('hit',[f/30 for f in (0,4,9,15,20,25)],{
+ hips:[Z,(-14,0,3),(-52,0,-4),(-80,0,2),(-34,0,0),Z], 'lift':[0,.05,-.12,-.52,-.36,0],
+ chest:[Z,(-28,9,-12),(-12,4,-6),(-6,0,0),(26,0,0),Z], head:[Z,(-24,-12,10),(-10,-6,4),(18,8,0),(12,0,0),Z],
+ arms[0]:[Z,(-70,0,-62),(-40,0,-84),(14,0,-48),(-18,0,-22),Z], arms[1]:[Z,(-64,0,66),(-36,0,88),(12,0,44),(-16,0,20),Z],
+ elbows[0]:[Z,(-30,0,0),(-12,0,0),(-8,0,0),(-24,0,0),Z], elbows[1]:[Z,(-30,0,0),(-12,0,0),(-8,0,0),(-24,0,0),Z],
+ thighs[0]:[Z,(-12,0,0),(-48,0,-6),(-4,0,-8),(-92,0,-6),Z], thighs[1]:[Z,(-20,0,0),(-36,0,6),(-10,0,8),(-88,0,6),Z],
+ knees[0]:[Z,(18,0,0),(52,0,0),(10,0,0),(98,0,0),Z], knees[1]:[Z,(24,0,0),(40,0,0),(16,0,0),(92,0,0),Z]})
 clip('win',[0,.27,.48,.72,1.05,1.45],{arms[1]:[Z,(-25,0,64),(-17,0,150),(-19,0,128),(-17,0,151),Z],
  elbows[1]:[Z,(-79,0,0),(-15,0,0),(-45,0,0),(-14,0,0),Z],head:[Z,(-8,9,-5),(-14,15,-9),(-9,13,-6),(-14,15,-9),Z],
  chest:[Z,(1,7,0),(-5,8,7),(-2,6,4),(-5,8,7),Z]})
-clip('lose',[0,.38,.77,1.25,1.8],{chest:[Z,(15,0,0),(21,0,3),(19,0,2),Z],head:[Z,(13,0,-2),(20,9,-5),(18,-9,-4),Z],
- arms[0]:[Z,(-7,0,-8),(-15,0,-7),(-14,0,-7),Z],elbows[0]:[Z,(-44,0,0),(-101,-29,-21),(-95,-28,-18),Z]})
+# Defeat: his shoulders drop, his knees give way and he kneels with his head bowed, held like the end of Cortex's
+# group 11 collapse (21 frames). The last key holds the pose for a looped role.
+kneel = {hips:(12,0,0), 'lift':-.36, chest:(30,0,2), head:(34,0,-4), arms[0]:(-12,0,-6), arms[1]:(-10,0,6),
+ elbows[0]:(-16,0,0), elbows[1]:(-14,0,0), thighs[0]:(-14,0,-4), thighs[1]:(-10,0,4), knees[0]:(100,0,0), knees[1]:(96,0,0)}
+clip('lose',[f/30 for f in (0,6,12,20,90)],{
+ hips:[Z,(4,0,0),(20,0,0),kneel[hips],kneel[hips]], 'lift':[0,-.02,-.22,-.36,-.36],
+ chest:[Z,(18,0,0),(34,0,3),kneel[chest],kneel[chest]], head:[Z,(16,6,-3),(30,-4,-4),kneel[head],kneel[head]],
+ arms[0]:[Z,(-6,0,-8),(-24,0,-12),kneel[arms[0]],kneel[arms[0]]], arms[1]:[Z,(-6,0,8),(-22,0,12),kneel[arms[1]],kneel[arms[1]]],
+ elbows[0]:[Z,(-20,0,0),(-30,0,0),kneel[elbows[0]],kneel[elbows[0]]], elbows[1]:[Z,(-20,0,0),(-28,0,0),kneel[elbows[1]],kneel[elbows[1]]],
+ thighs[0]:[Z,(-6,0,0),(-48,0,-4),kneel[thighs[0]],kneel[thighs[0]]], thighs[1]:[Z,(-4,0,0),(-44,0,4),kneel[thighs[1]],kneel[thighs[1]]],
+ knees[0]:[Z,(10,0,0),(84,0,0),kneel[knees[0]],kneel[knees[0]]], knees[1]:[Z,(8,0,0),(80,0,0),kneel[knees[1]],kneel[knees[1]]]})
 # Crate Crush holds the box in front of the chest. Keep that grip through each stride.
 grip = {arms[i]: [(-62, 0, (1 if i else -1)*12)]*5 for i in range(2)}
 grip.update({elbows[i]: [(-45, 0, 0)]*5 for i in range(2)})
@@ -371,6 +390,7 @@ clip('taunt', [f/30 for f in (0,5,11,15,20,24,31,39)], {
     elbows[1]: [Z,(-41,0,2),(-108,-6,0),(-122,-5,0),(-105,-6,1),(-122,-5,0),(-64,0,1),Z],
     arms[0]: [Z,(2,0,5),(7,0,9),(8,0,9),(7,0,9),(8,0,9),(3,0,4),Z],
 })
+add_group_clips(g, blob, accessor)
 g['buffers']=[dict(uri='9001.bin',byteLength=len(blob))]
 OUT.mkdir(parents=True,exist_ok=True)
 (OUT/'9001.bin').write_bytes(blob)

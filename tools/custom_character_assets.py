@@ -11,6 +11,64 @@ from scipy.spatial.transform import Rotation
 from build_stein_variants import MODELS, load, read
 
 
+# The stock cast is Gouraud shaded from one baked key light: smooth across a surface, hard at creases, and darker
+# on the side away from the light than the old flat facet shading was.
+LIGHT = tuple(v / math.hypot(-.42, .76, .49) for v in (-.42, .76, .49))
+CREASE = math.cos(math.radians(55))
+
+
+def gouraud(corners):
+    """Vertex colours for (position, face normal, base colour) corners, averaging normals of one colour's surface."""
+    surfaces = {}
+    for index, (position, normal, color) in enumerate(corners):
+        surfaces.setdefault((position, color), []).append(index)
+    colors = []
+    for position, normal, color in corners:
+        smooth = [0, 0, 0]
+        for other in surfaces[position, color]:
+            n = corners[other][1]
+            if sum(a*b for a, b in zip(n, normal)) > CREASE:
+                smooth = [a + b for a, b in zip(smooth, n)]
+        size = math.hypot(*smooth) or 1
+        shade = .64 + .36 * sum(a*b/size for a, b in zip(smooth, LIGHT))
+        colors.append(tuple(min(1, c * shade) for c in color))
+    return colors
+
+
+# Cortex's on-foot model (0986) groups, their frame counts and the custom role clip with the same motion: hit, idle,
+# run, jump, spin (script 10), carry (0x10), pick-up (0xf), throw (0x12), carry walk (0x11), an unused group, taunt
+# (scripts 2 and 0xc), lose (0x13) and win (also Ring Ding's jump 0x2c, whose custom clip the game poses itself).
+ON_FOOT_GROUPS = [(0, 'hit', 26), (1, 'idle', 32), (2, 'run', 22), (3, 'jump', 20), (4, 'spin', 19), (5, 'carry', 24),
+                  (6, 'lift', 9), (7, 'throw', 13), (8, 'carryRun', 24), (9, 'idle', 32), (10, 'taunt', 40),
+                  (11, 'lose', 21), (12, 'win', 48)]
+# Role clips that end in a held pose: the group covers the motion up to this time, not the hold.
+MOTION_END = {'lose': 20 / 30}
+
+
+def add_group_clips(doc, data, accessor):
+    """Name each Cortex group after the role clip with its motion, so his render words resolve on the custom rig.
+
+    A group clip shares the role clip's keys on a timeline stretched to the group's frame count. `data` holds every
+    accessor of the role clips. `accessor(values, width)` appends one float accessor and returns its index.
+    """
+    clips = {clip['name']: clip for clip in doc['animations']}
+    for group, role, frames in ON_FOOT_GROUPS:
+        clip = clips[role]
+        inputs = {}
+        for sampler in clip['samplers']:
+            if sampler['input'] not in inputs:
+                source = doc['accessors'][sampler['input']]
+                view = doc['bufferViews'][source['bufferView']]
+                start = view.get('byteOffset', 0) + source.get('byteOffset', 0)
+                times = struct.unpack_from(f"<{source['count']}f", data, start)
+                factor = (frames - 1) / 30 / MOTION_END.get(role, times[-1])
+                inputs[sampler['input']] = accessor([(t * factor,) for t in times], 1)
+        doc['animations'].append({
+            'name': f'group{group}_part0', 'extras': {'frames': frames}, 'channels': clip['channels'],
+            'samplers': [dict(sampler, input=inputs[sampler['input']]) for sampler in clip['samplers']],
+        })
+
+
 class GltfBuffer:
     def __init__(self, doc, data=b''):
         self.doc = doc
@@ -41,7 +99,8 @@ class GltfBuffer:
 
     def primitive(self, shape, material):
         textured = bool(shape.uvs)
-        arrays = [shape.positions, shape.normals, shape.colors]
+        colors = shape.colors if textured else gouraud(list(zip(shape.positions, shape.normals, shape.colors)))
+        arrays = [shape.positions, shape.normals, colors]
         attributes = [('POSITION', 3), ('NORMAL', 3), ('COLOR_0', 3)]
         if textured:
             arrays.append(shape.uvs)
@@ -88,13 +147,11 @@ class Shape:
             if size < 1e-9:
                 continue
             normal = tuple(v / size for v in normal)
-            shade = .78 + .22 * sum(k*l for k,l in zip(normal, (-.43,.77,.46)))
             if uv:
                 self.uvs.extend((uv[0], uv[n], uv[n+1]))
-                shade = 1
             self.positions.extend((a, b, c))
             self.normals.extend([normal] * 3)
-            self.colors.extend([tuple(v * shade for v in rgb)] * 3)
+            self.colors.extend([rgb] * 3)
 
     def rings(self, color, rows, sides=8):
         """Horizontal sections with height, half-width, half-depth, Z and X."""

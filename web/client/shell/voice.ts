@@ -38,70 +38,55 @@ const TOP_G = 'sfx/custom/top-g/';
 const STEIN = 'sfx/custom/big-stein/';
 interface CustomVoices {
   announcement: { file: string };
+  /** Hit ids 3-6, one take each. */
   hits: string[];
-  cues: Partial<Record<number, string>>;
-  /** Gain per cue (3 = the hit takes) that brings a recording to the stock roster's mean level for that cue. */
-  level: Partial<Record<number, number>>;
+  /** Takes per block-relative cue id. A cue with several takes plays one at random. */
+  cues: Partial<Record<number, string[]>>;
+  /** Round-result lines. The disc voices no loser or draw for any character, so nothing keys these yet. */
+  results: { lose: string[]; draw: string[] };
 }
 
-// A custom character has a recording for every cue a stock character voices: 1 name, 2 taunt, 3-6 hit, 7 win, the
-// family c set (0xc jump, 0xd land / spin, 0xe spin, 0xf pick-up, 0x10 throw) and the family b set (0x16 / 0x18 dash,
-// 0x17 short call, 0x19-0x1b the win cheers). The remaining ids are foley (0xa / 0xb footsteps, 0x11, and the family b
-// on-foot footsteps 0x14 / 0x15 and Cortex's on-foot dash 0x1c) and come from Cortex's bank, whose scripts both
-// characters run.
+// Recorded by tools/generate_custom_voices.py and levelled to the stock roster's mean for each cue, so they play at
+// gain 1. A custom character has a recording for every cue a stock character voices: 1 name, 2 taunt, 3-6 hit, 7 win,
+// the family c set (0xc jump, 0xd land, 0xe spin, 0xf pick-up, 0x10 throw, which Pogo also asks for) and the family b
+// set (0x16 dash start, 0x17 short call, 0x18 dash, 0x19-0x1b the win cheers; 0x1a also stands in for Cortex's
+// on-foot dash 0x1c). The remaining ids are foley (0xa / 0xb footsteps, 0x11, and the family b on-foot footsteps
+// 0x14 / 0x15) and come from Cortex's bank, whose scripts both characters run.
+const takes = (folder: string, cue: string, count: number) =>
+  Array.from({ length: count }, (_, i) => `${folder}${cue}-${i + 1}.mp3`);
+const voiceSet = (folder: string, announcement: string): CustomVoices => ({
+  announcement: { file: announcement },
+  hits: takes(folder, 'hit', 4),
+  cues: {
+    2: takes(folder, 'taunt', 3),
+    7: takes(folder, 'win', 2),
+    0xc: takes(folder, 'jump', 3),
+    0xd: takes(folder, 'land', 2),
+    0xe: takes(folder, 'spin', 2),
+    0xf: takes(folder, 'pickup', 3),
+    0x10: takes(folder, 'throw', 3),
+    0x16: takes(folder, 'dash-start', 1),
+    0x17: takes(folder, 'call', 1),
+    0x18: takes(folder, 'dash', 3),
+    0x19: takes(folder, 'cheer', 1),
+    0x1a: takes(folder, 'burst', 1),
+    0x1b: takes(folder, 'whoop', 1),
+  },
+  results: { lose: takes(folder, 'lose', 2), draw: takes(folder, 'draw', 1) },
+});
 const CUSTOM_VOICES: Partial<Record<string, CustomVoices>> = {
-  'big-stein': {
-    announcement: { file: 'sfx/custom/big-stein.mp3' },
-    hits: [STEIN + 'hit-1.mp3', STEIN + 'hit-2.mp3'],
-    cues: {
-      2: STEIN + 'taunt.mp3',
-      7: STEIN + 'win.mp3',
-      0xc: STEIN + 'effort.mp3',
-      0xd: STEIN + 'effort.mp3',
-      0xe: STEIN + 'effort.mp3',
-      0xf: STEIN + 'effort.mp3',
-      0x10: STEIN + 'effort.mp3',
-      0x16: STEIN + 'effort.mp3',
-      0x17: STEIN + 'effort.mp3',
-      0x18: STEIN + 'effort.mp3',
-      0x19: STEIN + 'effort.mp3',
-      0x1a: STEIN + 'effort.mp3',
-      0x1b: STEIN + 'effort.mp3',
-    },
-    level: { 2: 1.2, 3: 1.8 },
-  },
-  'top-g': {
-    announcement: { file: TOP_G + 'name.mp3' },
-    hits: [TOP_G + 'hit-1.mp3', TOP_G + 'hit-2.mp3'],
-    cues: {
-      2: TOP_G + 'taunt.mp3',
-      7: TOP_G + 'win.mp3',
-      0xc: TOP_G + 'effort.mp3',
-      0xd: TOP_G + 'effort.mp3',
-      0xe: TOP_G + 'effort.mp3',
-      0xf: TOP_G + 'pickup.mp3',
-      0x10: TOP_G + 'effort.mp3',
-      0x16: TOP_G + 'dash.mp3',
-      0x17: TOP_G + 'effort.mp3',
-      0x18: TOP_G + 'dash.mp3',
-      0x19: TOP_G + 'effort.mp3',
-      0x1a: TOP_G + 'effort.mp3',
-      0x1b: TOP_G + 'effort.mp3',
-    },
-    level: { 2: 1.3, 3: 1.6, 7: 1.2 },
-  },
+  'big-stein': voiceSet(STEIN, 'sfx/custom/big-stein.mp3'),
+  'top-g': voiceSet(TOP_G, TOP_G + 'name.mp3'),
 };
 const customVoices = (char: number) => CUSTOM_VOICES[characterId(char) ?? ''];
-/** Cortex's bank keys hit ids 5 and 6 on the samples of 3 and 4 at this pitch (centre 87 + 66 / 128 against 86 + 38 / 128). */
-const CUSTOM_HIT_RATE = 0.96;
 /** The custom recording for cue `n` (block-relative id), its pitch and its level. */
 function customCue(char: number, n: number): { file: string; rate: number; gain: number } | undefined {
   const custom = customVoices(char);
   if (!custom) return undefined;
   if (n === 1) return { file: custom.announcement.file, rate: 1, gain: 1 };
-  if (n >= 3 && n <= 6) return { file: custom.hits[(n - 3) % custom.hits.length], rate: n >= 5 ? CUSTOM_HIT_RATE : 1, gain: custom.level[3] ?? 1 };
-  const file = custom.cues[n];
-  return file ? { file, rate: 1, gain: custom.level[n] ?? 1 } : undefined;
+  if (n >= 3 && n <= 6) return { file: custom.hits[(n - 3) % custom.hits.length], rate: 1, gain: 1 };
+  const files = custom.cues[n];
+  return files?.length ? { file: files[Math.floor(Math.random() * files.length)], rate: 1, gain: 1 } : undefined;
 }
 /** Plays a cue; a returned function cuts it (the sound handle of the original). */
 type PlayCue = (file: string, volume: number, rate: number) => void | (() => void);
@@ -236,7 +221,7 @@ export function preloadRoundVoices(game: string, chars: number[]) {
     const custom = customVoices(char);
     if (!custom) continue;
     sfx.preloadFile(custom.announcement.file);
-    for (const file of new Set([...custom.hits, ...Object.values(custom.cues)])) {
+    for (const file of new Set([...custom.hits, ...Object.values(custom.cues).flat()])) {
       if (file) sfx.preloadFile(file);
     }
   }
