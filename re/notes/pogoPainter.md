@@ -194,3 +194,50 @@ Pack 0770 (db 0x80053b9c). Level 12's model 0667 has its own scripts.
 - El Pogo Loco monster (`FUN_800bed3c`): pack db 0x80053bd4 = disc 0768 (db entries 0x38 apart; LBA 0x706b sits between 0766 and 0770),
   render id 0x2001, clips 0 (21-frame spin), 1 (26-frame wait), 2 (14-frame hop).
 - Characters are drawn in raw units like the stage: actor scale = stage units per 1024 u / catalog scale of the pogo variant.
+
+## Fidelity audit (2026-11)
+
+Function-by-function pass over `re/out_pogoPainter/ovl.c` against `web/shared/games/tilePainter.ts` (sim) and
+`web/client/games/tilePainter.ts` (view). V = checked on an emulator trace (level 10, Cortex + 3 CPUs), C = from the code only.
+Line numbers are as of commit 0899c646. Play tick T = 0 is the frame of the GO sound (0x1a7); 112 level/object updates run before it.
+
+### Coverage
+
+| Function | Role | Ours | Status |
+|---|---|---|---|
+| `FUN_800b3e34` | level tick: tiles, item timers, spawners, border | sim `step` | done (item timers run in the player loop; edge order only) |
+| `FUN_800b574c` | pre-state: pickup, direction, reservation, input lock | sim `pickup`, `hopDirection`, `decide` | done; 9-frame lock after a stun added (V) |
+| `FUN_800b6370` / `800b6438` | idle entry / idle update (script 0x2e, 0x2f; events 0x11-0x14) | sim `enterIdle`, `tickIdle` :676 | done (V): bounce landing sound + re-landing + dust, per family; view uses `d.idle` as script frame |
+| `FUN_800c2dcc` | hop entry: silent landing on the tile left | sim `decide` | done (C) |
+| `FUN_800b5ee4` | hop update: counter, stride window, shadow, dust, landing | sim `advanceHop`, `hopPos` :785 | done (V); sim writes `d.shadow` but the view does not draw it yet: todo |
+| `FUN_800b5b1c` | jet flame under families 3 and 4 (Cortex, Brio; also Big Stein, Top G) | none | todo (V): pack 0770 part 32 at model marker 0x200, tilt +5/frame to 45 in a hop, -2/frame to 5 idle, Y scale table `800c44d8` |
+| `FUN_800b6c14` / `6df4` / `6f34` | hit, stun entry, stun update | sim `enterStun` :438, `step` | done; nested idle entry when hit under script 0x2f (stun one frame longer) not ported |
+| `FUN_800c1cf0` | drop item; speed under script 0x2f re-enters idle | sim `clearItem`, `stopHop` :426 | done (V): hop aborts on the nearest tile, stale move flag gives one extra stride (`d.carry`) |
+| `FUN_800b662c` / `c2be8` / `ba51c` / `ba994` | beam state, beam object | sim `fire` :482, `advanceBeam`, `stepProj` | matches (prior work) |
+| `FUN_800b6790` / `6960` / `6ae0` / `c28fc` | win, lose, draw states | view `tickResult` | matches (prior work) |
+| `FUN_800b76cc` | held item on model marker 0x80 minus `800c4484[fam]` | view :404 | todo: fixed head height today |
+| `FUN_800b7b1c` / `788c` / `c2338` | paint, cash-in | sim `paintTile`, `cashIn` | matches |
+| `FUN_800b8660` / `87dc` | line ripple, tile timers, notes 0x516-0x51c | sim `line`, `tickPogoTiles` | done (V): notes added; view maps them to the sample after 0x515 |
+| `FUN_800c1ea8` | cross tile | sim `applyLanding` | done (C): arms start on the centre tile |
+| `FUN_800b8af8` / `8be4` / `8dfc` / `c1da4` | landing sound, tile resolve, L13 rules | sim `land`, `applyLanding` | done; silent variant added |
+| `FUN_800b8180` / `83ac` | mine blast | sim `boom` | matches |
+| `FUN_800b8f94` / `9080` / `91e8` | wipe, lock, unlock | sim `wipe`, `lockAll`, `unlockAll` | matches |
+| `FUN_800b935c` / `ba018` | pickup | sim `pickup` :607 | matches |
+| `FUN_800b9c10` + `ba3e0` + `baba8` | arrow spawner, arrow object | sim `spawnArrow` :961, `syncCrates` :1034, pickup dir; view :484 | todo (V): RNG order is free tile, type, then `rand(4)` start dir; in state 3 `d = FUN_80015480(dir<<10, yaw); yaw += d>>3; if ((d>>3) < 2) dir = (dir+1)&3` (turns on the first ready frame, then every 35 frames). Ours: type first, fixed dir 1, 32-frame cadence, view eases by eye |
+| `FUN_800b9d64` + `ba25c` + `bad74` + `baef0` | item spawner, item object | sim `spawnItem` :973, `pickup` ready check, `pogoPickupTarget` :1344; view :471-473, `SND` :98 | todo (V): item starts 0x1000 above the tile with sfx 0x41f, falls `+14`/frame up to 160, lands on update 32 (`POGO_ITEM_LAND`) with sfx 0x420 (sample after 0x41f), pickable when age >= 33, AI ready at 33 + delay, bounce phase `(age-32) % 15`, shadow part 40 with scale `0x1000 - 6h` under 0x200. Ours grows over 16 frames with 0x3fa |
+| `FUN_800c1b7c` / `bb12c` | cash crate | sim `tickArenaCrates` :1012, setup :1496 | growth and reuse match; todo: first timer is `60 + rand(60)` counted from the pre-roll (ours `tm: 48` from GO) |
+| pre-roll (112 updates before GO) | spawners and crates run under the countdown | sim setup :1479 (`arT: 24`, `itT: 28`) | todo (V): start both spawners at -1 and run 112 spawner/crate ticks in `setup`, dropping their events; idle clock already starts at 112 |
+| `FUN_800bc184` / `c314` / `c490` / `c5bc` | rockets, four-way, projectile | sim `fire`, `spawnProj`, `stepProj` | matches |
+| `FUN_800bcb4c` | L11 border | sim `tickBorder` | matches; `rand(200)` drawn at init and after each rotation is not consumed (RNG order only) |
+| `FUN_800bd10c` / `bde24` | CPU state machine | sim `planPogoRoute` (L11/12), `bot` :1583 + `origStep` :1612 (L10/13) | todo (C): L10/13 use the same states 1 search, 3 wander, 4 pickup with no-steer frames; route `planPogoRoute` for all levels, gate line/flood/square and the wait counter to L11/12, drop the `origStep` wander wrapper |
+| `FUN_800bd378` / `bd520` | CPU fire check | sim `bot` :1583 | todo (C): uses the rounded current position, ours uses `fx/fz` |
+| `FUN_800bdf60` / `ba110` | CPU pickup target | sim `pogoPickupTarget` :1344 | todo (C): scan-order tie-break (x then z) and occupancy + reservation rule for cash on all levels, not only L11/12 |
+| `FUN_800bdcb8` | move legality | sim `canMove` :741 | todo (C): L13 CPU own-tile avoidance exempts a tile holding a cash crate |
+| `FUN_800bd790`, `be158`..`beb6c`, `c0f08` | steering, line / flood / square routes | sim `steerPogoBot`, `lineRoute`, `floodRoute` | matches (prior work) |
+| `FUN_800beea4`..`c0164` | monster | sim `tickMonster` | matches |
+| `FUN_800c0584` | padlock | sim `tickPad` | matches |
+| countdown | riders bounce with landing sounds under 3-2-1 | shell | todo: the sim starts at GO; needs the shell to run the view before GO |
+
+### Throw voice
+`FUN_800bc490` requests voice n 0x10 before sfx 0x522. Stock banks have no tone for it, so the disc is silent. For parity the custom
+characters should be silent too (view `case 'missile'` :535 calls `charVoice('a2', char, 0x10)`); left as is pending a decision.
