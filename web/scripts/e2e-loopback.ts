@@ -110,6 +110,7 @@ const drawFamilies: [string, Finish][] = [
     });
   }],
   ['tankArena', (w, health) => { health.forEach((hp, slot) => { w.data.tk[slot].hp = hp; }); }],
+  ['crateToss', (w, health) => { w.data.hp = [...health]; w.data.score = [0, 0, 8, 0]; }],
   ['tilePainter', setScore],
   ['ringDing', setScore],
   ['dragonDrop', setScore],

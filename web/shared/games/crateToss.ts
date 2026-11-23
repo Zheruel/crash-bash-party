@@ -628,13 +628,18 @@ export const crateToss: MiniGame = {
 
   placements(w) {
     const d = D(w);
-    const timeUp = w.time >= crateToss.maxTime;
     return [0, 1, 2, 3].sort((a, b) => {
       const aa = d.hp[a] > 0, bb = d.hp[b] > 0;
       if (aa !== bb) return aa ? -1 : 1;
-      if (aa) return d.hp[b] - d.hp[a] || (timeUp ? 0 : d.score[b] - d.score[a]) || d.score[b] - d.score[a] || a - b;
+      if (aa) return d.hp[b] - d.hp[a] || a - b;
       return d.elim[b] - d.elim[a] || a - b;
     });
+  },
+
+  isDraw(w, [first, second]) {
+    const { hp } = D(w);
+    // The versus timer compares remaining health. Tied live leaders do not receive the winner flag.
+    return hp[first] > 0 && hp[first] === hp[second];
   },
 
   bot(w, slot): InputState { return botInput(w, slot); },

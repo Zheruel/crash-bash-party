@@ -228,8 +228,9 @@ export class CountOverlay {
   }
 
   showDraw(at: number, playAt: number, gameId: string) {
-    // L29 leaves the TIE object at state 5 for two updates before FUN_80082d90 starts the scale-in.
-    const startsAt = at + ((gameId === 'malletMash' || gameId === 'tankArena' || gameId === 'pushOff') ? 2 * 1000 / 30 : 0);
+    // These overlays leave the TIE object in state 5 for two updates before its scale-in.
+    const delayed = gameId === 'crateToss' || gameId === 'malletMash' || gameId === 'tankArena' || gameId === 'pushOff';
+    const startsAt = at + (delayed ? 2 * 1000 / 30 : 0);
     const phaseTick = Math.floor((startsAt - playAt) * 30 / 1000);
     this.set('');
     this.result = { at: startsAt, phaseTick, frame: -1, scale: 0x100, announced: false, playCue: !GAME_DRAW_AUDIO.has(gameId) && performance.now() - at < 700 };

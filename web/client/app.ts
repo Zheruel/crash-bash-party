@@ -49,7 +49,7 @@ const FASTISH: Timing = { ...NORMAL_TIMING, intro: 1800, countdown: 1500, result
 function arenaResultHoldMs(gameId: string | undefined, draw: boolean, char?: number) {
   if (gameId === 'pushOff') return (draw ? POLAR_DRAW_TICKS + 1 : winnerCheerFrame(char ?? 0) + POLAR_WIN_TALLY_TICKS) * 1000 / 30;
   if (gameId === 'tankArena') return (draw ? 121 : 123) * 1000 / 30;
-  if (gameId === 'crateToss') return CRATE_RESULT_HOLD_MS;
+  if (gameId === 'crateToss') return draw ? 4000 : CRATE_RESULT_HOLD_MS;
   if (gameId === 'dragonDrop') return dragonResultFrames(draw, char ?? 0) * DT * 1000;
   if (gameId === 'malletMash') return malletMashResultHoldMs(draw);
 }

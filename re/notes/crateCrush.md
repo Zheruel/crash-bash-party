@@ -5,7 +5,7 @@ Implemented in `web/shared/games/crateToss.ts` (sim), `web/client/games/crateTos
 
 ## Levels
 `DAT_8005a648`: 0 Jungle (bank 0167), 1 Space (0166), 2 Snow (0165), 3 Drain (0164). Match 90 s, HP 20, out at <= 0.
-Timeout `FUN_800b6f0c`: highest HP alive wins, all other alive players are killed. Game also ends with one player left.
+At the buzzer, `FUN_80084788` ranks surviving players by remaining HP. Equal leaders produce a TIE. The round also ends when one player remains. `FUN_800b6f0c` is the spectator force-victory callback. It keeps the first highest-HP survivor and knocks out the others.
 
 ## Pad (digital, 8-way)
 Circle 0x2000 pick up / throw; Cross 0x4000 jump; Square 0x8000 spin attack; Triangle 0x1000.
@@ -154,3 +154,7 @@ Diagonal carry and throw traces exposed rounding before and after release. The g
 ### Thrown crates landing on other crates
 
 The descending ballistic callback asks `FUN_800bac5c` and `FUN_80025e00` for the closest surface in height. The 0796 support marker has radius 128 and the floor query adds 64. The moving crate snaps to that surface before the impact handler. A Drain reward starts at this impact height. Brio's thrown question crate landed at native (−774, −256, −506) even though it was 172 units from the supporting crate's centre. The old centre probe missed it. Replays with Brio and Cortex each matched 91 consecutive positions from release through the reveal and bounce. The Cortex setup placed the supporting crate during flight.
+
+### Equal-health timeout
+
+With the clock advanced to expiry and health set to 8 / 16 / 16 / 8, the USA game set its draw flag without marking any player a winner. The live characters remained visible while their current actions settled. The common TIE cue `0x1af` fired 23 updates after dispatch. Jungle reset after 120 updates. The web result leaves the Party and Cup awards at zero and keeps the arena visible for four seconds with the two-update TIE lead-in.
