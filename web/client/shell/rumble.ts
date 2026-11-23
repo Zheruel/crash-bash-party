@@ -9,7 +9,7 @@ const TABLE: Record<string, Record<string, R>> = {
   dashRace: { hit: [10, 10, 0xff] }, // FUN_800bba04 enter of the hit state 0x5d
   dragonDrop: { recoil: [10, 10, 0xff] }, // FUN_800b9e68 recoil enter (anim 0x4d)
   pushOff: { hit: [10, 10, 0xff] }, // FUN_800bbf2c collision with impact > 0x1000
-  malletMash: { stun: [15, 0, 0] }, // FUN_800b4910 shock wave on a player
+  malletMash: { stun: [15, 0, 0], wave: [5, 0, 0] }, // FUN_800b4910 shock wave on a player; FUN_80028018(owner, 5) on a power wave
   kegKaboom: { stun: [0, 10, 0xf0] }, // FUN_800bb010 shock wave stun
   tilePainter: { stun: [30, 0, 0] }, // FUN_800b6df4 stun enter
   ballDefence: { ko: [0, 12, 0xff] }, // FUN_800be4d4 goal walled up, ship state 0x25
@@ -19,6 +19,7 @@ export function rumbleFor(game: string, e: GameEvent, mySlot: number | null) {
   if (mySlot == null) return;
   const r = TABLE[game]?.[e.k];
   if (!r) return;
+  if (game === 'malletMash' && e.k === 'wave' && e.o !== 1) return;
   if (e.s !== mySlot && !(game === 'pushOff' && e.o === mySlot)) return;
   const pad = (navigator.getGamepads?.() ?? []).find((g) => g && g.connected) as (Gamepad & { vibrationActuator?: { playEffect?: (t: string, p: object) => Promise<unknown> } }) | undefined;
   const act = pad?.vibrationActuator;
