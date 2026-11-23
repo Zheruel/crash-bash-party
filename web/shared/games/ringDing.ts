@@ -140,6 +140,8 @@ export interface RingDingData {
   st: number[]; ph: number[];
   /** recolour effect: ticks left and owner */
   rc: number; rcO: number;
+  /** DAT_800bbd68: the recolour flicker cue already played in this bright phase (older snapshots: 0) */
+  rcCue?: number;
   tc: number; tk: number; tb: number; col: number; cur: number;
   slots: number[][];
   P: (DDPlayer | null)[];
@@ -690,7 +692,7 @@ function stepResultBalloon(w: World, d: RingDingData, o: DDBalloon,
       o.st = o.st === 3 ? 0 : 1;
       o.tf = false; // These entry states skip the touch check in FUN_800b6044.
     }
-    moveBalloon(d, o, true);
+    moveBalloon(w, d, o, true);
     return true;
   }
 
@@ -800,7 +802,7 @@ export function ddBalloonBob(angle: number, tick: number) {
   return (trig(4 * phase - 1024) + trig(phase)) >> 6;
 }
 
-function moveBalloon(d: RingDingData, o: DDBalloon, clearing = false) {
+function moveBalloon(w: World, d: RingDingData, o: DDBalloon, clearing = false) {
   if (o.tf) { o.st = 9; o.tf = false; }
   if (clearing) { o.tc = -1; o.tf = true; }
   o.pa = (at2(-o.x, -o.z) + d.rs) & 4095;
@@ -812,8 +814,18 @@ function moveBalloon(d: RingDingData, o: DDBalloon, clearing = false) {
   avoidAndMagnet(d, o);
   o.x -= (o.po * trig(o.pa - 1024)) >> 12;
   o.z -= (o.po * trig(o.pa)) >> 12;
+  recolourCue(w, d, o);
   const diff = 768 - o.hy;
   if (Math.abs(diff) > 16) o.hy += diff >> 6;
+}
+
+/** FUN_800b6044 / FUN_800b6608: in the last 30 recolour ticks a colour balloon shows its own colour while bit 1 of the timer is
+ *  set. The first such balloon of each bright phase plays 0x5ef (no position, 0x1000 / 0x1e00); a dark phase re-arms it. */
+function recolourCue(w: World, d: RingDingData, o: DDBalloon) {
+  if (o.ty === 12 || d.rc === 0 || d.rc >= 30) return;
+  if (!(d.rc & 2)) { d.rcCue = 0; return; }
+  if (!d.rcCue) emit(w, 'flash', 0, 0, -1);
+  d.rcCue = 1;
 }
 
 function blackEffect(w: World, d: RingDingData, o: DDBalloon) {
@@ -865,7 +877,7 @@ function updateBalloon(w: World, d: RingDingData, o: DDBalloon): boolean {
   if (o.st === 9) { popBalloon(w, d, o); return false; }
   if (o.st === 3) o.st = 0;
   else if (o.st === 0) o.st = 1;
-  moveBalloon(d, o);
+  moveBalloon(w, d, o);
   return true;
 }
 
