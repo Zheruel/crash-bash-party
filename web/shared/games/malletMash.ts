@@ -1,4 +1,5 @@
 import { atan2g } from '../ps1Angle';
+import { ps1SqrtQ6 } from '../ps1Sqrt';
 export { atan2g } from '../ps1Angle';
 import { DISC_CHARACTER } from '../look';
 import { addBody, emit, rand } from '../physics';
@@ -47,6 +48,11 @@ const START: [number, number, number][] = [[-1485, -1485, 3584], [-1618, 1539, 5
 export const MM_CHAR = DISC_CHARACTER;
 /** Part 0 body cylinder 0x40 in the eight mallet models (0848–0862). */
 const RADIUS = [0, 219, 199, 210, 184, 328, 312, 259, 333];
+/** Shape 0x40 radius of a mushroom (pack 0343 part 1) and a crate (part 14), L29 RAM. */
+const MUSH_R = 181;
+const CRATE_R = 128;
+/** FUN_800b7b48: probe radius of the moving player against a solid object (object flag 0x200) */
+const PROBE_R = 0x78;
 /** Tag 1 on the strike pose, event 8 of character script 0x37. */
 const MALLET_HEAD = [[0, 0], [-119, -338], [-16, -439], [65, -419], [72, -465],
   [0, -832], [0, -819], [-187, -691], [-213, -775]];
@@ -72,7 +78,8 @@ const T = (i: number) => COS[i & 0xfff];
 const angDiff = (a: number, b: number) => { const v = (b - a) & 0xfff; return v > 0x800 ? v - 0x1000 : v; };
 /** FUN_80015480: unsigned angle difference */
 const angAbs = (a: number, b: number) => { const v = (b - a) & 0xfff; return v > 0x800 ? 0x1000 - v : v; };
-const dist = (ax: number, az: number, bx: number, bz: number) => Math.floor(Math.sqrt((bx - ax) * (bx - ax) + (bz - az) * (bz - az)));
+/** FUN_800b62c8 squared distance through the FUN_80032490 square root (Q6) */
+const dist = (ax: number, az: number, bx: number, bz: number) => ps1SqrtQ6((bx - ax) * (bx - ax) + (bz - az) * (bz - az)) >> 6;
 
 // ---------------------------------------------------------------- data
 export interface AnimSt { id: number; pc: number; c: number; h: number; l: number; d: number; pose: number }
@@ -89,7 +96,8 @@ export interface MMPlayer {
   req: boolean;
   pad: number; an: AnimSt; ai: MMAi;
 }
-export interface MMMush { st: number; c: number; x: number; z: number; ys: number; gold: boolean; bd: number; id: number }
+/** up: the model stands on the floor (y = floor) instead of 0x2000 below it, so it is solid to players */
+export interface MMMush { st: number; c: number; x: number; z: number; ys: number; gold: boolean; bd: number; id: number; up?: boolean }
 export interface MMCrate { st: number; c: number; x: number; z: number; s: number; bd: number; yaw: number }
 export interface MMData {
   g: number; // frames since the real init (intro included)
@@ -193,6 +201,7 @@ function hitMushroom(w: World, d: MMData, s: number, i: number) {
   m.st = 4;
 }
 
+/** FUN_800b6cd8 (drops the old power-up through FUN_800b8ef8 first) */
 function setPower(w: World, d: MMData, s: number, type: number) {
   const P = d.p[s];
   P.pw = 3;
@@ -212,7 +221,8 @@ function shock(w: World, d: MMData, cx: number, cz: number, r: number, s: number
       V.req = true; V.hits = 0x14;
       // power-ups are lost on a hit (FUN_800b8ef8)
       V.pw = 3;
-      emit(w, 'stun', mmX(V.x), mmZ(V.z), i, 1, s);
+      // one of the victim's four hit voices (0x8009e080 + char * 8)
+      emit(w, 'stun', mmX(V.x), mmZ(V.z), i, rn(w, 4), s);
     }
   });
   if (flags & 0x100) d.mu.forEach((m, i) => { if (m && m.st > 10 && dist(cx, cz, m.x, m.z) <= r) hitMushroom(w, d, s, i); });
@@ -223,15 +233,15 @@ function enter(w: World, d: MMData, i: number, st: number) {
   const P = d.p[i];
   P.prev = P.st; P.st = st;
   switch (st) {
-    case 0x40: P.mv = 1; animStart(P, 0x33); break;
-    case 0x41: P.mv = 1; animStart(P, 0x34); break;
-    case 0x42: P.mv = 0; animStart(P, 0x38); P.stun = 0x1e; break;
-    case 0x43: P.tk = 0; P.lock = 10; emit(w, 'swing', mmX(P.x), mmZ(P.z), i, 1); animStart(P, 0x35); break;
-    case 0x44: animStart(P, 0x36); P.lock = 10; P.chg = 0; break;
-    case 0x45: P.lock = 10; animStart(P, 0x37); break;
+    case 0x40: P.mv = 1; animStart(P, 0x33); break; // FUN_800b72fc
+    case 0x41: P.mv = 1; animStart(P, 0x34); break; // FUN_800b8d3c
+    case 0x42: P.mv = 0; animStart(P, 0x38); P.stun = 0x1e; break; // FUN_800b8cb4
+    case 0x43: P.tk = 0; P.lock = 10; emit(w, 'swing', mmX(P.x), mmZ(P.z), i, 1); animStart(P, 0x35); break; // FUN_800b8ba0
+    case 0x44: animStart(P, 0x36); P.lock = 10; P.chg = 0; break; // FUN_800b8b3c
+    case 0x45: P.lock = 10; animStart(P, 0x37); break; // FUN_800b8af4
     case 0x46: P.lock = 10; break;
-    case 0x47: P.pw = 3; animStart(P, 0x39); P.mv = 0; P.lock = 2; break;
-    case 0x48: P.pw = 3; P.mv = 0; P.lock = 2; animStart(P, 0x33); break;
+    case 0x47: P.pw = 3; animStart(P, 0x39); P.mv = 0; P.lock = 2; break; // FUN_800b8918
+    case 0x48: P.pw = 3; P.mv = 0; P.lock = 2; animStart(P, 0x33); break; // FUN_800b876c
   }
 }
 
@@ -255,6 +265,7 @@ function waveAt(w: World, d: MMData, i: number) {
   }
 }
 
+/** FUN_800b8714 (draw, full only) / FUN_800b8814 (lose) / FUN_800b89d8 (win); FUN_8008abf8 in idle and run */
 function endFlags(w: World, d: MMData, i: number, full: boolean): boolean {
   const P = d.p[i];
   if (full && (P.fl & 0x100)) { enter(w, d, i, 0x40); return true; }
@@ -263,8 +274,8 @@ function endFlags(w: World, d: MMData, i: number, full: boolean): boolean {
   return false;
 }
 
-/** FUN_800b7b48: circle push of the moving player out of the others */
-function collide(d: MMData, i: number) {
+/** FUN_800b7b48: circle push of the moving player out of the others and out of the mushrooms and crates */
+function collide(w: World, d: MMData, i: number) {
   const P = d.p[i];
   const rp = RADIUS[P.ch];
   d.p.forEach((Q, j) => {
@@ -275,7 +286,7 @@ function collide(d: MMData, i: number) {
     const dx = Q.x - P.x, dz = Q.z - P.z;
     const d2 = dx * dx + dz * dz;
     if (d2 < r * r) {
-      const dd = Math.floor(Math.sqrt(d2));
+      const dd = ps1SqrtQ6(d2) >> 6;
       if (dd < r) {
         const a = atan2g(dx, dz);
         const o = r - dd + 1;
@@ -284,13 +295,34 @@ function collide(d: MMData, i: number) {
       }
     }
   });
+  // Solid objects (flag 0x200) in object-list order, newest first: the mushrooms, then the two crates made at init.
+  const push = (x: number, z: number, rad: number) => {
+    const r = rad + PROBE_R;
+    const dx = x - P.x, dz = z - P.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= r * r) return;
+    const dd = ps1SqrtQ6(d2) >> 6;
+    if (dd >= r) return;
+    let a = atan2g(dx, dz) & 0xfff;
+    if ((a & 0xff) === 0) a = a - 8 + rn(w, 0x10);
+    if (P.spd === 0) return;
+    const o = r - dd + 1;
+    P.x -= (o * T(a - 0x400)) >> 12;
+    P.z -= (o * T(a)) >> 12;
+  };
+  const mush = d.mu.filter((m): m is MMMush => !!m?.up).sort((a, b) => b.id - a.id);
+  for (const m of mush) push(m.x, m.z, MUSH_R);
+  for (let k = d.cr.length - 1; k >= 0; k--) {
+    const c = d.cr[k];
+    if (c && (c.st === 10 || c.st === 0xc || c.st === 4 || c.st === 6)) push(c.x, c.z, CRATE_R);
+  }
 }
 
 function stateUpdate(w: World, d: MMData, i: number) {
   const P = d.p[i];
   const onState = (st: number) => enter(w, d, i, st);
   switch (P.st) {
-    case 0x40: { // idle
+    case 0x40: { // idle, FUN_800b738c (Square: FUN_800b8e64, moving: FUN_800b8d88)
       if (endFlags(w, d, i, false)) return;
       if (P.pad & 0x8000) { enter(w, d, i, 0x43); return; }
       if (P.spd !== 0) { enter(w, d, i, 0x41); return; }
@@ -298,22 +330,22 @@ function stateUpdate(w: World, d: MMData, i: number) {
       if (P.fl & 0x100) P.hd = 0;
       return;
     }
-    case 0x41: { // run
+    case 0x41: { // run, FUN_800b747c (stopped: FUN_800b8e08)
       if (endFlags(w, d, i, false)) return;
       if (P.pad & 0x8000) { enter(w, d, i, 0x43); return; }
       if (P.spd === 0) { enter(w, d, i, 0x40); return; }
       P.mv = 1;
-      collide(d, i);
+      collide(w, d, i);
       const marker = animStep(P, onState);
       if (marker === 8 || marker === 9) emit(w, 'footstep', mmX(P.x), mmZ(P.z), i, marker + 2);
       return;
     }
-    case 0x42: { // stunned
-      if (P.kn !== 0) collide(d, i);
+    case 0x42: { // stunned, FUN_800b8c3c
+      if (P.kn !== 0) collide(w, d, i);
       animStep(P, onState);
       return;
     }
-    case 0x43: { // windup (hold pose, turns to the locked target)
+    case 0x43: { // windup, FUN_800b76cc (hold pose, turns to the locked target)
       if (endFlags(w, d, i, true)) return;
       P.lock = 10;
       const t = findTarget(d, P, 0x306);
@@ -325,14 +357,14 @@ function stateUpdate(w: World, d: MMData, i: number) {
       if (animStep(P, onState) === 8) enter(w, d, i, P.pad & 0x8000 ? 0x44 : 0x45);
       return;
     }
-    case 0x44: { // charge
+    case 0x44: { // charge, FUN_800b77fc
       if (endFlags(w, d, i, true)) return;
       P.lock = 10;
       if (P.chg === 0) { if (animStep(P, onState) === 8) P.chg = 1; if (P.chg === 0) return; }
       if (!(P.pad & 0x8000)) { enter(w, d, i, 0x45); P.chg = 0; }
       return;
     }
-    case 0x45: { // swing
+    case 0x45: { // swing, FUN_800b7908
       if (endFlags(w, d, i, true)) return;
       P.lock = 10;
       const ev = animStep(P, onState);
@@ -341,25 +373,25 @@ function stateUpdate(w: World, d: MMData, i: number) {
         if (P.prev === 0x44 || P.pw === 1) waveAt(w, d, i);
         if (P.tk === 1) { const m = d.mu[P.ti]; if (m && m.st > 10) hitMushroom(w, d, i, P.ti); }
         else if (P.tk === 2) { const c = d.cr[P.ti]; if (c && c.st > 10) hitCrate(w, d, i, P.ti); }
-        emit(w, 'hit', mmX(P.x), mmZ(P.z), i, 1);
+        emit(w, 'hit', mmX(P.x), mmZ(P.z), i, 1, -1);
         enter(w, d, i, 0x46);
       }
       return;
     }
-    case 0x46: { // recovery
+    case 0x46: { // recovery, FUN_800b8a30
       if (endFlags(w, d, i, true)) return;
       P.lock = 10;
       if (animStep(P, onState) === 9) { enter(w, d, i, 0x40); P.lock = 0; }
       return;
     }
-    case 0x47: { // winner
+    case 0x47: { // winner, FUN_800b886c
       P.lock = 2;
       P.hd = 0;
       animStep(P, onState);
       P.yaw = (P.yaw + (angDiff(P.yaw, 0) >> 2)) & 0xfff;
       return;
     }
-    case 0x48: { // loser: shrinks away
+    case 0x48: { // loser shrinks away, FUN_800b8550
       if (P.sc > 0) {
         P.sc = Math.max(0, P.sc - 0x80);
         if (P.sc === 0) emit(w, 'resultBurst', mmX(P.x), mmZ(P.z), i);
@@ -371,12 +403,14 @@ function stateUpdate(w: World, d: MMData, i: number) {
   }
 }
 
+/** FUN_800b64b4 */
 function hitCrate(w: World, d: MMData, s: number, i: number) {
   const c = d.cr[i];
   if (!c) return;
   setPower(w, d, s, rn(w, 2));
-  emit(w, 'cbreak', mmX(c.x), mmZ(c.z), s, 1);
   c.st = 4;
+  // FUN_800b64b4: one of 0x3f5-0x3f8 at random
+  emit(w, 'cbreak', mmX(c.x), mmZ(c.z), s, rn(w, 4));
 }
 
 // ---------------------------------------------------------------- AI (FUN_800b5ba0)
@@ -455,6 +489,7 @@ function playerFrame(w: World, d: MMData, i: number, inp: InputState | null | un
   }
   stateUpdate(w, d, i);
   // physics (FUN_80085d2c): turn, move, knock-back
+  // FUN_800b70c4
   if (P.lock === 0 || P.st === 0x43) P.yaw = (P.yaw + (angDiff(P.yaw, P.hd) >> 2)) & 0xfff;
   movePlayer(P);
 }
@@ -468,11 +503,12 @@ function movePlayer(P: MMPlayer) {
     P.kn -= 4;
     if (P.kn < 0) P.kn = 0;
   }
-  clampTo(P, MM_ARENA - RADIUS[P.ch]);
+  clampTo(P, MM_ARENA - RADIUS[P.ch]); // FUN_800b9054
   // power-up timer (FUN_800b6e1c)
   if (P.pw === 0) { P.pwT--; if (P.pwT < 1) P.pw = 3; }
 }
 
+/** FUN_800b3668 (mushroom object update; spawned by FUN_800b66c8, init FUN_800b65f0, spot clamp FUN_800b8f64) */
 function mushFrame(w: World, d: MMData, idx: number, freezeWaiting: boolean) {
   const m = d.mu[idx];
   if (!m) return;
@@ -482,6 +518,7 @@ function mushFrame(w: World, d: MMData, idx: number, freezeWaiting: boolean) {
       if (!sp) break;
       m.bd = 1000;
       m.x = sp[0]; m.z = sp[1];
+      m.up = false;
       clampTo(m, MM_SPAWN);
       m.st = 2;
       if (m.c === 0) { m.bd = 0; m.bd = botDelay(d.skill); m.c = rn(w, 20) + 10; } else m.bd = 0;
@@ -492,7 +529,7 @@ function mushFrame(w: World, d: MMData, idx: number, freezeWaiting: boolean) {
     case 2:
       if (!freezeWaiting) m.c--;
       if (m.c < 1) {
-        m.st = 10; m.ys = 0;
+        m.st = 10; m.ys = 0; m.up = true;
         emit(w, 'rise', mmX(m.x), mmZ(m.z), -1, m.gold ? 1 : 0);
       }
       break;
@@ -501,14 +538,14 @@ function mushFrame(w: World, d: MMData, idx: number, freezeWaiting: boolean) {
       m.st = 6;
       break;
     case 5: {
-      emit(w, 'boom', mmX(m.x), mmZ(m.z), -1, 1);
       shock(w, d, m.x, m.z, 0x380, -1, 0);
       m.st = 6;
-      rn(w, 4);
+      // one of 0x733-0x736 at random (table 0x800b9e20)
+      emit(w, 'boom', mmX(m.x), mmZ(m.z), -1, rn(w, 4));
       break;
     }
     case 6:
-      if (CAPS[d.stage] < d.n) { m.st = 1; d.n--; } else { m.st = 0; m.c = 0; }
+      if (CAPS[d.stage] < d.n) { m.st = 1; d.n--; m.up = false; } else { m.st = 0; m.c = 0; }
       break;
     case 10:
       m.ys += 0x100;
@@ -533,6 +570,7 @@ function mushFrame(w: World, d: MMData, idx: number, freezeWaiting: boolean) {
   }
 }
 
+/** FUN_800b4038 (crate object update; init FUN_800b3f10 / FUN_800b6568) */
 function crateFrame(w: World, d: MMData, idx: number, freezeWaiting: boolean) {
   const c = d.cr[idx];
   if (!c) return;
@@ -566,7 +604,7 @@ const botSpeed = (skill: number) => Math.min(62, 45 + Math.max(0, skill - 15));
 const botBoots = (skill: number) => Math.min(97, 80 + Math.max(0, skill - 15));
 
 function advanceArena(w: World, d: MMData, freezeWaiting = intro(d)) {
-  // spawner (FUN_800b34f8)
+  // spawner (FUN_800b34f8, from the per-frame hook FUN_800b67c4; state reset FUN_800b347c)
   if (d.spawnCd > 0) d.spawnCd--;
   if (d.goldT > 0 && d.golds < 4) d.goldT--;
   if (d.n !== 0) d.mu.forEach((m, i) => { if (m && m.st === 1) d.mu[i] = null; });
