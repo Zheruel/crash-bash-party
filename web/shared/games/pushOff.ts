@@ -298,6 +298,9 @@ interface Data {
   fid?: number[];
   /** POLAR: ticks the mask-pickup effect (0x1605 script 3) still emits particles */
   fxT: number;
+  /** Forced victory: HUD wait DAT_8009ae78 (240 ticks with no human playing), the tick object 5 appeared and the tick it
+   *  was taken, and DAT_800d4d08 (set once FUN_800b5910 has chosen the winner). */
+  skipWait?: number; skipShown?: number; skipTaken?: number; skip?: number;
 }
 /** k 0 = pickup (st 0 on the ice, 1 carried by own), k 1 = thrown (st 0 flying, 1 exploding), k 2 = the bear of a rider knocked off (0x1611, flies away);
  * y is up-negative like the engine */
@@ -386,9 +389,9 @@ function setState(w: World, d: Data, q: PoP, s: number, st: number) {
       if (d.variant === 'tilt' && d.seal && sealBox(d.seal, q, 300)) q.af = 0x21; // FUN_800cac20: the seal is right there, no hang
       break;
     }
-    case S_OUT: // FUN_800d0470
+    case S_OUT: // FUN_800d0470: no splash after a forced victory (DAT_800d4d08)
       q.fl |= F_OUT | F_ELIM;
-      E(w, 'splash', q.x, q.z, s, 1);
+      if (!d.skip) E(w, 'splash', q.x, q.z, s, 1);
       break;
     case S_ITEM: // FUN_800d034c: straight to idle (its enter still sees the old speed), then the velocity is cleared
       setState(w, d, q, s, q.md === 1 ? S_FOOT : S_IDLE);
@@ -636,7 +639,10 @@ function stateTick(w: World, d: Data, q: PoP, s: number) {
       edgeTest(w, d, q, s);
       pillars(w, d, q, s);
       q.lk = 2;
-      if (q.sc1c > 0x1e && q.md === 0) q.yaw = s16(q.yaw + 0x10); // dazed spin (not on foot)
+      if (q.sc1c > 0x1e && q.md === 0) {
+        q.yaw = s16(q.yaw + 0x10); // dazed spin (not on foot)
+        if (d.skip && !(q.fl & F_WON)) { setState(w, d, q, s, S_OUT); break; } // after a forced victory (DAT_800d4d08)
+      }
       if (q.sc1c++ >= 0xb5 && q.st === S_STUN) { q.mass = massOf(q); setState(w, d, q, s, q.md === 1 ? S_FOOT : S_IDLE); } // FUN_800b5684 then 0x49 / 0x54
       break;
     }
@@ -1908,6 +1914,43 @@ function introTick(w: World, d: Data) {
 }
 export const poIntroTick = (w: World) => introTick(w, w.data as Data);
 
+/** Ticks with no human playing before object 5 offers the forced victory (FUN_8007e874). */
+export const POLAR_SKIP_WAIT = 0xf0;
+/**
+ * FUN_8007d5ec / FUN_8007d6d0 after the tick's update (FUN_8007976c): once every human is out the HUD waits 240 ticks,
+ * then shows object 5 with 0x194; a fresh Cross on a human pad (here B) keys 0x195 and runs FUN_800b5910, once per press
+ * in slot order. `presses` are the human pads' new bits of this tick.
+ */
+function forcedVictory(w: World, d: Data, presses: number[]) {
+  if (!d.noHuman || !d.human.some(Boolean)) return; // DAT_8009d908; a PS1 versus always has a human pad
+  if (d.skipShown === undefined) {
+    d.skipWait ??= POLAR_SKIP_WAIT;
+    if (d.skipWait > 0) { d.skipWait--; return; }
+    d.skipShown = d.t;
+    E(w, 'sfx', 0, 0, -1, 1, 0x194);
+  }
+  if (d.skipTaken !== undefined) return;
+  for (let s = 0; s < 4; s++) {
+    if (!d.human[s] || !(presses[s] & 0x2000)) continue;
+    E(w, 'sfx', 0, 0, -1, 1, 0x195);
+    roundSkip(w, d);
+    d.skipTaken = d.t;
+  }
+}
+/** FUN_800b5910: from slot rand(4) on, the first rider still in becomes the winner (0x58), the rest go out (0x50) under pack 0403's script 5. */
+function roundSkip(w: World, d: Data) {
+  const r = ri(w, 4);
+  for (let k = r; k < r + 4; k++) {
+    const s = k & 3, q = d.P[s];
+    if (!q || (q.fl & (F_ELIM | F_WON))) continue;
+    if (!d.skip) { d.skip = 1; setState(w, d, q, s, S_WIN); continue; }
+    q.fl |= F_ELIM;
+    d.elim[s] = w.tick;
+    E(w, 'skipOut', q.x, q.z, s, 1, -1, undefined, -(q.y - 0x80) * U);
+    setState(w, d, q, s, S_OUT);
+  }
+}
+
 /** One engine tick for one player (FUN_80083e8c body). */
 function playerTick(w: World, d: Data, q: PoP, s: number) {
   if (q.fl & F_OUT) return;
@@ -2030,6 +2073,7 @@ export const pushOff: MiniGame = {
         q.pressed = b & ~q.pb; q.held = b; q.pb = b; q.ang = stickAngle(b);
       } else { q.pressed = q.nb & ~q.pb; q.held = q.nb; q.pb = q.nb; q.ang = stickAngle(q.nb); }
     }
+    const presses = d.P.map((q) => (q && !q.cpu ? q.pressed : 0));
     advancePolarArena(w, d);
     // last bear standing (flag 0x200) / three out -> round over (DAT_800d4dec)
     // (the engine flags the survivor 0x200 one tick after the last elimination, see above; the round stops the tick after that)
@@ -2041,6 +2085,7 @@ export const pushOff: MiniGame = {
     }
     if (all.filter((q) => q.st === S_OUT).length >= all.length - 1) d.over = true;
     if (w.tick + 1 >= POLAR_TIMEOUT_TICK) d.over = true;
+    if (!d.over) forcedVictory(w, d, presses);
     const winner = standing.find(q => q.fl & F_WON);
     updatePolarCamera(d, d.over || !!winner, winner?.st === S_WIN, winner?.st !== S_WIN);
     sync(w, d);

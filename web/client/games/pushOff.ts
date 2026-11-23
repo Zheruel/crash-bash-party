@@ -188,8 +188,11 @@ export function createPushOffView(): ClientMiniGame {
   const slips = new Map<number, number>();
   let audio: PolarAudio | null = null;
   let pfx: PolarFx | null = null;
-  /** effect scripts (object 0x1605) drawn through the level's tilt */
+  /** effect scripts (object 0x1605) drawn through the level's tilt, and the ones without entity flag 0x200000 */
   let tiltFx: RealFx | null = null;
+  let worldFx: RealFx | null = null;
+  /** the HUD's forced-victory cues 0x194 / 0x195 (bank 0277) */
+  const promptSounds = new Map<number, string>();
   const tiltCamera = new THREE.PerspectiveCamera();
   const riders: (PoP | undefined)[] = [];
   const riderTick: number[] = [];
@@ -240,6 +243,8 @@ export function createPushOffView(): ClientMiniGame {
     pfx = new PolarFx(R, platform, variant);
     tiltFx?.dispose();
     tiltFx = new RealFx(platform, S);
+    worldFx?.dispose();
+    worldFx = new RealFx(R, S);
     reflections?.dispose();
     reflections = variant === 'manic' ? undefined : new PolarReflections(platform,
       variant === 'melt' ? { ...ref, parts: ['part2'] } : undefined);
@@ -351,6 +356,13 @@ export function createPushOffView(): ClientMiniGame {
       audio?.dispose();
       audio = new PolarAudio(variant);
       preloadPolarAudio(variant);
+      // samples are shared between banks on disc, so the file comes from audio/index.json
+      if (!promptSounds.size) void fetch(ASSET_BASE + 'audio/index.json').then((r) => (r.ok ? r.json() : null)).then((j) => {
+        for (const id of [0x194, 0x195]) {
+          const file = j?.sfx?.banks?.['0277']?.samples?.[id - 0x192]?.file;
+          if (file) { promptSounds.set(id, file); sfx.preloadFile(file); }
+        }
+      }).catch(() => { /* silent */ });
       voiceAge = resultAt = undefined;
       resultWorld = null;
       follow = null;
@@ -574,7 +586,10 @@ export function createPushOffView(): ClientMiniGame {
       pfx?.update(dt, ctx.camera);
       tiltCamera.quaternion.copy(platform.quaternion).invert().multiply(ctx.camera.quaternion);
       tiltFx?.update(dt, tiltCamera);
-      emitter?.render(w.bodies.find(b => b.kind === 'mask'), d, ctx.camera, platform.quaternion, 0,
+      worldFx?.update(dt, ctx.camera);
+      // FUN_800d257c: after a forced victory the winner's enter hides MELT's mask nodes
+      const mask = variant === 'melt' && d.skip ? undefined : w.bodies.find(b => b.kind === 'mask');
+      emitter?.render(mask, d, ctx.camera, platform.quaternion, 0,
         countdownLeft, slots);
       kit.fx.update(dt);
     },
@@ -624,6 +639,12 @@ export function createPushOffView(): ClientMiniGame {
         case 'hang': playSlip(e.s, e.t + 1, 0); break; // state 0x4e: script 0x3d + 0x45c
         case 'climb': audio?.release(e.s); break;
         case 'splash': audio?.play(0x45d); break;
+        case 'sfx': { // the forced-victory prompt (FUN_8007d5ec) and its acceptance (FUN_8007d6d0)
+          const file = promptSounds.get(e.o);
+          if (file) sfx.playFile(file, 1, true, sfxRate('0277', e.o));
+          break;
+        }
+        case 'skipOut': worldFx?.play(403, 5, e.x, e.y ?? 0, e.z); break; // FUN_800b5910: each rider it puts out
         case 'bomb': audio?.play(0x454); break; // bomb or zap handed on
         case 'boom': audio?.play(0x453); break;
         case 'pillar': // FUN_800c0888: 0x46a + rand(3) and three chunks (0x1604)
@@ -686,6 +707,8 @@ export function createPushOffView(): ClientMiniGame {
       pfx = null;
       tiltFx?.dispose();
       tiltFx = null;
+      worldFx?.dispose();
+      worldFx = null;
       reflections?.dispose();
       reflections = undefined;
       emitter?.dispose();
