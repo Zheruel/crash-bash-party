@@ -138,6 +138,10 @@ export class GameClient {
   config(c: MatchConfig) { this.rawSend({ t: 'config', ...c }); }
   emote(id: number) { this.rawSend({ t: 'emote', id }); }
   rematch() { this.rawSend({ t: 'rematch' }); }
+  voteStage(ballot: number, round: number, stage: string) {
+    this.rawSend({ t: 'stageVote', ballot, round, stage });
+  }
+
   skip() { this.rawSend({ t: 'skip' }); }
 
   mySlot(): number | null {
@@ -208,6 +212,7 @@ export class GameClient {
         this.phase = m.phase;
         this.phaseStartedAt = now - (m.elapsedMs ?? 0);
         this.phaseEnds = now + m.ms;
+        if (m.phase === 'vote') this.wheel = null;
         if (m.phase === 'play') this.playStartedAt = this.phaseStartedAt;
         if (m.phase === 'lobby') { this.round = null; this.results = null; this.predictor = null; this.snaps = []; this.wheel = null; }
         this.h.phase?.(m.phase, m.ms);

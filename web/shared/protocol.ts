@@ -1,7 +1,7 @@
 import type { Input, ModifierInfo, World } from './types';
 import type { Look } from './look';
 
-export type Phase = 'lobby' | 'wheel' | 'intro' | 'countdown' | 'play' | 'results' | 'final';
+export type Phase = 'lobby' | 'vote' | 'wheel' | 'intro' | 'countdown' | 'play' | 'results' | 'final';
 export type WinCondition = 'rounds' | 'cups';
 
 // USA Game Options: left/right stops at 2 and 7, with a starting target of 3.
@@ -32,6 +32,13 @@ export interface StageOption {
   name: string;
 }
 
+export interface StageBallot {
+  id: number; // advances across rematches, where round numbers repeat
+  round: number;
+  options: StageOption[];
+  votes: { playerId: number; stageId: string }[];
+}
+
 export interface MatchConfig {
   rounds?: number;
   winCondition?: WinCondition;
@@ -53,6 +60,7 @@ export interface RoomState {
   botLevel: number; // 0 easy, 1 normal, 2 hard
   stage?: string | null;
   stages?: StageOption[]; // available choices, omitted by older hosts
+  ballot?: StageBallot;
   seats: Seat[]; // always 4
   spectators: { id: number; name: string }[];
   rematch: number; // number of rematch votes
@@ -64,6 +72,7 @@ export type C2S =
   | { t: 'seat'; take: boolean } // lobby only: take a seat / become spectator
   | { t: 'look'; look: Look }
   | ({ t: 'config' } & MatchConfig) // host, lobby only
+  | { t: 'stageVote'; ballot: number; round: number; stage: string }
   | { t: 'emote'; id: number }
   | { t: 'rematch' }
   | { t: 'skip' } // host: skip the current waiting screen (wheel/intro/results)
@@ -101,11 +110,11 @@ export interface WheelMsg {
   total: number; // configured Party round count
   cupsToWin?: number;
   showdown: boolean;
-  options: { id: string; name: string }[];
+  options: StageOption[];
   pick: number; // index into options
-  variant: { id: string; name: string } | null; // real level picked, e.g. CRASHBALL
   modifier: ModifierInfo | null;
   ms: number;
+  elapsedMs?: number;
 }
 
 export interface Award {

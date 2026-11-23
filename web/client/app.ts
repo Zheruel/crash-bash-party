@@ -34,7 +34,7 @@ import { Hud, type SeatView } from './ui/hud';
 import { Ps1Hud } from './ui/ps1hud';
 import { LobbyScreen } from './ui/lobby';
 import { MenuPad } from './ui/menuPad';
-import { controlsHtml, thumb, CountOverlay, IntroOverlay, ResultsOverlay, WheelOverlay } from './ui/overlays';
+import { controlsHtml, thumb, CountOverlay, IntroOverlay, ResultsOverlay, VoteOverlay, WheelOverlay } from './ui/overlays';
 import { LoadingScreen } from './ui/loading';
 import { VortexBackdrop } from './ui/vortex';
 
@@ -78,6 +78,7 @@ export class App {
   private lobby!: LobbyScreen;
   private hud!: Hud;
   private ps1hud!: Ps1Hud;
+  private vote = new VoteOverlay();
   private wheel = new WheelOverlay();
   private intro = new IntroOverlay();
   /** the real LOADING vortex between the pick and the level, and before the podium */
@@ -212,7 +213,7 @@ export class App {
       <label class="sm" for="vmusic">MUSIC</label><input type="range" id="vmusic" min="0" max="100"><label class="sm" for="vsfx">EFFECTS</label><input type="range" id="vsfx" min="0" max="100">
         <details class="round-reactions"><summary>React</summary><div class="reaction-choices">${EMOTE_LABELS.map((label, i) => `<button data-emote="${i}">${label}</button>`).join('')}</div></details>
       </div></div>`);
-    root.append(this.title.el, this.lobby.el, this.hud.el, this.wheel.el, this.intro.el, this.count.el, this.results.el, this.final.el, top, this.statusEl, this.toastEl);
+    root.append(this.title.el, this.lobby.el, this.hud.el, this.vote.el, this.wheel.el, this.intro.el, this.count.el, this.results.el, this.final.el, top, this.statusEl, this.toastEl);
     const mute = $('#mute', top);
     const panel = $('.soundpanel', top);
     const chk = $('#mutechk', top) as HTMLInputElement, vm = $('#vmusic', top) as HTMLInputElement, vs = $('#vsfx', top) as HTMLInputElement;
@@ -316,7 +317,7 @@ export class App {
     if (this.backdrop) this.backdrop.active = s !== 'game';
     $('#leave').classList.toggle('hidden', s === 'title');
     document.body.classList.remove('lb');
-    if (s !== 'game') { this.wheel.hide(); this.intro.hide(); this.count.set(''); this.results.hide(); this.final.hide(); this.touch.show(false); this.input.capture = false; }
+    if (s !== 'game') { this.vote.hide(); this.wheel.hide(); this.intro.hide(); this.count.set(''); this.results.hide(); this.final.hide(); this.touch.show(false); this.input.capture = false; }
   }
 
   private toast(msg: string, ms = 3500) {
@@ -517,6 +518,7 @@ export class App {
     } else if (this.between) {
       this.showcase.setLooks(r.seats.map((s) => s.look));
     }
+    if (r.phase === 'vote' && this.phase === 'vote') this.showVote(r);
     this.hud.setSeats(this.seats, this.mySlot());
     if (this.phase === 'final') {
       const humans = r.seats.filter((s) => s.clientId != null && s.connected).length;
@@ -575,6 +577,11 @@ export class App {
     this.skipBtn?.classList.toggle('hidden', !(this.isHost && (p === 'wheel' || p === 'intro' || p === 'results')));
     switch (p) {
       case 'lobby': this.enterLobby(); if (this.client?.room) this.onRoom(this.client.room); break;
+      case 'vote': {
+        const r = this.client?.room;
+        if (r?.phase === 'vote') this.showVote(r);
+        break;
+      }
       case 'wheel':
         if (prev === 'final') { this.final.hide(); this.confetti.clear(); }
         break;
@@ -640,17 +647,43 @@ export class App {
     this.trophies.fill(0);
   }
 
-  private onWheel(m: WheelMsg) {
-    if (m.round === 1) this.resetTournamentDisplay();
-    this.phase = 'wheel';
+  private beginStageSelect(round: number, total: number, cupsToWin?: number) {
+    if (round === 1) this.resetTournamentDisplay();
     clearTimeout(this.resultsTimer);
+    clearTimeout(this.finalTimer);
+    this.loading.cancel();
     this.results.hide();
-    document.body.classList.remove('lb');
+    this.intro.hide();
+    this.count.set('');
+    this.touch.show(false);
+    this.input.capture = false;
+    this.setScreens('game');
     this.enterBetween();
     this.setChamp(false);
     this.showcase.setLayout('between');
+    this.hud.setRound(round, total, cupsToWin);
+  }
+
+  private showVote(room: RoomState) {
+    const c = this.client;
+    const ballot = room.ballot;
+    if (!ballot || !c) return;
+    const cups = room.winCondition === 'cups';
+    if (this.vote.el.classList.contains('hidden')) {
+      this.beginStageSelect(ballot.round, room.totalRounds, cups ? room.cupsToWin : undefined);
+      this.wheel.hide();
+    }
+    this.vote.update(ballot, cups ? 'CUP BATTLE' : `ROUND ${ballot.round} OF ${room.totalRounds}`, c.me,
+      room.seats.some((seat) => seat.clientId === c.me && seat.connected),
+      (stage) => c.voteStage(ballot.id, ballot.round, stage));
+  }
+
+  private onWheel(m: WheelMsg) {
+    const fromVote = this.phase === 'vote';
+    this.phase = 'wheel';
+    this.vote.hide();
+    if (!fromVote || document.body.dataset.screen !== 'game') this.beginStageSelect(m.round, m.total, m.cupsToWin);
     this.wheel.run(m, m.cupsToWin ? 'CUP BATTLE' : `ROUND ${m.round} OF ${m.total}`);
-    this.hud.setRound(m.round, m.total, m.cupsToWin);
   }
 
   private onRound(m: RoundMsg) {
@@ -661,6 +694,7 @@ export class App {
     this.hud.setRound(m.round, m.total, m.cupsToWin);
     sfx.clearRoundResult();
     this.arenaReady = false;
+    this.vote.hide();
     this.wheel.hide();
     this.pendingGame = m;
     const chars = m.seats.map(s => s.look.char);
@@ -740,7 +774,7 @@ export class App {
   private refreshControls() {
     const round = this.client?.round;
     const controls = $('.round-controls');
-    const show = !!round && document.body.dataset.screen === 'game' && this.phase !== 'wheel';
+    const show = !!round && document.body.dataset.screen === 'game' && this.phase !== 'wheel' && this.phase !== 'vote';
     controls.classList.toggle('hidden', !show);
     if (!show || !round) return;
     const html = controlsHtml(round.controls, this.touch.enabled, round.gameId, this.variantInfo()?.id, this.client?.roundSlot);
@@ -870,9 +904,10 @@ export class App {
     const dt = Math.min(0.1, (t - this.lastT) / 1000);
     this.lastT = t;
     const inMenus = this.phase === 'title' || this.phase === 'lobby' || this.phase === 'final';
-    this.menuPad.update(t, !!this.notice || this.optionsOpen || inMenus, !inMenus || this.stage.gameVisible);
+    this.menuPad.update(t, !!this.notice || this.optionsOpen || inMenus || this.phase === 'vote', !inMenus || this.stage.gameVisible);
     const c = this.client;
     this.tryLoadGame();
+    if (c && this.phase === 'vote') this.vote.progress((c.phaseEnds - t) / Math.max(1, c.phaseEnds - c.phaseStartedAt));
 
     const openingPad = this.phase === 'countdown' && readsCountdownPad(c?.round?.gameId);
     if (c && (this.phase === 'play' || openingPad) && c.roundSlot != null) {

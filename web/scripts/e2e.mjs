@@ -79,7 +79,7 @@ await until(() => a.results.some((r) => r.final) && a.phases.includes('final'), 
 const fin = a.results.at(-1);
 ok(`played ${ROUNDS} rounds`, a.rounds.length === ROUNDS && fin.round === ROUNDS);
 ok('winner(s) declared', fin.winners.length >= 1);
-ok('phases in order', ['wheel', 'intro', 'countdown', 'play', 'results', 'wheel', 'intro', 'countdown', 'play', 'final'].every((p, i) => a.phases.filter((x, j) => j === 0 || x !== a.phases[j - 1])[i] === p));
+ok('phases in order', ['vote', 'wheel', 'intro', 'countdown', 'play', 'results', 'vote', 'wheel', 'intro', 'countdown', 'play', 'final'].every((p, i) => a.phases.filter((x, j) => j === 0 || x !== a.phases[j - 1])[i] === p));
 await until(() => a.room.phase === 'lobby' && a.phases.at(-1) === 'lobby', 3000, 'back to lobby');
 ok('ready reset in lobby', a.room.seats.filter((s) => s.clientId != null).every((s) => !s.ready));
 

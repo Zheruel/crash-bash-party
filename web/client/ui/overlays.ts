@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { ballistixSlidesHorizontally } from '../../shared/games/ballDefence';
-import { COUNT_FRAMES, COUNT_LABELS, type ResultsMsg, type RoundMsg, type WheelMsg } from '../../shared/protocol';
+import { COUNT_FRAMES, COUNT_LABELS, type ResultsMsg, type RoundMsg, type StageBallot, type StageOption, type WheelMsg } from '../../shared/protocol';
 import { sfx, sfxRate } from '../shell/sound';
 import { ASSET_BASE, ModelInstance, ready } from '../crash';
 import { div, esc, face, icon, MENU_PLAYERS, pop } from './dom';
@@ -47,10 +47,83 @@ export function controlsHtml(text: string, touch: boolean, game = '', variant?: 
 }
 const MENU_MOVE = 'sfx/0272/7.mp3', MENU_SELECT = 'sfx/0272/9.mp3';
 
-/**
- * The mini-game pick: a reel of stage cards (stills of every game) that races past a gold frame, slows down and lands;
- * the picked card flips to its real level with the level name stamped on. A twist is announced by Uka Uka.
- */
+function stageArt(stage: StageOption) {
+  return `<img class="stage-art" src="${esc(thumb(stage.gameId, stage.variantId))}" alt="" draggable="false">`;
+}
+
+export class VoteOverlay {
+  readonly el = div('overlay round-screen voteov hidden');
+  private ballotId?: number;
+  private buttons: HTMLButtonElement[] = [];
+  private fuse?: HTMLElement;
+  private status?: HTMLElement;
+
+  hide() {
+    this.ballotId = undefined;
+    this.buttons = [];
+    this.fuse = this.status = undefined;
+    this.el.classList.add('hidden');
+    this.el.replaceChildren();
+  }
+
+  update(ballot: StageBallot, turnLabel: string, me: number, eligible: boolean, vote: (stage: string) => void) {
+    if (this.ballotId !== ballot.id) {
+      this.ballotId = ballot.id;
+      this.el.innerHTML = `
+        <div class="vote-panel">
+          <div class="wheel-head"><small class="sm">${esc(turnLabel)}</small><h2 class="gt or" id="vote-heading">STAGE VOTE</h2></div>
+          <div class="vote-cards" role="group" aria-labelledby="vote-heading">${ballot.options.map((stage) => `
+            <button type="button" class="vote-card" aria-pressed="false">
+              ${stageArt(stage)}<span class="vote-name">${esc(stage.name)}</span><span class="vote-count" hidden></span>
+            </button>`).join('')}</div>
+          <p class="vote-status" role="status"></p>
+          <div class="fuse" aria-hidden="true"><i></i></div>
+        </div>`;
+      this.buttons = [...this.el.querySelectorAll('button')];
+      this.status = this.el.querySelector<HTMLElement>('.vote-status')!;
+      this.fuse = this.el.querySelector<HTMLElement>('.fuse i')!;
+      this.el.classList.remove('hidden');
+      this.buttons.forEach((button, index) => {
+        button.onclick = () => {
+          if (button.getAttribute('aria-disabled') === 'true') return;
+          vote(ballot.options[index].id);
+        };
+        button.onkeydown = (event) => {
+          const direction = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
+          if (!direction) return;
+          event.preventDefault();
+          const next = this.buttons[(index + direction + this.buttons.length) % this.buttons.length];
+          if (next.disabled) return;
+          next.focus();
+          if (!sfx.playFile(MENU_MOVE, .55)) sfx.play('tick');
+        };
+      });
+      if (eligible) this.buttons[0]?.focus({ preventScroll: true });
+    }
+    const ownVote = ballot.votes.find((v) => v.playerId === me);
+    this.buttons.forEach((button, index) => {
+      const id = ballot.options[index].id;
+      const count = ballot.votes.filter((v) => v.stageId === id).length;
+      const tally = button.querySelector<HTMLElement>('.vote-count')!;
+      tally.hidden = count === 0;
+      tally.textContent = count === 1 ? '1 VOTE' : `${count} VOTES`;
+      button.disabled = !eligible;
+      button.setAttribute('aria-disabled', String(!eligible || !!ownVote));
+      button.setAttribute('aria-pressed', String(ownVote?.stageId === id));
+    });
+    const status = ownVote ? 'VOTE LOCKED IN' : eligible ? 'VOTE TO BOOST A STAGE’S ODDS' : 'WATCHING THE VOTE';
+    if (this.status!.textContent !== status) {
+      if (ownVote && this.status!.textContent && !sfx.playFile(MENU_SELECT, .65)) sfx.play('click');
+      this.status!.textContent = status;
+    }
+  }
+
+  progress(remaining: number) {
+    if (this.fuse) this.fuse.style.transform = `scaleX(${Math.max(0, Math.min(1, remaining))})`;
+  }
+}
+
+/** A reel of individual stages slows to a stop on the host's pick. */
 export class WheelOverlay {
   readonly el = div('overlay round-screen wheelov hidden');
   private raf = 0;
@@ -65,33 +138,35 @@ export class WheelOverlay {
     const token = this.token;
     const n = m.options.length;
     // a long strip: several laps, the pick lands on card LAND
-    const LAPS = 5, LAND = LAPS * n + m.pick, total = LAND + 4;
+    const LAPS = 2, LAND = LAPS * n + m.pick, total = LAND + 4;
     const cards = Array.from({ length: total }, (_, i) => m.options[i % n]);
     this.el.classList.remove('hidden');
     this.el.classList.toggle('showdown', !!m.showdown);
     if (m.showdown) sfx.play('drum');
     this.el.innerHTML = `
       <div class="wheel-head"><small class="sm">${esc(turnLabel)}</small><h2 class="gt or">${m.showdown ? 'LAST ROUND!' : 'NEXT MINI-GAME'}</h2>${m.showdown ? '<em class="gt red">DOUBLE POINTS</em>' : ''}</div>
-      <div class="reel"><div class="reel-strip">${cards.map((o, i) => `<div class="rcard" data-i="${i}"><div class="rimg" style="background-image:url('${thumb(o.id)}')"></div><b class="gt or">${esc(o.name.toUpperCase())}</b></div>`).join('')}</div>
+      <div class="reel" aria-hidden="true"><div class="reel-strip">${cards.map((o, i) => `<div class="rcard" data-i="${i}">${stageArt(o)}<b class="gt or">${esc(o.name.toUpperCase())}</b></div>`).join('')}</div>
         <div class="reel-frame"><i class="ar t"></i><i class="ar b"></i></div></div>
-      <div class="wheel-mod hidden"></div>`;
+      <div class="wheel-mod hidden"></div><span class="wheel-announcement" role="status"></span>`;
     const strip = this.el.querySelector('.reel-strip') as HTMLElement;
     const reel = this.el.querySelector('.reel') as HTMLElement;
     const first = strip.firstElementChild as HTMLElement;
     const second = first.nextElementSibling as HTMLElement;
-    const spinMs = Math.max(600, m.ms * 0.62);
-    const start = performance.now();
+    const elapsed = m.elapsedMs ?? 0;
+    const spinMs = Math.max(1, (m.ms + elapsed) * 0.65);
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const start = performance.now() - elapsed;
     let last = -1;
     const frame = (now: number) => {
       if (token !== this.token) return;
-      const k = Math.min(1, (now - start) / spinMs);
+      const k = reducedMotion ? 1 : Math.min(1, (now - start) / spinMs);
       const e = 1 - Math.pow(1 - k, 4);
       const firstBox = first.getBoundingClientRect();
       const step = second.getBoundingClientRect().left - firstBox.left;
       const x = reel.clientWidth / 2 - firstBox.width / 2 - (1.5 + (LAND - 1.5) * e) * step;
       strip.style.transform = `translateX(${x}px)`;
       const under = Math.floor((reel.clientWidth / 2 - x) / step);
-      if (under !== last) { last = under; if (!sfx.playFile(MENU_MOVE, 0.35 + 0.4 * (1 - k))) sfx.play('tick', 0.8 + 0.4 * (1 - k)); }
+      if (k < 1 && under !== last) { last = under; if (!sfx.playFile(MENU_MOVE, 0.35 + 0.4 * (1 - k))) sfx.play('tick', 0.8 + 0.4 * (1 - k)); }
       if (k < 1) { this.raf = requestAnimationFrame(frame); return; }
       this.land(m, strip.querySelector(`.rcard[data-i="${LAND}"]`) as HTMLElement, token);
     };
@@ -110,12 +185,7 @@ export class WheelOverlay {
     this.resize = new ResizeObserver(align);
     this.resize.observe(reel);
     card.classList.add('win');
-    const img = card.querySelector('.rimg') as HTMLElement;
-    const opt = m.options[m.pick];
-    if (m.variant) {
-      img.insertAdjacentHTML('afterend', `<div class="rimg flip" style="background-image:url('${thumb(opt.id, m.variant.id)}')"></div>`);
-      card.insertAdjacentHTML('beforeend', `<span class="stamp"><span class="gt wh">${esc(m.variant.name.toUpperCase())}</span></span>`);
-    }
+    this.el.querySelector('.wheel-announcement')!.textContent = m.options[m.pick].name;
     if (m.modifier) {
       const mod = this.el.querySelector('.wheel-mod') as HTMLElement;
       mod.innerHTML = `<img class="uka" src="${UKA}" alt="" draggable="false"><div class="bubble"><b class="gt red">${esc(m.modifier.name.toUpperCase())}</b><span class="sm">${esc(m.modifier.desc)}</span></div>`;

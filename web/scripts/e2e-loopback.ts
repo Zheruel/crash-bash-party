@@ -472,6 +472,8 @@ async function playCupBattle(stage: string | null) {
     await tick();
 
     if (stage === null) {
+      await advance(() => client.phase === 'vote');
+      ok('cups opens one ballot', client.room?.ballot?.round === 1);
       await advance(() => client.phase === 'wheel');
       const wheel = client.wheel;
       ok('cups shuffle reveals one opening stage without a twist', wheel?.cupsToWin === target && wheel.round === 1
@@ -522,12 +524,13 @@ async function playCupBattle(stage: string | null) {
       }
     }
     ok('cups round one used the chosen stage or opening wheel pick', stage === null
-      ? client.wheel?.options[client.wheel.pick].id === openingRound?.gameId
-        && isDeepStrictEqual(client.wheel?.variant, openingRound?.variant)
+      ? client.wheel?.options[client.wheel.pick].gameId === openingRound?.gameId
+        && client.wheel?.options[client.wheel.pick].variantId === (openingRound?.variant?.id ?? null)
       : stage === openingRound?.gameId + ':' + openingRound?.variant?.id && openingWheelCount === 0);
     client.rematch();
     await tick();
     if (stage === null) {
+      await advance(() => client.phase === 'wheel');
       ok('cups shuffle rematch has a fresh opening wheel', client.phase === 'wheel'
         && client.wheel?.round === 1 && client.wheel.cupsToWin === target && wheelMessages === openingWheelCount + 1);
       await reconnect();
@@ -612,14 +615,48 @@ const drive = () => {
 
 A.c.ready(true);
 B.c.ready(true);
-let spec: ReturnType<typeof mk> | null = null;
+await tick();
+await step();
+const ballot = A.c.room!.ballot!;
+ok('seated players share one three-arena ballot', A.c.phase === 'vote' && B.c.phase === 'vote'
+  && isDeepStrictEqual(ballot, B.c.room?.ballot) && new Set(ballot.options.map((s) => s.id)).size === 3);
+const first = ballot.options[0].id;
+const outside = stageIds.find((id) => ballot.options.every((s) => s.id !== id))!;
+const spec = mk('Spec');
+await spec.c.start();
+await tick();
+ok('mid-ballot join receives the current shortlist as a spectator', spec.c.phase === 'vote'
+  && spec.c.mySlot() === null && isDeepStrictEqual(spec.c.room?.ballot, ballot));
+spec.c.voteStage(ballot.id, ballot.round, first);
+A.c.voteStage(ballot.id + 1, ballot.round, first);
+A.c.voteStage(ballot.id, ballot.round + 1, first);
+A.c.voteStage(ballot.id, ballot.round, outside);
+await tick();
+ok('host rejects spectator votes, stale ballots, wrong rounds and arenas outside the shortlist', A.c.room!.ballot!.votes.length === 0);
+A.c.voteStage(ballot.id, ballot.round, first);
+B.c.voteStage(ballot.id, ballot.round, first);
+B.c.voteStage(ballot.id, ballot.round, ballot.options[1].id);
+await step();
+ok('shared tally accepts one vote each from the host and guest', A.c.room!.ballot!.votes.length === 2
+  && isDeepStrictEqual(A.c.room!.ballot!.votes, spec.c.room!.ballot!.votes)
+  && A.c.room!.ballot!.votes.every((v) => v.stageId === first));
+const voteResume = mk('Bob');
+voteResume.c.token = B.c.token;
+B.c.leave();
+await voteResume.c.start();
+await tick();
+voteResume.c.voteStage(ballot.id, ballot.round, ballot.options[1].id);
+await tick();
+ok('token reconnect preserves the current vote and cannot vote again', voteResume.c.me === B.c.me
+  && voteResume.c.room?.ballot?.votes.length === 2 && A.c.room!.ballot!.votes.every((v) => v.stageId === first));
+B.c = voteResume.c;
+B.t = voteResume.t;
 let dropped = false, rejoined = false, emoted = false;
 let sawBotTakeover = false;
 for (let i = 0; i < 20000 && !(A.log.results.some((r) => r.final)); i++) {
   await step(16);
   if (i % 2 === 0) drive();
   if (A.c.phase === 'play' && !emoted) { A.c.emote(2); emoted = true; }
-  if (A.c.phase === 'play' && !spec) { spec = mk('Spec', true); await spec.c.start(); }
   // drop Bob mid-round 1, then rejoin with his token
   if (A.c.phase === 'play' && !dropped && A.log.rounds.length === 1) {
     dropped = true;
@@ -643,10 +680,12 @@ ok('Bob drop: seat held, bot plays', sawBotTakeover);
 ok('3 rounds played', A.log.rounds.length === 3 && A.log.results.length === 3);
 ok('legacy wheel, round, and results messages omit the cup battle marker',
   [...A.log.wheels, ...A.log.rounds, ...A.log.results].every(msg => !('cupsToWin' in msg)));
-ok('shuffled party draws distinct games from the bag', new Set(A.log.rounds.map((r) => r.gameId)).size === 3);
 ok('N. Brio reaches gameplay', A.log.rounds[0].seats.some((s: { name: string; look: { char: number } }) => s.name === 'Bob' && s.look.char === brioIdx));
-ok('wheel before every round', A.log.wheels.length === 3 && A.log.wheels.every((w) => w.options.length === GAMES.length && w.pick >= 0 && w.pick < GAMES.length));
-ok('wheel pick matches the round', A.log.wheels.every((w, i) => w.options[w.pick].id === A.log.rounds[i].gameId));
+ok('all 28 arenas are distinct roulette entries on every draw', A.log.wheels.length === 3
+  && A.log.wheels.every((w) => w.options.length === stageIds.length && w.pick >= 0 && w.pick < stageIds.length
+    && isDeepStrictEqual(w.options.map((s: { id: string }) => s.id).sort(), [...stageIds].sort())));
+ok('wheel pick matches the exact round arena', A.log.wheels.every((w, i) => w.options[w.pick].gameId === A.log.rounds[i].gameId
+  && w.options[w.pick].variantId === (A.log.rounds[i].variant?.id ?? null)));
 ok('last round is the showdown', !A.log.rounds[0].showdown && !A.log.rounds[1].showdown && A.log.rounds[2].showdown);
 const r3 = A.log.results[2];
 const coinPot = POINTS.reduce((x, y) => x + y, 0);
@@ -658,7 +697,7 @@ ok('scores add up', r3.scores.every((s: number, i: number) => s === r3.prev[i] +
 ok('winner(s) declared on final', r3.final && r3.winners.length >= 1);
 ok('Round Ruler awarded on final if a round was won', r3.awards.some((a: { id: string }) => a.id === 'wins')
   === A.log.results.some((r) => !r.draw));
-ok('phase order per round (wheel, intro, countdown, play, results)', ['wheel', 'intro', 'countdown', 'play', 'results'].every((p, i) => A.log.phases[i] === p));
+ok('phase order per round', ['vote', 'wheel', 'intro', 'countdown', 'play', 'results'].every((p, i) => A.log.phases[i] === p));
 ok('snapshots + events flow to clients', A.c.snapCount > 100 && A.log.events > 0 && B.c.snapCount > 100);
 ok('input acks advance', A.c.lastAck > 0);
 ok('emote broadcast', A.log.emotes >= 1);
@@ -669,7 +708,8 @@ ok('modifier is null or valid', A.log.rounds.every((r) => r.modifier === null ||
 ok('final phase', A.c.phase === 'final');
 A.c.rematch();
 await step(); await step();
-ok('rematch starts a fresh party', A.c.room!.round <= 1 && A.c.phase === 'wheel' && A.c.scores.every((s) => s === 0));
+ok('rematch starts a fresh party', A.c.room!.round === 1 && A.c.phase === 'vote'
+  && A.c.room!.ballot!.id !== ballot.id && !A.c.room!.ballot!.votes.length && A.c.scores.every((s) => s === 0));
 for (let i = 0; i < 4000 && A.log.rounds.length < 4; i++) await step(16);
 ok('rematch reaches round 1 of the new party', A.log.rounds.length === 4 && A.log.rounds[3].round === 1);
 
@@ -747,6 +787,28 @@ ok('rematch reaches round 1 of the new party', A.log.rounds.length === 4 && A.lo
     ok('dev room rejects choices outside its catalog', party.state().stage === 'tankArena:metal');
   }
 }
+
+// A deterministic ticket in a two-arena pool can land on either a voted or an unvoted stage.
+function pickWithVote(vote: boolean, random: number) {
+  const party = new Party('WEIGHT', { games: [getGame('ringDing')!, getGame('dragonDrop')!], timing: FAST_TIMING });
+  let pick = '';
+  party.connect({ id: 1, send(raw) {
+    const msg = JSON.parse(raw);
+    if (msg.t === 'wheel') pick = msg.options[msg.pick].id;
+  } });
+  party.message(1, JSON.stringify({ t: 'join', name: 'Host' }));
+  party.message(1, JSON.stringify({ t: 'ready', ready: true }));
+  party.update(1000);
+  const ballot = party.state().ballot!;
+  if (vote) party.message(1, JSON.stringify({ t: 'stageVote', ballot: ballot.id, round: ballot.round, stage: 'ringDing' }));
+  const originalRandom = Math.random;
+  Math.random = () => random;
+  try { party.update(1000 + FAST_TIMING.vote); }
+  finally { Math.random = originalRandom; }
+  return pick;
+}
+ok('voting adds exactly one ticket beyond the two per arena', pickWithVote(false, 0.9) === 'dragonDrop'
+  && pickWithVote(true, 0.9) === 'ringDing' && pickWithVote(true, 0.55) === 'dragonDrop');
 
 // host-left handling: a client that cannot reach the host gives up with `hostLeft`
 {
