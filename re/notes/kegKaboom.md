@@ -146,4 +146,6 @@ Seed 19 matched 2,700 consecutive USA samples from GO through the horn with idle
 ## Effects (decoded)
 Pack 0738 (db 0x80053f8c): keg blast = script 0, shock wave = script 3; powder = part 14 falling / part 1 lying, sparks part 13, flame part 23
 (animated clip). Pickup = pack 0736 part 11. Chain pops score with the floating number (object 0x1409, 10 ticks apart per chain step).
-Nothing for spawns, ignition, stuns or laying powder.
+Nothing for spawns, ignition, stuns or laying powder. The L30 camera has no shake: keg blasts, shock waves and landings leave it still.
+
+State table 0x8009dca0 also maps 0x76 (respawn), 0x77 (knockout) and 0x79 (hole fall, 0x410). Only adventure objects or a missing floor reach them, so the port leaves them out. Generic air-hit scripts 7 and 8 name clip 5 for Rilla Roo, which the five-clip carrier lacks; the view holds the previous key there.

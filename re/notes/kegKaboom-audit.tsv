@@ -1,0 +1,124 @@
+addr	status	ours	note
+800b3330	n/a(empty)		
+800b3338	match	web/shared/games/kegKaboom.ts:412	AI aim 0x5a beside target, 256 out
+800b3488	match	web/shared/games/kegKaboom.ts:412	AI re-pick (seeded L30 replays matched)
+800b37c8	match	web/shared/games/kegKaboom.ts:412	CPU AI (2,736-sample Hard replay)
+800b3a9c	match		decompiler fragment of 800b37c8 (keg count near player, 0x2000)
+800b3efc	match		hook table: AI, cylinder cache, clamp 459c, input 48e4, physics 4b34, push 52c8, end ba5a0; hit 0x73, win 0x75, lose 0x74
+800b4048	match		level init: flames rand(0x1000) 0x800 apart, speeds 35/60, CPU (skill*2+0x44)*35/100 and *60/100; 0x1d08 only in adventure flag 0x80
+800b4444	n/a(teardown)		
+800b44c8	n/a(adventure mode: hit all but the leader)		
+800b459c	match	web/shared/games/kegKaboom.ts:246	arena clamp 0x938 with box 0x684
+800b46bc	match	web/shared/games/kegKaboom.ts:61	cylinder cache at the pose in 0x800bc188
+800b478c	match		decompiler fragment of 800b46bc
+800b48e4	match	web/shared/games/kegKaboom.ts:555	pad to heading/speed (35 laying, 60 running)
+800b4b34	match	web/shared/games/kegKaboom.ts:565	physics, powder, shock (0x43a)
+800b51c8	n/a(fall-off-floor check; the floor covers the clamped arena)		
+800b52c8	match	web/shared/games/kegKaboom.ts:314	player cylinder push
+800b53d4	match		decompiler fragment of 800b52c8
+800b5410	match		decompiler fragment of 800b52c8
+800b566c	match		decompiler fragment of 800b52c8
+800b5a40	match		decompiler fragment of 800b52c8
+800b5cd0	match	web/shared/games/kegKaboom.ts:367	idle 0x71 (end flags, Cross, moving)
+800b5e84	match	web/shared/games/kegKaboom.ts:374	run 0x72 (footfalls 8/9)
+800b6168	match	web/shared/games/kegKaboom.ts:300	enter jump 0x78: table 0x8009d354, CPUs use row 0 (= row 1)
+800b627c	match	web/shared/games/kegKaboom.ts:308	enter fall 0x7a
+800b6350	match	web/shared/games/kegKaboom.ts:397	fall update; no-floor branch to 0x79 unreachable
+800b643c	n/a(state 0x79 fall into a hole, 0x410; no holes in L30)		
+800b65b0	match	web/shared/games/kegKaboom.ts:309	enter land 0x7b
+800b66a4	match	web/shared/games/kegKaboom.ts:403	land update
+800b67d8	match	web/shared/games/kegKaboom.ts:297	enter hit 0x73: rumble 10/0xf0, charge lost, script 0x68, rand(4) hit voice from 0x800bb95c (= 0x8009e080)
+800b68b8	match	web/shared/games/kegKaboom.ts:384	hit update; adventure 0x80 respawn branch n/a
+800b69ac	n/a(state 0x76 respawn, adventure only)		
+800b6aac	n/a(state 0x77 knocked out, adventure only)		
+800b6b84	n/a(state 0x77 update)		
+800b6c84	match	web/shared/games/kegKaboom.ts:299	enter winner 0x75 (kegKaboomResult)
+800b6e84	match	web/shared/games/kegKaboom.ts:388	winner update
+800b6f6c	match	web/shared/games/kegKaboom.ts:298	enter loser 0x74, burst 0x1605
+800b722c	match	web/shared/games/kegKaboom.ts:388	loser shrink 300/tick
+800b7364	match	web/shared/games/kegKaboom.ts:646	keg spawner (5n+1 reload, max 8)
+800b7570	match		keg init scale 1000, silver/gold parts
+800b766c	match	web/shared/games/kegKaboom.ts:732	keg update: push within 0x70, growth, blast with rand(4) of 0x800bb9ec
+800b7948	match	web/shared/games/kegKaboom.ts:607	lay powder node
+800b7b80	match	web/shared/games/kegKaboom.ts:693	spark scan
+800b7df0	match	web/shared/games/kegKaboom.ts:266	chain scoring
+800b7ee4	match		decompiler fragment of 800b7df0
+800b8098	match		decompiler fragment of 800b7df0
+800b8114	match	web/shared/games/kegKaboom.ts:711	spark update 20/tick
+800b8368	match	web/shared/games/kegKaboom.ts:677	flame update 12/tick, ignite neighbour cells
+800b85d0	n/a(adventure flag 0x80 object 0x1d08, 0x756-0x75a)		
+800b8e10	match	web/shared/games/kegKaboom.ts:785	fuse follower
+800b8f38	match	web/shared/games/kegKaboom.ts:656	pickup spawner every 600
+800b9160	n/a(object with sound 0x3fa; only spawned by adventure objects)		
+800b928c	match	web/shared/games/kegKaboom.ts:766	pickup update 0x439
+800b94fc	n/a(adventure ranking)		
+800b96f4	match	web/client/scene/podiumCam.ts:1	podium camera (podiumCam.ts)
+800b9a50	n/a(adventure ranking)		
+800b9ed8	n/a(countdown mode ranking)		
+800ba220	match	web/shared/games/kegKaboom.ts:868	versus ranking
+800ba5a0	match		end dispatcher; versus branch only
+800ba630	match		pickup free
+800ba694	match	web/shared/games/kegKaboom.ts:589	shock charge consume
+800ba70c	match		held pickup indicator +0x300, spin 56
+800ba784	match		shock charge set
+800ba868	match		node init (part 14 falling)
+800ba944	match		flame init
+800baa34	match		spark init
+800baad4	match	web/shared/games/kegKaboom.ts:756	node fall 0x44 pitch, part 1 on ground
+800babb4	match		pickup init
+800bac30	match		keg free
+800bac98	n/a(state 0x76 update)		
+800bad1c	n/a(state 0x79 update)		
+800bada8	match	web/shared/games/kegKaboom.ts:392	jump rise update
+800badd4	match	web/shared/games/kegKaboom.ts:296	enter run
+800bae30	match	web/shared/games/kegKaboom.ts:295	enter idle
+800bae84	n/a(empty hook)		
+800bae94	match		end flags
+800baf00	match		Cross pressed -> jump
+800baf58	match		stopped -> idle
+800bafb4	match		moving -> run
+800bb010	match	web/shared/games/kegKaboom.ts:589	shock stun in box +-0x380
+800bb134	match		shock stun helper
+800bb184	match		decompiler fragment of 800bb134
+800bb294	match		radius clamp helper
+800bb36c	n/a(empty)		
+800bb374	n/a(empty)		
+800bb37c	n/a(empty)		
+800bb384	n/a(overlay hook registration)		
+800bb488	match		powder grid cell replace
+800bb4fc	match		player-in-box query (spawners)
+800bb6fc	n/a(adventure helper)		
+800bb7e0	match		object distance
+80013c94	match		pad feed
+800142d4	n/a(matrix setup)		
+80015758	n/a(GTE transform)		
+8001682c	n/a(pack load)		
+80018f3c	n/a(render node update)		
+8001cd04	n/a(GTE transform)		
+80025a48	match		shape lookup (cylinder cache)
+80025b10	match		shape lookup at a pose
+80025bbc	n/a(floor query)		
+80025f44	n/a(floor query)		
+8002672c	n/a(shadow sprite)		
+8002689c	n/a(component alloc)		
+80026980	match		loser leaves camera tracking
+80027f7c	match	web/client/shell/rumble.ts:1	big motor rumble (rumble.ts)
+80029100	n/a(sound teardown)		
+80032490	match		PS1 square root (ps1SqrtQ6)
+8007b120	n/a(team totals)		
+8007b7fc	n/a(HUD)		
+8007d144	n/a(countdown HUD)		
+8007eb1c	n/a(HUD)		
+80084e04	n/a(hit request; only the adventure leader helper calls it here)		
+8008502c	match	web/shared/games/kegKaboom.ts:133	anim script VM
+800854c0	match	web/shared/games/kegKaboom.ts:133	anim start
+80085718	match	web/client/games/kegKaboomResult.ts:9	winner clip load (kegKaboomResult)
+80085890	match	web/client/games/kegKaboomResult.ts:9	clip swap
+800860d4	match	web/shared/games/kegKaboom.ts:188	vertical integrator
+800863d0	n/a(floor query)		
+800898ec	n/a(knockout, adventure)		
+80089be8	n/a(knockout update, adventure)		
+80089fa4	match	web/client/shell/voice.ts:198	winner sequence (voice.ts)
+8008a200	match	web/client/shell/voice.ts:15	winner cheer sequence (voice.ts)
+8008a810	match		winner sequence end
+8008d5d4	match	web/client/games/kegKaboom.ts:204	floating number (realFx)
