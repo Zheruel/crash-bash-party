@@ -16,6 +16,7 @@ MAX_MESH_TRIS = 20000
 # Stock character models: riders, equipped models, pilots, and on-foot models.
 # The flags are constant across the animation keys of each part.
 STOCK_CHARACTERS = {f'{n:04}' for n in range(800, 991, 2)}
+MENU_PREVIEW_MODELS = dict(enumerate((988, 990, 986, 984, 980, 978, 982, 976), 14))
 
 
 def u32(d, o):
@@ -270,6 +271,25 @@ def tex_lookup(texroot, outdir, stem, idx):
     return os.path.relpath(os.path.realpath(p), os.path.realpath(outdir)).replace(os.sep, '/'), sz[0], sz[1]
 
 
+def bind_menu_preview_swatches(info, source_dir):
+    # The title pack's preview strips match the standalone characters exactly.
+    # Menu IDs 113–117 point at unrelated art in the decoded title texture sheet.
+    for mesh in info['meshes']:
+        number = MENU_PREVIEW_MODELS.get(mesh.index)
+        if number is None:
+            continue
+        stock_stem = f'{number:04}'
+        with open(os.path.join(source_dir, stock_stem + '.t29.bin'), 'rb') as f:
+            stock = parse_model(f.read())['meshes'][0]
+        if mesh.strips != stock.strips or any(
+            (a['v'], a['col']) != (b['v'], b['col']) for a, b in zip(mesh.tris, stock.tris)
+        ):
+            raise ValueError(f'Menu part {mesh.index} no longer matches character model {number}')
+        for a, b in zip(mesh.tris, stock.tris):
+            if a['textured'] and a['tsel'] and 113 <= a['tex'] <= 117:
+                a.update(tex=b['tex'], tsel=b['tsel'], uv=b['uv'], texture_stem=stock_stem)
+
+
 def build_gltf(info, stem, texroot=None, outdir='.'):
     B = Buf()
     images, textures = [], []
@@ -279,7 +299,7 @@ def build_gltf(info, stem, texroot=None, outdir='.'):
 
     def material(tr):
         key = (tr['textured'], tr['tex'] if tr['textured'] else -1, tr['tsel'] if tr['textured'] else 0,
-               tr['semi'], tr['abr'] if tr['semi'] else 0)
+               tr['semi'], tr['abr'] if tr['semi'] else 0, tr.get('texture_stem', stem))
         if key not in mat_idx:
             mat = dict(name=('tex%d%s' % (key[1], 'b' if key[2] else '')) if key[0] else 'untextured',
                        pbrMetallicRoughness=dict(baseColorFactor=[1, 1, 1, 1], metallicFactor=0, roughnessFactor=1),
@@ -288,7 +308,7 @@ def build_gltf(info, stem, texroot=None, outdir='.'):
                                    semi_transparent=key[3], abr=key[4]))
             # texture-run bit 15 does not select another table: ids resolve in the paired t08 either way;
             # ids past its end (only seen with bit 15) have no texture here
-            ti = tex_lookup(texroot, outdir, stem, key[1]) if key[0] else None
+            ti = tex_lookup(texroot, outdir, key[5], key[1]) if key[0] else None
             if ti:
                 images.append(dict(uri=ti[0]))
                 textures.append(dict(source=len(images) - 1, sampler=0))
@@ -329,7 +349,9 @@ def build_gltf(info, stem, texroot=None, outdir='.'):
                     if t['textured'] and t['uv']:
                         u, v = t['uv'][j]
                         tw, th = mat_tex.get(mi, (256, 256))
-                        uvs += [u / float(tw), v / float(th)]
+                        # These UVs pick a specific colour chip. Sample inside that texel.
+                        inset = 0.5 if 'texture_stem' in t else 0
+                        uvs += [(u + inset) / tw, (v + inset) / th]
                     else:
                         uvs += [0.0, 0.0]
             n = len(pos) // 3
@@ -410,6 +432,8 @@ def convert(path, outdir, texroot=None):
     info = parse_model(d)
     if not info['meshes']:
         return stem, 0, 0, 0, info['notes'] or ['no meshes']
+    if stem == '0131' and texroot:
+        bind_menu_preview_swatches(info, os.path.dirname(path))
     g, b = build_gltf(info, stem, texroot, outdir)
     os.makedirs(outdir, exist_ok=True)
     with open(os.path.join(outdir, stem + '.bin'), 'wb') as f:
