@@ -84,6 +84,15 @@ const longKick = (char: number) => char <= 2 || char >= 7;
 const BLAST_R = 640, CHAIN_DELAY = 10, FUSE = 90, GROW = 8;
 const DMG_WOOD = 5, DMG_WOOD_DRAIN = 3, DMG_BIG = 8;                                      // damage table 0x8009d3b8, row 5 / 3 / 8
 const HURT_TICKS = 30, FLICKER_TICKS = 40;
+// Hurt script 9 per engine character: its length, the frame of event 8 (lethal switch to script 0x13) and the
+// frame whose event plays the impact voice (FUN_800bff1c: event 9 for Cortex and Brio, event 8 for the others).
+const HURT_LEN = [30, 30, 30, 30, 30, 29, 30, 34];
+const HURT_EV8 = [11, 14, 19, 15, 19, 19, 11, 10];
+const HURT_VOICE = [11, 14, 13, 13, 19, 19, 11, 10];
+// FUN_800c0bac: the weight drops 4096 raw at 256 per update, then FUN_800c0de4 starts the spirit 28 updates later.
+export const CT_WEIGHT_DROP = 16, CT_WEIGHT_OUT = 44;
+export const ctHurtTicks = (char: number) => HURT_LEN[char - 1] ?? HURT_TICKS;
+export const ctHurtKnockout = (char: number) => HURT_EV8[char - 1] ?? 11;
 const BOOTS_T = 240, MASK_T = 300, WEIGHT_T = 240, SLOW_T = 240, PASS_LOCK = 30;
 const FRUIT_LIFE = 150, POWER_LIFE = 120;
 // FUN_8008d6c8: launch at 64 raw units, gravity 8, relaunch at floor contact.
@@ -140,7 +149,7 @@ interface Data {
   iceTargets?: { x: number; z: number }[];
   /** Cross (jump) held last tick */
   prevC?: boolean[];
-  pend: { dmg: number; cls: number; by: number; kx: number; kz: number; kv: number }[];
+  pend: { dmg: number; cls: number; by: number; kx: number; kz: number; kv: number; snd?: number }[];
   weapon: number[]; ammo: number[]; wcd: number[];
   shots?: Record<number, DrainShot>;
   floor: number[];
@@ -151,6 +160,12 @@ interface Data {
   cells: number[]; cur: number; deck: number[]; di: number;
   tSpawn: number; tFruit: number; tBurst: number; tBurstGap: number; tBurstN: number; tPower: number; tChest: number;
   lastBy: number[]; lastByTick: number[];
+  /** FUN_80083e8c pad lock 0x8009d574 (30 updates after a hit), flickering starts when it expires */
+  lock?: number[];
+  /** health reached zero: the knockout follows hurt event 8, credited to this slot (-1 none, -2 not dying) */
+  dying?: number[];
+  /** cause of the knockout per slot: 1 = the weight went off (state 0x12) */
+  outBy?: number[];
 }
 
 const players = (w: World) => w.bodies.filter((b) => b.kind === 'player');
@@ -326,18 +341,22 @@ function stepSpawners(w: World, d: Data, survivors: number, opening = false) {
       } else d.tBurstGap--;
     }
   }
-  // power-ups (space + snow): one at a time, when nobody holds one
+  // FUN_800b7358 power-ups (space + snow): one on the floor at a time. A kind that a player already
+  // carries, or an occupied cell, leaves the timer at zero for another draw on the next update.
   if (d.variant === 'space' || d.variant === 'snow') {
     if (d.tPower <= 0) {
-      if (d.eff.some((e) => e !== 0) || w.bodies.some((b) => b.kind === 'boots' || b.kind === 'potion' || b.kind === 'mask' || b.kind === 'weight')) d.tPower = (Math.floor(rand(w) * 10) + 5) * 30;
+      if (w.bodies.some((b) => b.alive && (b.kind === 'boots' || b.kind === 'potion' || b.kind === 'mask' || b.kind === 'weight'))) d.tPower = (Math.floor(rand(w) * 10) + 5) * 30;
       else {
         const kind = 0x12 + Math.floor(rand(w) * 4);
-        const k = Math.floor(rand(w) * 256), x = cellRaw(d.cells[k * 2]), z = cellRaw(d.cells[k * 2 + 1]);
-        if (floorAt(d, x * U, z * U) && !occupiedAt(w, Math.floor(x / 256) + 10, 9 - Math.floor(z / 256))) {
-          const name = kind === EFF_AKU ? 'mask' : kind === EFF_BOOTS ? 'boots' : kind === EFF_WEIGHT ? 'weight' : 'potion';
-          const it = addBody(w, name, -1, x * U, z * U, 0.5, 1);
-          it.y = 2032 * U; it.dash = POWER_LIFE; it.vy = 0; // falls from the sky
-          d.tPower = (Math.floor(rand(w) * 10) + 10) * 30;
+        if (!d.eff.includes(kind)) {
+          const k = Math.floor(rand(w) * 256), x = cellRaw(d.cells[k * 2]), z = cellRaw(d.cells[k * 2 + 1]);
+          if (floorAt(d, x * U, z * U) && !occupiedAt(w, Math.floor(x / 256) + 10, 9 - Math.floor(z / 256))) {
+            const name = kind === EFF_AKU ? 'mask' : kind === EFF_BOOTS ? 'boots' : kind === EFF_WEIGHT ? 'weight' : 'potion';
+            const it = addBody(w, name, -1, x * U, z * U, 0.5, 1);
+            it.y = 2032 * U; it.dash = POWER_LIFE; it.vy = 0; // falls from the sky
+            cue(w, 0x41f, it.x, it.z, true, it.y); // FUN_800be370..800be838
+            d.tPower = (Math.floor(rand(w) * 10) + 10) * 30;
+          }
         }
       }
     } else d.tPower--;
@@ -353,10 +372,19 @@ function stepSpawners(w: World, d: Data, survivors: number, opening = false) {
 }
 
 // ---------- damage + explosions ----------
-function queueDamage(d: Data, slot: number, dmg: number, cls: number, by: number, kx = 0, kz = 0, kv = 0) {
+/** FUN_80084e04 keeps the largest pending damage. `snd` is the id played when it lands (0x446 for spins, the penguin and the ring). */
+function queueDamage(d: Data, slot: number, dmg: number, cls: number, by: number, kx = 0, kz = 0, kv = 0, snd = 0) {
   const p = d.pend[slot];
-  if (dmg > p.dmg) { p.dmg = dmg; p.cls = cls; p.by = by; p.kx = kx; p.kz = kz; p.kv = kv; }
+  if (dmg > p.dmg) { p.dmg = dmg; p.cls = cls; p.by = by; p.kx = kx; p.kz = kz; p.kv = kv; p.snd = snd; }
 }
+
+/** A sound the original plays by id. `at` = positional (the sound call passes the object's position). */
+function cue(w: World, id: number, x = 0, z = 0, at = false, y?: number) {
+  emit(w, 'cue', x, z, -1, id, at ? 1 : 0, undefined, y);
+}
+
+/** 0x8009d570 flicker or 0x8009d574 hurt lock */
+const guarded = (d: Data, slot: number) => d.inv[slot] > 0 || (d.lock?.[slot] ?? 0) > 0;
 
 /** FUN_8008dec8: everyone within 640 raw (not `skip`) takes `dmg`; grounded players are always inside, jumpers above `tol` raw are not. */
 function areaDamage(w: World, d: Data, x: number, z: number, y: number, dmg: number, skip: number, tol: number) {
@@ -407,7 +435,7 @@ function chestMarker(w: World, d: Data, p: Body) {
   if (action >= 1 && action <= 3) {
     script = [15, 18, 10][action - 1]; frame = ctActionTicks(char, action) - d.stT[slot];
   } else if (d.st[slot] === ST_HURT) {
-    script = 9; frame = HURT_TICKS - d.stT[slot];
+    script = 9; frame = ctHurtTicks(char) - d.stT[slot] - 1;
   } else if (held) {
     const grip = d.cs[held.id];
     script = grip.gripScript ?? 16; frame = grip.gripFrame ?? 0;
@@ -717,7 +745,7 @@ export function createCrateCrushResult(terminal: World, winner: number | undefin
     const moving = Math.hypot(p.vx, p.vz) > 0.7;
     if (action !== ST_MOVE) {
       const script = action === ST_PICK ? 0xf : action === ST_THROW ? 0x12 : action === ST_SPIN ? 0xa : 9;
-      const elapsed = (action === ST_HURT ? HURT_TICKS : ctActionTicks(char, action)) - d.stT[s];
+      const elapsed = action === ST_HURT ? ctHurtTicks(char) - d.stT[s] - 1 : ctActionTicks(char, action) - d.stT[s];
       return [s, { state: action === ST_SPIN ? 'ready' : 'action', script, elapsed, outAge: 0 }];
     }
     const ground = d.groundPose?.[s];
@@ -922,25 +950,35 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
   if (d.effT[slot] > 0) {
     d.effT[slot]--;
     if (d.effT[slot] === 0) {
-      if (d.eff[slot] === EFF_WEIGHT) { // the weight goes off in your hands: out
+      if (d.eff[slot] === EFF_WEIGHT) {
+        // FUN_800c09f4: state 0x12 counts the holder out at once, drops the weight on them and plays 0x453.
         d.eff[slot] = 0;
         d.hp[slot] = 0;
+        (d.outBy ??= [0, 0, 0, 0])[slot] = 1;
+        cue(w, 0x453);
         knockOut(w, d, p, -1);
         return;
       }
+      if (d.eff[slot] === EFF_AKU) cue(w, 0x421); // FUN_800bef00
       d.eff[slot] = 0;
     }
   }
   if (d.pass[slot] > 0) d.pass[slot]--;
   if (d.inv[slot] > 0) d.inv[slot]--;
   if (d.wcd[slot] > 0) d.wcd[slot]--;
-  // pending damage (FUN_80084e04 keeps the largest per tick, the player loop applies it)
+  // pending damage (FUN_80084e04 keeps the largest per tick, FUN_80083e8c applies it)
   const pd = d.pend[slot];
+  const lock = d.lock ??= [0, 0, 0, 0];
   if (pd.dmg > 0) {
-    const blocked = (d.inv[slot] > 0 || d.st[slot] === ST_HURT) && pd.cls <= d.ic[slot];
+    const blocked = guarded(d, slot) && pd.cls <= d.ic[slot];
     if (!blocked) applyHit(w, d, p, pd);
     pd.dmg = 0;
     if (!p.alive) return;
+  }
+  // FUN_80083e8c: the hurt lock zeroes the pad, and its expiry starts 40 updates of flicker.
+  if (lock[slot] > 0) {
+    if (--lock[slot] === 0 && (d.dying?.[slot] ?? -2) === -2) d.inv[slot] = FLICKER_TICKS;
+    inp = IDLE;
   }
   const odd = (w.tick & 1) === 1;
   if (slow && odd) { syncBody(p, d); return; } // slow motion: acts every other tick
@@ -962,9 +1000,15 @@ function stepPlayer(w: World, d: Data, p: Body, inp: InputState) {
   // state machine
   if (d.stT[slot] > 0) d.stT[slot]--;
   switch (d.st[slot]) {
-    case ST_HURT:
-      if (d.stT[slot] <= 0) { d.st[slot] = ST_MOVE; d.act[slot] = 0; if (d.ic[slot] !== -1) d.inv[slot] = Math.max(d.inv[slot], FLICKER_TICKS); }
+    case ST_HURT: {
+      // FUN_800bff1c: script 9 plays the impact voice, and event 8 switches a lethal hit to script 0x13.
+      const frame = ctHurtTicks(char) - d.stT[slot] - 1;
+      if (frame === HURT_VOICE[char - 1]) emit(w, 'thud', p.x, p.z, slot, 1, -1, undefined, p.y);
+      const killer = d.dying?.[slot] ?? -2;
+      if (frame === HURT_EV8[char - 1] && killer !== -2) { d.dying![slot] = -2; knockOut(w, d, p, killer); return; }
+      if (d.stT[slot] <= 0) { d.st[slot] = ST_MOVE; d.act[slot] = 0; }
       break;
+    }
     case ST_PICK:
       if (d.stT[slot] <= 0) { d.st[slot] = ST_MOVE; d.act[slot] = 0; }
       break;
@@ -1119,20 +1163,22 @@ function bodyOverlapsHeight(d: Data, p: Body, bottom: number, top: number) {
 function clampPlayer(w: World, d: Data, p: Body) {
   if (!p.alive || p.fall) return;
   const slot = p.slot;
-  // crates are solid for walkers (only the moving player is pushed out)
+  // FUN_800c1a30: crates push out a moving player (any player on ice) by 120 plus the crate shape's 128.
+  const pushed = d.variant === 'snow' || d.vx[slot] !== 0 || d.vz[slot] !== 0;
   for (const c of crates(w)) {
     if (c.cd !== 0) continue;
     const s = d.cs[c.id];
     if (!s || s.s === CT_CHEST_REVEAL || s.s === CT_CHEST_SHRINK || (s.s === C_THROWN && s.own === slot)) continue;
     if (!bodyOverlapsHeight(d, p, c.y, c.y + CRATE_H * U)) continue;
-    const dd = dist2(p.x, p.z, c.x, c.z), m = p.r + CRATE_R * U;
+    const dd = dist2(p.x, p.z, c.x, c.z), m = (CRATE_R + 128) * U;
     if (dd >= m) continue;
+    // touching a nitro sets it off (flag 8)
+    if (c.kind === 'nitro' && s.s === C_IDLE) { s.own = slot; destroy(w, d, c, -1); continue; }
+    if (!pushed) continue;
     // standing on top (falling onto it) is handled by groundAt; otherwise slide out sideways
     if (p.y > c.y + CRATE_H * U * 0.85) continue;
     const nx = dd > 1e-6 ? (p.x - c.x) / dd : 1, nz = dd > 1e-6 ? (p.z - c.z) / dd : 0;
     p.x = c.x + nx * (m + 1 * U); p.z = c.z + nz * (m + 1 * U);
-    // touching a nitro sets it off (flag 8)
-    if (c.kind === 'nitro' && s.s === C_IDLE) { s.own = slot; destroy(w, d, c, -1); }
   }
   const lim = ARENA * U - p.r;
   p.x = Math.max(-lim, Math.min(lim, p.x));
@@ -1157,22 +1203,35 @@ function clampPlayer(w: World, d: Data, p: Body) {
 }
 
 function applyHit(w: World, d: Data, p: Body, pd: Data['pend'][number]) {
-  const slot = p.slot;
+  const slot = p.slot, char = d.char[slot];
+  if (pd.snd) cue(w, pd.snd);
+  // FUN_800bfd2c: the held crate drops through state 4, owned by the attacker.
   const held = holdingCrate(w, slot);
-  if (held) { // dropped crate falls and breaks where it lands
+  if (held) {
     const s = csOf(d, held);
-    held.cd = 0; s.s = C_THROWN; s.hv = 0; s.vv = 0; s.up = false; s.own = pd.by; s.t = 0;
+    held.cd = 0; s.s = C_DROP; s.hv = 0; s.vv = 80; s.up = false; s.own = pd.by; s.t = 0; s.pitch = 0;
     held.dash = 1;
   }
   const aku = d.eff[slot] === EFF_AKU;
-  d.st[slot] = ST_HURT; d.stT[slot] = HURT_TICKS; d.act[slot] = 4; d.ic[slot] = pd.cls;
+  d.st[slot] = ST_HURT; d.stT[slot] = ctHurtTicks(char); d.act[slot] = 4; d.ic[slot] = pd.cls;
   d.vx[slot] = pd.kx * pd.kv; d.vz[slot] = pd.kz * pd.kv;
-  if (aku) { d.eff[slot] = 0; d.effT[slot] = 0; d.ic[slot] = -1; emit(w, 'hit', p.x, p.z, slot, 0, pd.by); return; }
-  d.hp[slot] -= pd.dmg;
+  const lock = d.lock ??= [0, 0, 0, 0];
+  d.inv[slot] = 0;
+  // Hurt entry ends the boots and empties a Drain weapon.
+  if (d.eff[slot] === EFF_BOOTS) { d.eff[slot] = 0; d.effT[slot] = 0; }
+  d.ammo[slot] = 0; d.weapon[slot] = 0;
+  if (aku) {
+    // The mask absorbs the hit: its timer ends (sound 0x421 on the next update) and no hurt lock starts.
+    d.effT[slot] = 1; lock[slot] = 0;
+    emit(w, 'hit', p.x, p.z, slot, 0, pd.by);
+    return;
+  }
+  lock[slot] = HURT_TICKS;
+  d.hp[slot] = Math.max(0, d.hp[slot] - pd.dmg);
   d.taken[slot]++;
   if (pd.by >= 0 && pd.by !== slot) { d.score[pd.by]++; d.lastBy[slot] = pd.by; d.lastByTick[slot] = w.tick; }
   emit(w, 'hit', p.x, p.z, slot, pd.dmg / CT_HP, pd.by >= 0 && pd.by !== slot ? pd.by : -1);
-  if (d.hp[slot] <= 0) knockOut(w, d, p, pd.by === slot ? -1 : pd.by);
+  if (d.hp[slot] <= 0) (d.dying ??= [-2, -2, -2, -2])[slot] = pd.by === slot ? -1 : pd.by;
 }
 
 function knockOut(w: World, d: Data, p: Body, by: number) {
@@ -1186,19 +1245,23 @@ function knockOut(w: World, d: Data, p: Body, by: number) {
   }
   d.vx[p.slot] = d.vz[p.slot] = 0;
   d.eff[p.slot] = 0; d.effT[p.slot] = 0;
+  if (d.lock) d.lock[p.slot] = 0;
+  if (d.dying) d.dying[p.slot] = -2;
+  // FUN_800c09f4 releases a carried crate through state 4.
   const h = holdingCrate(w, p.slot);
-  if (h) { const s = csOf(d, h); h.cd = 0; s.s = C_IDLE; h.y = p.y; }
+  if (h) { const s = csOf(d, h); h.cd = 0; h.dash = 1; s.s = C_DROP; s.hv = 0; s.vv = 80; s.up = false; s.t = 0; s.pitch = 0; }
   emit(w, 'ko', p.x, p.z, p.slot, 1, by);
 }
 
 function passWeight(w: World, d: Data, a: Body, b: Body) {
   // FUN_800bede8: the holder bumps b: b gets the remaining time + 10, a is cleared
   if (d.eff[a.slot] !== EFF_WEIGHT || d.pass[a.slot] > 0) return;
-  if (d.inv[b.slot] > 0 || d.st[b.slot] === ST_HURT) return;
+  if (guarded(d, b.slot)) return;
   d.eff[b.slot] = EFF_WEIGHT; d.effT[b.slot] = d.effT[a.slot] + 10; d.pass[b.slot] = PASS_LOCK;
   d.eff[a.slot] = 0; d.effT[a.slot] = 0;
   d.weight = b.slot;
   emit(w, 'weight', b.x, b.z, b.slot, 1);
+  cue(w, 0x454);
 }
 
 function landedOn(w: World, d: Data, p: Body) {
@@ -1297,9 +1360,9 @@ function spinHit(w: World, d: Data, p: Body) {
     if (o === p || !o.alive || !bodyOverlapsHeight(d, o, bottom, top)) continue;
     if (dist2(o.x, o.z, cx, cz) >= hit.radius*U + o.r) continue;
     const ang = Math.atan2(o.x - p.x, o.z - p.z);
-    if (d.inv[o.slot] === 0 && d.st[o.slot] !== ST_HURT && (!forwardAttack || Math.abs(angDiff(p.face, ang)) < Math.PI / 4)) {
+    if (!guarded(d, o.slot) && (!forwardAttack || Math.abs(angDiff(p.face, ang)) < Math.PI / 4)) {
       const push = forwardAttack ? p.face : ang;
-      queueDamage(d, o.slot, SPIN_DMG, 0, slot, Math.sin(push), Math.cos(push), SPIN_KNOCK);
+      queueDamage(d, o.slot, SPIN_DMG, 0, slot, Math.sin(push), Math.cos(push), SPIN_KNOCK, 0x446);
     }
     break; // FUN_800864cc returns the first intersecting player.
   }
@@ -1324,10 +1387,13 @@ function kickCrate(w: World, d: Data, c: Body, s: CS, by: number, ang: number) {
   }
   if (c.kind === 'nitro') { s.own = by; destroy(w, d, c, -1); return; }
   const a = snap8(ang);
+  // FUN_800bc038: the kicker's id from 0x8009e2b4, then state 9 plays 0x3f9 (wood, lit TNT) or lights the TNT (0x3f0).
+  if (by >= 0 && by < 4) cue(w, 0x442 + by, c.x, c.z, true, c.y);
+  const lit = c.kind === 'tnt' && c.fall;
   s.s = C_SLIDE; s.own = by; s.hv = longKick(d.char?.[by] ?? 1) ? 112 : 80; s.dx = Math.sin(a); s.dz = Math.cos(a); s.kt = 2; s.t = 0;
   c.dash = 2;
-  if (c.kind === 'tnt') lightTnt(w, d, c, s);
-  emit(w, 'beep', c.x, c.z, -1, 0.5);
+  if (c.kind === 'tnt' && !lit) lightTnt(w, d, c, s);
+  else cue(w, 0x3f9, c.x, c.z, true, c.y);
 }
 
 // ---------- crates ----------
@@ -1342,10 +1408,11 @@ function stepCrate(w: World, d: Data, c: Body) {
   const s = csOf(d, c);
   // lit TNT keeps burning (also in your hands); beeps every 30 ticks
   if (c.kind === 'tnt' && c.fall && s.s !== C_DELAY) {
+    // FUN_800bc038 beeps when the decremented fuse reaches 60, 30 and 0, and explodes on the next update.
+    if (s.fuse <= 0) { destroy(w, d, c, -1); return; }
     s.fuse--;
     c.m = Math.max(0, s.fuse / 30);
-    if (s.fuse > 0 && s.fuse % 30 === 0) emit(w, 'beep', c.x, c.z, -1, 1);
-    if (s.fuse <= 0) { destroy(w, d, c, -1); return; }
+    if (s.fuse % 30 === 0) emit(w, 'beep', c.x, c.z, -1, 1);
   }
   switch (s.s) {
     case CT_CHEST_REVEAL:
@@ -1491,7 +1558,10 @@ function stepPickup(w: World, d: Data, o: Body, live: Body[]) {
   if (o.y > 0) { // falling from the sky: accel 6 per tick up to 80 (state 4 table)
     o.vy = Math.min(80, o.vy + 6);
     o.y = Math.max(0, o.y - o.vy * U);
-    if (o.y <= 0) { o.vy = 0; }
+    if (o.y <= 0) {
+      o.vy = 0;
+      if (o.kind !== 'fruit') cue(w, 0x420, o.x, o.z, true); // FUN_800be9d0 landing from state 4
+    }
     return;
   }
   if (o.kind === 'fruit') o.cd++; // grounded bounce clock, floor Wumpa persist until collected
@@ -1511,7 +1581,8 @@ function collect(w: World, d: Data, o: Body, p: Body) {
     case 'fruit': d.hp[slot] = Math.min(CT_HP, d.hp[slot] + 1); emit(w, 'pickup', o.x, o.z, slot, 1); break;
     case 'boots': d.eff[slot] = EFF_BOOTS; d.effT[slot] = BOOTS_T; emit(w, 'pickup', o.x, o.z, slot, 2); break;
     case 'potion': d.eff[slot] = EFF_SLOW; d.effT[slot] = SLOW_T; emit(w, 'pickup', o.x, o.z, slot, 3); break;
-    case 'mask': d.eff[slot] = EFF_AKU; d.effT[slot] = MASK_T; emit(w, 'pickup', o.x, o.z, slot, 4); break;
+    case 'mask': // FUN_800be9d0 also clears the pending damage
+      d.eff[slot] = EFF_AKU; d.effT[slot] = MASK_T; d.pend[slot].dmg = 0; emit(w, 'pickup', o.x, o.z, slot, 4); break;
     case 'weight': d.eff[slot] = EFF_WEIGHT; d.effT[slot] = WEIGHT_T; d.weight = slot; d.pass[slot] = 0; emit(w, 'pickup', o.x, o.z, slot, 5); break;
     case 'weapon': awardChest(w, d, p, o.slot, o); break; // older snapshots with loose weapons
   }
@@ -1641,9 +1712,9 @@ function stepWeaponRing(w: World, d: Data, live: Body[], b: Body) {
   }
   const probe = { ...b, y: b.y + 256 * U };
   const victim = weaponContact(w, d, live, probe, (64 + (scale >> 5)) * U);
-  if (victim && d.inv[victim.slot] === 0 && d.st[victim.slot] !== ST_HURT) {
+  if (victim && !guarded(d, victim.slot)) {
     const a = Math.atan2(victim.x - b.x, victim.z - b.z);
-    queueDamage(d, victim.slot, 8, 0, b.slot, Math.sin(a), Math.cos(a), 48);
+    queueDamage(d, victim.slot, 8, 0, b.slot, Math.sin(a), Math.cos(a), 48, 0x446);
     emit(w, 'weaponHit', victim.x, victim.z, victim.slot, 3, b.slot);
   }
   const owner = live.find((p) => p.slot === b.slot);
@@ -1715,7 +1786,7 @@ function stepPenguin(w: World, d: Data, live: Body[]) {
   const sp = (back ? 3 : 4.6) / 30;
   if (dd > 0.2) { g.x += dx / dd * sp; g.z += dz / dd * sp; g.face = Math.atan2(dx, dz); }
   if (!back && tgt && td < g.r + tgt.r + 0.1) {
-    queueDamage(d, tgt.slot, 5, 0, -1, (tgt.x - g.x) / (td || 1), (tgt.z - g.z) / (td || 1), 96); // FUN_800b8c9c: 5 HP, knock 96 raw/tick
+    queueDamage(d, tgt.slot, 5, 0, -1, (tgt.x - g.x) / (td || 1), (tgt.z - g.z) / (td || 1), 96, 0x446); // FUN_800b8c9c: 5 HP, knock 96 raw/tick
     emit(w, 'penguinHit', tgt.x, tgt.z, tgt.slot, 1);
     d.penguin = Math.min(d.penguin, 40);
   }
@@ -2021,7 +2092,7 @@ function planCrushBot(w: World, slot: number, contestants: Body[], focus: number
 
   if (canFire()) return result({ ...IDLE, b: true });
 
-  if (!d.air[slot] && !d.prevB[slot] && closeFoe && !weight && d.inv[closeFoe.slot] === 0 && d.st[closeFoe.slot] !== ST_HURT) {
+  if (!d.air[slot] && !d.prevB[slot] && closeFoe && !weight && !guarded(d, closeFoe.slot)) {
     const char = d.char[slot] ?? 1;
     const inRange = (char !== 3 && char !== 4) || nearAngle(face, headingTo(me, closeFoe), Math.PI / 4);
     if (inRange && (station || target === closeFoe || crushDraw(w, slot, 5, 3) === 0)) {

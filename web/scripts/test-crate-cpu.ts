@@ -1,6 +1,6 @@
 // Run with npx tsx scripts/test-crate-cpu.ts from web/.
 import assert from 'node:assert/strict';
-import { crateToss, CT_U, spaceFloorIndex } from '../shared/games/crateToss';
+import { crateToss, CT_U, ctHurtKnockout, ctHurtTicks, spaceFloorIndex } from '../shared/games/crateToss';
 import { addBody } from '../shared/physics';
 import { cloneWorld, createWorld, stepWorld } from '../shared/sim';
 import { IDLE, type World } from '../shared/types';
@@ -43,8 +43,13 @@ function crate(w: World, x: number, z: number, kind = 'crate', holder?: number) 
   return obj;
 }
 
+// FUN_800bff1c counts a lethal hit out at hurt event 8. The fixture starts one update before that event.
 function eliminate(w: World, slot: number) {
-  w.data.pend[slot].dmg = 20;
+  const char = w.data.char[slot];
+  Object.assign(w.data, { dying: [-2, -2, -2, -2].map((v, i) => i === slot ? -1 : w.data.dying?.[i] ?? v) });
+  w.data.hp[slot] = 0;
+  w.data.st[slot] = w.data.act[slot] = 4;
+  w.data.stT[slot] = ctHurtTicks(char) - ctHurtKnockout(char);
   tick(w);
   assert.equal(player(w, slot).alive, false);
 }
