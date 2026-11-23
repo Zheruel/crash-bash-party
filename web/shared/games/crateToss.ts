@@ -1178,7 +1178,8 @@ function clampPlayer(w: World, d: Data, p: Body) {
   if (!p.alive || p.fall) return;
   const slot = p.slot;
   // FUN_800c1a30: crates push out a moving player (any player on ice) by 120 plus the crate shape's 128.
-  const pushed = d.variant === 'snow' || d.vx[slot] !== 0 || d.vz[slot] !== 0;
+  // FUN_800c284c pushes a hurt player out of idle or sliding crates whether or not they move.
+  const pushed = d.variant === 'snow' || d.st[slot] === ST_HURT || d.vx[slot] !== 0 || d.vz[slot] !== 0;
   for (const c of crates(w)) {
     if (c.cd !== 0) continue;
     const s = d.cs[c.id];
