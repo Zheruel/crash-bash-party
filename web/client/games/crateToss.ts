@@ -797,7 +797,7 @@ export function createCrateTossView(): ClientMiniGame {
           break;
         case 'hit':
           kit.actorForSlot(e.s)?.hit(1.2);
-          hitVoice('c', ctx.seats[e.s]?.look.char); // FUN_800bfd2c: rand(4) of 0x8009e080, Aku hits included
+          hitVoice('c', ctx.seats[e.s]?.look.char, undefined, -1, undefined, undefined, e.s); // FUN_800bfd2c: rand(4) of 0x8009e080, Aku hits included
           break;
         case 'thud':
           charVoice('c', ctx.seats[e.s]?.look.char, 0xd, 0, 1, undefined, spatialCue(e)); // FUN_800bff1c
