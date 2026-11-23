@@ -332,10 +332,50 @@ export class ModelInstance {
     return true;
   }
 
+  /**
+   * Node flag 0x400000 (FUN_80019a60): an animated word keeps its vertex frames but takes the faces (texture, UVs and
+   * colours) of static part word `word` (node +0x8e). Primitives pair up by corner count and facing. Returns false when
+   * the model has no such part; `null` restores the normal faces.
+   */
+  staticSkin(word: number | null): boolean {
+    const part = word === null ? null : 'part' + ((word & 0xfff) - 1);
+    if (part === this.skinPart) return this.skinned.length > 0 || part === null;
+    for (const s of this.skinned) { s.mesh.geometry = s.geometry; s.mesh.material = s.material; }
+    this.skinned = [];
+    this.skinPart = part;
+    if (part === null) return true;
+    const source = this.modelParts.filter(p => p.name === part).map(p => p.mesh);
+    const used = new Set<THREE.Mesh>();
+    for (const { mesh, name } of this.modelParts) {
+      if (name === part) continue;
+      const geometry = mesh.geometry, count = geometry.attributes.position.count, facing = geometry.userData.ps1Facing;
+      const from = source.find(s => !used.has(s) && s.geometry.attributes.position.count === count && s.geometry.userData.ps1Facing === facing);
+      if (!from || !from.geometry.attributes.color) continue;
+      used.add(from);
+      let pairs = skinCache.get(geometry);
+      if (!pairs) skinCache.set(geometry, pairs = new Map());
+      let skin = pairs.get(from.geometry);
+      if (!skin) {
+        skin = geometry.clone();
+        skin.setAttribute('color', from.geometry.attributes.color);
+        if (from.geometry.attributes.uv) skin.setAttribute('uv', from.geometry.attributes.uv);
+        pairs.set(from.geometry, skin);
+      }
+      this.skinned.push({ mesh, geometry, material: mesh.material });
+      mesh.geometry = skin;
+      mesh.material = from.material;
+    }
+    return this.skinned.length > 0;
+  }
+  private skinPart: string | null = null;
+  private skinned: { mesh: THREE.Mesh; geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[] }[] = [];
+
   update(dt: number) {
     this.mixer?.update(dt);
   }
 }
+/** Static-skin geometries per (animated, static) geometry pair; they share the shared model's buffers. */
+const skinCache = new WeakMap<THREE.BufferGeometry, Map<THREE.BufferGeometry, THREE.BufferGeometry>>();
 
 // loadModel() resolves into this map so build() can be synchronous after preload().
 const peeked = new Map<number, { scene: THREE.Object3D; anims: THREE.AnimationClip[] }>();

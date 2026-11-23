@@ -30,9 +30,14 @@
  * world.data: variant, radius, tilt [x,z] (-1..1), tiltRad [x,z], meter[4], hang[4] (s left), item[4] (1 shrink 2 grow 3 bomb 4 stun
  *   5 zap 6 snowball 7 frozen), itemT[4], elim[4], melt[16], pillars [x,z,alive][], foot[4] (1 = knocked off the bear), hold[4]
  *   (carries a bolt), P[] (per-player engine state), seal, internals.
- * Bodies: 'player', 'mask' (y = hover height), 'seal' (TILT; y = height while it jumps in), 'bolt' (manic: pickup on the ice, carried, or thrown; y = height). Events: dash, thump,
- *   hit, skid, ko, hang, climb, pickup, beamWarn, beam, beamEnd, zap, bomb, boom, dazed, melt, pillar, seal, bolt (pickup appears), grab (s
- *   takes it), throw, strike (bolt lands / explodes, v = blast radius), zapped (s hit by o's bolt: v 1 off the bear, 2 out).
+ * Bodies: 'player', 'mask' (y = hover height), 'seal' (TILT; y = height while it jumps in), 'bolt' (manic: pickup on the ice, carried, or
+ *   thrown; y = height), 'flybear' (the bear of a rider knocked off). Events (s = slot):
+ *   dash (v 1 mounted, 2 on foot), thump / snowbump (o = other slot + 4 * rand(4)), hit (o = other slot), skid (v = rand(6), o = pitch
+ *   rand(0x100)), quiet (the rider's sound handle is released), step (walk footfall, v 1 = shrunk), voice (v = disc voice id, keyed from
+ *   code), stun (FUN_800cde8c enter), dazed (stun wisps), ko, hang, climb, splash, pickup, beamWarn, beam, beamEnd, zap, bomb, boom, melt,
+ *   pillar (v = rand(3), o = the bear's angle), seal / sealSound, bolt (pickup appears), grab (s takes it), throw, boltLand (v 1 ice / 0
+ *   water, o 1 = landed on its own), strike (the blast's first tick, v = blast radius), zapped (s hit by o's bolt: v & 3 = 1 off the bear / 2 burnt, v >> 2 =
+ *   sfx pick), burn (v = burnt-rider tick 0 / 2 / 4), puff (object 0x1612: v 1 burnt wisps, 2 bolt trail, 3 flying bear).
  *   world.data.scale[4] = Uka shrink/grow model scale.
  */
 import { FitCam, trackBox, type TrackBox } from '../fitCamera';
@@ -137,6 +142,7 @@ const MELT_TRI = [[602,3252,988,-186,3294,2304,356,1987,3970], [59,3235,985,-679
 /** MANIC PANIC: 26 edges (L21 0x801d12d4) */
 const HULL_MANIC = [-14,-3169,860,-648,-3007,1083,-1172,-3056,778,-1951,-2749,688,-2647,-2358,259,-2986,-1554,1,-2988,-984,3989,-2909,-503,187,-3064,18,33,-3096,613,4023,-2995,1516,3870,-2706,2319,3458,-1658,3026,3073,-756,3028,3143,231,3136,2964,1195,2976,3036,1814,2942,2659,2737,2266,2238,3117,1002,1976,3052,410,2143,3202,-604,1927,2959,-1916,1774,2659,-2589,1302,1871,-2950,1171,901,-3174,1050,386,-3196,979];
 const HULLS: Record<string, number[]> = { tilt: HULL_RAW, polar: HULL_POLAR, melt: HULL_MELT, manic: HULL_MANIC };
+/** FUN_800cd118 (FUN_800b4260 for hull 0): inside iff the point is on the inner side of every edge */
 const hullInside = (H: number[], px: number, pz: number): boolean => {
   for (let i = 0; i < H.length; i += 3) {
     const a = H[i + 2];
@@ -293,6 +299,9 @@ interface Data {
   fid?: number[];
   /** POLAR: ticks the mask-pickup effect (0x1605 script 3) still emits particles */
   fxT: number;
+  /** Forced victory: HUD wait DAT_8009ae78 (240 ticks with no human playing), the tick object 5 appeared and the tick it
+   *  was taken, and DAT_800d4d08 (set once FUN_800b5910 has chosen the winner). */
+  skipWait?: number; skipShown?: number; skipTaken?: number; skip?: number;
 }
 /** k 0 = pickup (st 0 on the ice, 1 carried by own), k 1 = thrown (st 0 flying, 1 exploding), k 2 = the bear of a rider knocked off (0x1611, flies away);
  * y is up-negative like the engine */
@@ -317,6 +326,7 @@ export const poSetState = (w: World, s: number, st: number) => { const d = w.dat
 export const poOnIce = (w: World, gx: number, gz: number) => onIce(w.data as Data, gx | 0, gz | 0);
 
 const SECTORS = 16;
+/** FUN_800cba28 */
 const sectorOf = (gx: number, gz: number) => ((at2(gx, gz) - 0x7d) & 0xfff) >> 8;
 const elim = (q: PoP | null) => !q || (q.fl & F_ELIM) !== 0;
 const P = (d: Data, i: number) => d.P[i];
@@ -381,9 +391,9 @@ function setState(w: World, d: Data, q: PoP, s: number, st: number) {
       if (d.variant === 'tilt' && d.seal && sealBox(d.seal, q, 300)) q.af = 0x21; // FUN_800cac20: the seal is right there, no hang
       break;
     }
-    case S_OUT: // FUN_800d0470
+    case S_OUT: // FUN_800d0470: no splash after a forced victory (DAT_800d4d08)
       q.fl |= F_OUT | F_ELIM;
-      E(w, 'splash', q.x, q.z, s, 1);
+      if (!d.skip) E(w, 'splash', q.x, q.z, s, 1);
       break;
     case S_ITEM: // FUN_800d034c: straight to idle (its enter still sees the old speed), then the velocity is cleared
       setState(w, d, q, s, q.md === 1 ? S_FOOT : S_IDLE);
@@ -529,12 +539,12 @@ function throwCheck(w: World, d: Data, q: PoP, s: number): boolean {
 }
 
 function stateTick(w: World, d: Data, q: PoP, s: number) {
-  if ((q.fl & F_WON) && q.st !== S_WIN && q.st !== S_OUT) { setState(w, d, q, s, S_WIN); return; }
+  if ((q.fl & F_WON) && q.st !== S_WIN && q.st !== S_OUT) { setState(w, d, q, s, S_WIN); return; } // FUN_800d2d2c
   q.k++;
   switch (q.st) {
     case S_IDLE: case S_WALK: case S_FOOT: case S_FOOTWALK: { // FUN_800cda54 / FUN_800cdbd0, on foot FUN_800d1c14 / FUN_800d1db4
       if (q.st === S_FOOT) q.md = 1;
-      q.g = Math.min(0x100, q.g + 4);
+      q.g = Math.min(0x100, q.g + 4); // FUN_800d325c
       collide(w, d, q, s);
       // FUN_800cdbd0: the bear's footfall when the walk script (16 words, looping) stands at pc 4; 0x4a0 while shrunk
       if (q.st === S_WALK && (q.af & 15) === 4) E(w, 'step', q.x, q.z, s, q.mass < 0x51 ? 1 : 0);
@@ -543,7 +553,7 @@ function stateTick(w: World, d: Data, q: PoP, s: number) {
         const [a, b] = FOOT_STEP[q.ch], t = (q.af - 1) % (a + b);
         if (t === 0 || t === a) E(w, 'voice', q.x, q.z, s, HIT_VOICE[q.ch] + (t ? 0x11 : 0x12));
       }
-      const still = q.st === S_IDLE || q.st === S_FOOT;
+      const still = q.st === S_IDLE || q.st === S_FOOT; // FUN_800d3394 / FUN_800d32cc: a direction held walks, none idles
       if (still ? (q.held & 0xf0) : !(q.held & 0xf0)) setState(w, d, q, s, still ? (q.md === 1 ? S_FOOTWALK : S_WALK) : q.md === 1 ? S_FOOT : S_IDLE);
       dashCheck(w, d, q, s);
       throwCheck(w, d, q, s);
@@ -631,11 +641,14 @@ function stateTick(w: World, d: Data, q: PoP, s: number) {
       edgeTest(w, d, q, s);
       pillars(w, d, q, s);
       q.lk = 2;
-      if (q.sc1c > 0x1e && q.md === 0) q.yaw = s16(q.yaw + 0x10); // dazed spin (not on foot)
+      if (q.sc1c > 0x1e && q.md === 0) {
+        q.yaw = s16(q.yaw + 0x10); // dazed spin (not on foot)
+        if (d.skip && !(q.fl & F_WON)) { setState(w, d, q, s, S_OUT); break; } // after a forced victory (DAT_800d4d08)
+      }
       if (q.sc1c++ >= 0xb5 && q.st === S_STUN) { q.mass = massOf(q); setState(w, d, q, s, q.md === 1 ? S_FOOT : S_IDLE); } // FUN_800b5684 then 0x49 / 0x54
       break;
     }
-    case S_WIN:
+    case S_WIN: // FUN_800d2b58
       q.held = q.pressed = 0;
       q.lk = 0x14;
       q.yaw = s16(q.yaw + (adiff(q.yaw, 0) >> 2));
@@ -740,6 +753,7 @@ function aiDash(d: Data, q: PoP, s: number) {
 }
 /** MANIC bolts (list DAT_800d5294): FUN_800cb56c = does bear s carry one; the first one still lying on the ice */
 const carries = (d: Data, s: number) => d.bolts.some((b) => b.k === 0 && b.st === 1 && b.own === s);
+/** FUN_800cb5f4 */
 const freeBolt = (d: Data) => d.bolts.find((b) => b.k === 0 && b.st === 0);
 /** FUN_800b6eb4: throw (Circle) at rival t when closer than 2000, in front, and the bolt was held for 0x1f decide() calls. */
 function aiThrow(d: Data, q: PoP, t: number) {
@@ -1903,6 +1917,43 @@ function introTick(w: World, d: Data) {
 }
 export const poIntroTick = (w: World) => introTick(w, w.data as Data);
 
+/** Ticks with no human playing before object 5 offers the forced victory (FUN_8007e874). */
+export const POLAR_SKIP_WAIT = 0xf0;
+/**
+ * FUN_8007d5ec / FUN_8007d6d0 after the tick's update (FUN_8007976c): once every human is out the HUD waits 240 ticks,
+ * then shows object 5 with 0x194; a fresh Cross on a human pad (here B) keys 0x195 and runs FUN_800b5910, once per press
+ * in slot order. `presses` are the human pads' new bits of this tick.
+ */
+function forcedVictory(w: World, d: Data, presses: number[]) {
+  if (!d.noHuman || !d.human.some(Boolean)) return; // DAT_8009d908; a PS1 versus always has a human pad
+  if (d.skipShown === undefined) {
+    d.skipWait ??= POLAR_SKIP_WAIT;
+    if (d.skipWait > 0) { d.skipWait--; return; }
+    d.skipShown = d.t;
+    E(w, 'sfx', 0, 0, -1, 1, 0x194);
+  }
+  if (d.skipTaken !== undefined) return;
+  for (let s = 0; s < 4; s++) {
+    if (!d.human[s] || !(presses[s] & 0x2000)) continue;
+    E(w, 'sfx', 0, 0, -1, 1, 0x195);
+    roundSkip(w, d);
+    d.skipTaken = d.t;
+  }
+}
+/** FUN_800b5910: from slot rand(4) on, the first rider still in becomes the winner (0x58), the rest go out (0x50) under pack 0403's script 5. */
+function roundSkip(w: World, d: Data) {
+  const r = ri(w, 4);
+  for (let k = r; k < r + 4; k++) {
+    const s = k & 3, q = d.P[s];
+    if (!q || (q.fl & (F_ELIM | F_WON))) continue;
+    if (!d.skip) { d.skip = 1; setState(w, d, q, s, S_WIN); continue; }
+    q.fl |= F_ELIM;
+    d.elim[s] = w.tick;
+    E(w, 'skipOut', q.x, q.z, s, 1, -1, undefined, -(q.y - 0x80) * U);
+    setState(w, d, q, s, S_OUT);
+  }
+}
+
 /** One engine tick for one player (FUN_80083e8c body). */
 function playerTick(w: World, d: Data, q: PoP, s: number) {
   if (q.fl & F_OUT) return;
@@ -2025,6 +2076,7 @@ export const pushOff: MiniGame = {
         q.pressed = b & ~q.pb; q.held = b; q.pb = b; q.ang = stickAngle(b);
       } else { q.pressed = q.nb & ~q.pb; q.held = q.nb; q.pb = q.nb; q.ang = stickAngle(q.nb); }
     }
+    const presses = d.P.map((q) => (q && !q.cpu ? q.pressed : 0));
     advancePolarArena(w, d);
     // last bear standing (flag 0x200) / three out -> round over (DAT_800d4dec)
     // (the engine flags the survivor 0x200 one tick after the last elimination, see above; the round stops the tick after that)
@@ -2036,6 +2088,7 @@ export const pushOff: MiniGame = {
     }
     if (all.filter((q) => q.st === S_OUT).length >= all.length - 1) d.over = true;
     if (w.tick + 1 >= POLAR_TIMEOUT_TICK) d.over = true;
+    if (!d.over) forcedVictory(w, d, presses);
     const winner = standing.find(q => q.fl & F_WON);
     updatePolarCamera(d, d.over || !!winner, winner?.st === S_WIN, winner?.st !== S_WIN);
     sync(w, d);

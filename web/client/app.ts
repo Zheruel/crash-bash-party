@@ -931,7 +931,10 @@ export class App {
 
     const ballistix = this.phase === 'play' && c?.round?.gameId === 'ballDefence' ? arenaWorld?.data as BallistixData | undefined : undefined;
     const localShip = c?.roundSlot == null ? undefined : ballistix?.pl?.[c.roundSlot];
-    const watching = !!localShip && localShip.score <= 0;
+    // Polar Push offers the same HUD object 5 once every human is out (FUN_8007d5ec).
+    const polar = this.phase === 'play' && c?.round?.gameId === 'pushOff'
+      ? arenaWorld?.data as { t: number; elim?: number[]; skipShown?: number; skipTaken?: number } | undefined : undefined;
+    const watching = (!!localShip && localShip.score <= 0) || (c?.roundSlot != null && (polar?.elim?.[c.roundSlot] ?? -1) >= 0);
     if (this.input.watchingBallistix !== watching) {
       this.input.watchingBallistix = watching;
       if (this.phase === 'play') this.touch.show(c?.roundSlot != null && !watching);
@@ -941,6 +944,9 @@ export class App {
       const closing = ballistix.pl.filter(p => p.score > 0).length > 1 ? -1
         : Math.max(0, ballistix.f - Math.max(...ballistix.pl.map(p => p.dead)));
       this.ps1hud.setForceVictory(age, closing, keyLabels('b')[0], this.touch.enabled);
+    } else if (polar?.skipShown !== undefined && this.input.watchingBallistix && this.canCaptureArenaKeys()) {
+      this.ps1hud.setForceVictory(polar.t - polar.skipShown, polar.skipTaken === undefined ? -1 : polar.t - polar.skipTaken,
+        keyLabels('b')[0], this.touch.enabled);
     } else this.ps1hud.forceVictory.hidden = true;
 
     // HUD cards: points + trophies (from the room's seats, updated on results)
