@@ -464,7 +464,7 @@
   },
   {
    "id": "koala",
-   "name": "Koala Kong",
+   "name": "Rilla Roo",
    "model": 978,
    "scale": 2.832,
    "offset": [
@@ -541,7 +541,7 @@
   },
   {
    "id": "rilla",
-   "name": "Rilla Roo",
+   "name": "Koala Kong",
    "model": 976,
    "scale": 2.464,
    "offset": [

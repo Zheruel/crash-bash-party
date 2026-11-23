@@ -156,16 +156,17 @@
 
 ## Character voices (decoded 2026-11)
 - A VAB tone carries its own sound id in min/max (`FUN_8002aca0` fills table 0x80064508 from every loaded VAB), so each voice bank declares
-  its ids. Character voice ids = block*0x32 + n; block per engine character: 1 crash 0, 2 coco 1, 3 cortex 2, 4 brio 3, 5 tiny 6, 6 rilla 7, 7 dingodile 5, 8 koala 4 (= hit ids / 0x32).
-- Voice-bank families (disc t0c, matched in the level RAM dumps): 0182-0189 Tank Wars; 0190-0197 Pogo / Ballistix / Crash Dash;
-  0198-0205 Polar Push; 0206-0213 Crate Crush / Ring Ding / Mallet Mash / Dragon Drop / Keg Kaboom. An id missing from the family's bank is silent.
+  its ids. Character voice ids = block*0x32 + n; block per engine character: 1 crash 0, 2 coco 1, 3 cortex 2, 4 brio 3, 5 tiny 6, 6 Koala Kong 7, 7 dingodile 5, 8 Rilla Roo 4 (= hit ids / 0x32).
+- Voice-bank families (exe table 0x80058f0c[(family-0x101)*8 + char-1], loaded by `FUN_80022140`; matched in the level RAM dumps):
+  0182-0189 Tank Wars; 0190-0197 Pogo / Ballistix / Crash Dash; 0198-0205 Polar Push / Dragon Drop;
+  0206-0213 Crate Crush / Ring Ding / Mallet Mash / Keg Kaboom. An id missing from the family's bank is silent. Full table: docs/audio.md.
   Built into assets/audio/voices.json {families: block -> bank, ids: bank -> id -> file}; client API web/client/shell/voice.ts.
 - Hit voice: table 0x8009e080 + engineChar*8 = 4 ids (block*0x32 + 3..6), rand(4). Used by Crate Crush hurt-enter (ovl 0x800bfd..),
   Ring Ding recoil enter (anim 0x4d), Polar Push collision at speed^2 > 0x1000.
 - Anim scripts (`FUN_8008502c`, per-char table 0x8009d29c) play `0x8008 id` inline. Generic exe anims: 2 (state 2) n=2, 6 jump n=0xc,
   8 spin (engine chars 1-2) n=0xd, 10 spin (chars 3-4) n=0xe; the 9 / 0xb spins have no voice.
   Crate Crush: 15 pick-up n=0xf, 17 hold-walk n=0xa/0xb (steps), 18 throw n=0x10. Polar Push: 0x3e dash n=0x18 (frame per char 16,15,31,31,24,13,17,17
-  for engine 1-8; tiny also n=0x16), 0x43 n=0x15/0x14, 0x46 n=0x19/0x18 (states not mapped). Dragon Drop: 0x2b hit n=3, 0x2c jump n=0xc.
+  for engine 1-8; engine 8 also n=0x16), 0x43 n=0x15/0x14, 0x46 n=0x19/0x18 (states not mapped). Dragon Drop: 0x2b hit n=3, 0x2c jump n=0xc.
 - Tank Wars taunt (Triangle in states 0x6c-0x6f, 90-tick cooldown; CPUs after 80 idle frames): id from 0x800c94a8[char-1] = block*0x32 + 2
   (ported: the sim emits `taunt`, the view plays `charVoice(tank, char, 2)`). FUN_80027f7c / FUN_80028018 are pad rumble, not voice.
 
@@ -206,9 +207,11 @@ Decoder: `tools/fxscripts.py` -> `web/client/games/fxScripts.ts`; player: `web/c
   rotation of `frame * speed >> 12` per axis (table 0x800a02d8, 20 bytes per layer id).
 
 ## Character identity (fixed 2026-11)
-- Engine ids (look.ts DISC_CHARACTER [1,2,5,7,3,4,8,6]): 1 crash, 2 coco, 3 cortex, 4 brio, 5 tiny, 6 rilla roo, 7 dingodile, 8 koala kong.
-  Koala Kong = the pink-skinned ape in striped trunks with a gold belt (base 978, podium 744, HUD face 0731 tex022);
-  Rilla Roo = the grey ape in a red vest (base 976, face tex008). Mallet Mash / Keg Kaboom used another order ([1,2,8,6,3,4,5,7]) and
+- Engine ids (look.ts DISC_CHARACTER [1,2,5,7,3,4,8,6]): 1 crash, 2 coco, 3 cortex, 4 brio, 5 tiny, 6 Koala Kong, 7 dingodile, 8 Rilla Roo.
+  Rilla Roo = the pink-skinned ape in striped trunks with a gold belt (base 978, podium 744, HUD face 0731 tex022);
+  Koala Kong = the grey koala in a red vest (base 976, face tex008). Corrected 2026-11-23: the two names were the wrong way round here
+  and in the roster (the announcer's name call for engine 8 says "Rilla Roo", for engine 6 "Kong"; title select table 0x800b9b44; proof
+  in docs/audio.md). The roster ids `koala` (engine 8) and `rilla` (engine 6) are legacy asset keys; look.ts gives the right names. Mallet Mash / Keg Kaboom used another order ([1,2,8,6,3,4,5,7]) and
   their character props were rotated; both now use DISC_CHARACTER and props matched by the models' looks.
 
 ## LOADING screen

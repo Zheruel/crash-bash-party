@@ -13,13 +13,18 @@ export const CHARACTERS = [
   { id: 'dingodile', name: 'Dingodile', blurb: 'Half dingo, half croc, all flamethrower' },
   { id: 'cortex', name: 'Cortex', blurb: 'Evil genius, mediocre athlete' },
   { id: 'brio', name: 'N. Brio', blurb: 'Bubbling with bad ideas' },
-  { id: 'koala', name: 'Koala Kong', blurb: 'Muscles first, questions later' },
-  { id: 'rilla', name: 'Rilla Roo', blurb: 'Bouncy, bonkers, unstoppable' },
+  // The ids are asset keys from before the two were told apart: `koala` is the disc's Rilla Roo (engine 8, model 978,
+  // the ape in striped trunks) and `rilla` its Koala Kong (engine 6, model 976, the grey koala). Proof: docs/audio.md.
+  { id: 'koala', name: 'Rilla Roo', blurb: 'Bouncy, bonkers, unstoppable' },
+  { id: 'rilla', name: 'Koala Kong', blurb: 'Muscles first, questions later' },
   { id: 'big-stein', name: 'Big Stein', blurb: 'Silver hair, crooked grin', portrait: 'portraits/big-stein.png', hud: 'hud/big-stein-ps1.png' },
   { id: 'top-g', name: 'Top G', blurb: 'Andrew Tate in silver aviators', portrait: 'portraits/top-g.png', hud: 'hud/top-g-ps1.png' },
 ] as const;
 
-/** Roster index to disc character for movement and animation tables. Both custom characters use Cortex. */
+/**
+ * Roster index to disc character (1 Crash, 2 Coco, 3 Cortex, 4 Brio, 5 Tiny, 6 Koala Kong, 7 Dingodile, 8 Rilla Roo)
+ * for movement, animation and voice tables. Both custom characters use Cortex.
+ */
 export const DISC_CHARACTER = [1, 2, 5, 7, 3, 4, 8, 6, 3, 3] as const;
 
 /** Individual versus speaks the name at tick 31, then "wins", then the character reaction. */
