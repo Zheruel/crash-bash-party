@@ -117,8 +117,6 @@ const playAt = (id: number, x: number, height: number, z: number) => {
 };
 const playBlack = (effect: number, late = false) => play(effect === 0 ? SFX.popOthers : effect === 1 ? SFX.reverse : SFX.recolour, late);
 const DECOR = ['ddWall', 'ddClock', 'ddHands', 'ddGearA', 'ddGearB', 'ddGearC', 'ddShaft', 'ddArm', 'ddAxle'];
-/** Camera: low front view over the ring toward the clock face (fitted against docs/reference/dragonDrop). */
-export const DD_CAM = { pos: [0, 7.4, 16.2] as [number, number, number], look: [0, 2.9, 0] as [number, number, number], fov: 48 };
 
 interface BalloonV { obj: THREE.Group; body: THREE.Object3D; shadow: THREE.Object3D; slot: number }
 interface ItemV { obj: THREE.Object3D; kind: number }
@@ -401,7 +399,8 @@ export function createRingDingView(): ClientMiniGame {
             a.update(body, dt, { script: activeScript, keepYaw: win, pose,
               renderWord: script === 8 ? LAND_POSE[char - 1] + landFrame : undefined,
               scriptFrame: hit ? p?.hitFrame : spin ? spinFrame
-                : script === 0x2c ? jumpFrame : activeScript === 2 ? tauntFrame : idleFrame,
+                : script === 0x2c ? jumpFrame : activeScript === 2 ? tauntFrame
+                : script === 5 && p?.runAt !== undefined ? tick - p.runAt : idleFrame, // run: the sim times footsteps on script 5
               role: hit ? 'hit' : taunt !== undefined ? 'taunt' : spin ? 'spin' : air ? 'jump' : moving ? 'run' : 'idle' });
             a.holder.scale.setScalar(1);
           }

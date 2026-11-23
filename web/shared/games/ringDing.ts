@@ -97,7 +97,7 @@ export interface DDPlayer {
   pendingHit?: number; // attacker slot, consumed when the victim next updates
   hitFrame?: number;
   hitLandCue?: true; // FUN_800b937c: script 0x2b event 8 seen, the 0x11 voice waits for the ground
-  runAt?: number; // tick of the first run pose (script 5 frame 0)
+  runAt?: number; // snapshot tick of the first run pose (script 5 frame 0), like jumpAt
   heading?: number; // movement yaw, independent of the rendered actor yaw
   moving?: boolean;
   idleAt?: number; // first frame of the current idle script, including the pre-GO loop
@@ -235,6 +235,7 @@ function makeSlots(w: World): number[][] {
   return s;
 }
 
+/** FUN_800b4ba4 marks each object's four corner cells, FUN_80086d88 a 3x3 block around each player (grid 0x8009d90c). */
 function occupancy(d: RingDingData): Uint8Array {
   const g = new Uint8Array(400);
   const mark = (c: number, r: number) => { if (c >= 0 && c < 20 && r >= 0 && r < 20) g[r * 20 + c] = 1; };
@@ -279,6 +280,7 @@ function pick(d: RingDingData, g: Uint8Array): number[] | null {
   }
 }
 
+/** FUN_800b5d3c: rand(0x80) height, black rand(3) outcome, rand(8) drift, in that order. */
 function spawnBalloon(w: World, d: RingDingData, slot: number[], ty: number) {
   const [a, r] = slot;
   const x = (r * trig(a - 1024)) >> 12, z = (r * trig(a)) >> 12;
@@ -294,6 +296,7 @@ function spawnBalloon(w: World, d: RingDingData, slot: number[], ty: number) {
   emit(w, 'spawn', x * DD_S, -z * DD_S, o.ow, 1);
 }
 
+/** FUN_800b8e64 -> FUN_800b51a0. */
 function spawnCrate(w: World, d: RingDingData, slot: number[]) {
   const [a, r] = slot;
   const x = (r * trig(a - 1024)) >> 12, z = (r * trig(a)) >> 12;
@@ -335,7 +338,7 @@ function timers(w: World, d: RingDingData) {
       let n = 4;
       if (max - count < 4) { n = ri(w, max - count) + 1; d.tb = ri(w, 20) + 30; } else d.tb = ri(w, 10) + 20;
       if (w.params.spawnRate !== 1) d.tb = Math.max(1, Math.round(d.tb / w.params.spawnRate));
-      if (mag === -1) {
+      if (mag === -1) { // FUN_800b4dc4
         for (let i = 0; i < n; i++) {
           const s = pick(d, g);
           if (s) {
@@ -398,6 +401,7 @@ function carryCrate(c: DDCrate, speed: number) {
   [c.x, c.z] = ringPoint(c.ringRadius, c.ringAngle);
 }
 
+/** FUN_800b3a3c / FUN_800b3a9c (its tail): speed, carry of grounded players without boots and of ground crates. */
 function ring(d: RingDingData) {
   const target = d.dir * 13;
   d.rs += Math.sign(target - d.rs);
@@ -415,6 +419,7 @@ function hurt(w: World, d: RingDingData, q: DDPlayer, by: number) {
   emit(w, 'punch', q.x * DD_S, -q.z * DD_S, d.P.indexOf(q), 2, by);
 }
 
+/** FUN_800b92bc: state 0x33, script 0x2b; clears the item timer. */
 function enterHit(q: DDPlayer) {
   q.st = 2; q.t = HIT_TICKS - (q.id === 8 ? 1 : 0);
   q.hitFrame = 0;
@@ -549,7 +554,7 @@ function finishSpin(w: World, p: DDPlayer, slot: number) {
   }
 }
 
-/** The falling (or hit) handler tests the previous origin before the vertical integrator runs. */
+/** FUN_800b971c: the falling (or hit) handler tests the previous origin before the vertical integrator runs. */
 function snapJumpToFloor(p: DDPlayer) {
   if (p.ph !== 2 || p.h > 0) return false;
   p.h = p.vv = p.ph = 0;
@@ -657,9 +662,9 @@ function stepPlayer(w: World, d: RingDingData, p: DDPlayer, slot: number, inp: I
 function runSteps(w: World, p: DDPlayer, slot: number) {
   const running = p.st === 0 && p.ph === 0 && !!p.moving;
   if (!running) { delete p.runAt; return; }
-  if (p.runAt === undefined) { p.runAt = w.tick; return; }
+  if (p.runAt === undefined) { p.runAt = w.tick + 1; return; }
   const [length, left, right] = RUN_STEPS[p.id];
-  const frame = (w.tick - p.runAt) % length;
+  const frame = (w.tick + 1 - p.runAt) % length;
   if (frame === left || frame === right) emit(w, 'footstep', p.x * DD_S, -p.z * DD_S, slot, frame === left ? 0xa : 0xb, -1, undefined, p.h * DD_S);
 }
 
@@ -1008,6 +1013,7 @@ function itemMarker(p: DDPlayer, a: DDItemActor | null | undefined) {
   return onFootItemMarker(p.id, a?.script ?? 1, a?.frame ?? 0);
 }
 
+/** FUN_800b6c50: item upkeep (timers, marker 0x80 height + 0x40, 0xaa spin per update). */
 function trackCrateActor(w: World, d: RingDingData, p: DDPlayer | RingResultPlayer, slot: number, carried: number,
                          resultTick = 0, won = false) {
   const actors = d.itemActors ??= d.P.map(() => null);
@@ -1409,6 +1415,7 @@ export const ringDing: MiniGame = {
       d.P[s.slot] = {
         bid: b.id, x, z, h: 0, vv: 0, ph: 0, st: 0, t: 0, id, bot: s.bot, skill,
         v0: s.bot ? 136 : 128, gd: s.bot ? 9 : heavy ? 8 : 6, gu: s.bot ? 11 : heavy ? 13 : 11,
+        // FUN_800b90d0: speed table 0x800bb80c, CPU gear 2 = gear 1 + (skill >> 2)
         spd: s.bot ? 50 + (skill >> 2) : 50, pu: 0, put: 0, kx: 0, kz: 0, kn: 0, pA: false, pB: false,
         face: b.face, idleAt: -DD_INTRO_TICKS, cpu: newCpu(cpuRng), cpuYaw: s.bot ? actorYaw(b.face) : undefined,
       };
@@ -1460,6 +1467,7 @@ export const ringDing: MiniGame = {
       d.ph[s] = p ? p.ph : 0;
     }
     if (d.shown ? tickVersusTally(d.score, d.shown, d.t, 3) : d.t >= 2700) {
+      // FUN_800b4144 / FUN_800b3edc: stable descending sort from [0,1,2,3]; equal top two = draw (0x100), else 0x200 / 0x400.
       const order = ringDing.placements(w);
       d.draw = d.score[order[0]] === d.score[order[1]] && !!d.P[order[1]];
       d.winner = d.draw ? -1 : order[0];
