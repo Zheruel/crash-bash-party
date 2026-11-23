@@ -34,7 +34,7 @@ export class LobbyScreen {
     this.dialog.addEventListener('change', (e) => {
       const select = e.target as HTMLSelectElement;
       if (select.id !== 'party-stage' || this.room?.hostId !== this.me) return;
-      sfx.play('click');
+      sfx.play('select');
       this.h.config({ stage: select.value || null });
     });
     this.dialog.addEventListener('close', () => {
@@ -148,7 +148,7 @@ export class LobbyScreen {
     const t = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-act]');
     if (!t || !this.room) return;
     const room = this.room, my = room.seats.find(s => s.clientId === this.me);
-    sfx.play('click');
+    sfx.play('select');
     switch (t.dataset.act) {
       case 'ready': this.h.ready(!my?.ready); break;
       case 'sit': this.h.seat(true); break;

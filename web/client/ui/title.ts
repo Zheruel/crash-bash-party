@@ -80,7 +80,7 @@ export class TitleScreen {
       store.set(this.profile);
       return { name: this.profile.name.trim() || CHARACTERS[this.profile.look.char].name, look: this.profile.look };
     };
-    const join = (code: string) => { sfx.play('click'); this.h.join(grab(), code); };
+    const join = (code: string) => { sfx.play('select'); this.h.join(grab(), code); };
     const dialog = this.el.querySelector('dialog')!;
     const form = this.el.querySelector('form')!;
     form.noValidate = true;
@@ -112,15 +112,15 @@ export class TitleScreen {
         }
         dialog.close();
         if (isCode) join(input.value);
-        else { this.profile.name = input.value.trim(); store.set(this.profile); sfx.play('click'); }
+        else { this.profile.name = input.value.trim(); store.set(this.profile); sfx.play('select'); }
       };
-      sfx.play('click'); dialog.showModal(); input.focus(); input.select();
+      sfx.play('select'); dialog.showModal(); input.focus(); input.select();
     };
     $('#back', form).onclick = () => dialog.close();
     $('#rename', this.el).onclick = () => entry('name');
     $('#join', this.el).onclick = () => { if (!busy) { if (joining) join(this.room); else entry('code'); } };
     const create = $('#create', this.el);
-    if (create) create.onclick = () => { if (!busy) { sfx.play('click'); this.h.create(grab()); } };
+    if (create) create.onclick = () => { if (!busy) { sfx.play('select'); this.h.create(grab()); } };
     const solo = $('#solo', this.el);
     if (solo) solo.onclick = () => this.h.solo?.(grab());
     const mine = $('#mine', this.el);

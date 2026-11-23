@@ -54,7 +54,7 @@ Nothing was listened to by a human.
   "simple" interpolation, which is brighter than the hardware's Gaussian (no top-octave droop, stronger images), so the rendered
   files sit between the old ones and that capture above 6 kHz and 2-6 dB under it in 3-6 kHz.
 * Tone ADSR is not applied (all voice and announcer tones are 0x800f / 0x1fc4: instant attack, full sustain).
-* UI sounds (`sfx.ui.guesses`) are guesses from duration/spectrum only (short sharp one-shots in 0272/0273).
+* `sfx.ui.guesses` in index.json are unused guesses; the client plays the menu ids listed under Announcer.
 * Level SFX banks are in `sfx.levelBanks[<level name>]`; global banks: 0153, titles 0273, warp rooms 0272, podium 0181.
 * Banks 0214-0271 are single 10-20 s samples: the Aku Aku / Uka Uka narration of the adventure mode (warp-room progress lines and
   the intro / ending dialogue; transcribed with faster-whisper, e.g. 0217 "...you must defeat the mighty Papu Papu", 0268 "Crash,
@@ -114,11 +114,11 @@ Nothing was listened to by a human.
   | 0xf | pick-up | c | Crate Crush script 0xf |
   | 0x10 | throw | c | Crate Crush script 0x12 (Pogo asks for it too, but the `a2` banks have no such tone) |
   | 0x11 | swish (unvoiced) | c | not found in a script |
-  | 0x14, 0x15, 0x1a | the polar bear's steps (one sample at 1, 0.871, 0.667) | b | Polar script 0x43 |
+  | 0x14, 0x15, 0x1a | on-foot footsteps (one sample at 1, 0.871, 0.667) | b | Polar script 0x43 |
   | 0x16 | dash start | b | Polar script 0x3e, engine 8 only (tick 1) |
   | 0x17 | short call | b | not found in a script |
   | 0x18 | dash | b | Polar script 0x3e at tick 15, 14, 30, 30, 23, 12, 16, 16 for engine 1-8; script 0x46 |
-  | 0x19 (0x1a, 0x1b for Cortex) | teeter yelps | b | Polar script 0x46 |
+  | 0x19-0x1b (0x1a, 0x1b for Cortex), 0x1c | win cheers; 0x1c is Cortex's on-foot dash | b | Polar script 0x46 |
 
   All tones: volume 127, pan 64, no reverb. `tools/sfx_pitch.py` writes `voices.json` and `pitch.json` from the VABs and the exe table.
 * Scripts can name another character's id (Keg Kaboom: Cortex's jump is Tiny's 0x138, Dingodile's landing is Tiny's 0x139).
@@ -139,9 +139,15 @@ Nothing was listened to by a human.
   engine 1-8 -> ids 910, 911, 913, 912, 916, 917, 914, 915 = the win reaction of Crash, Coco, Tiny and Koala Kong and the taunt of
   Cortex, Brio, Dingodile and Rilla Roo. Emulator captures of all eight confirms match these samples (correlation 0.4-0.75 under the
   menu music, on the press); `confirmHero` plays them, and the capture of our app correlates 0.69-0.77 with the emulator's.
+* Menu blips (`Sfx` in `sound.ts`): the titles / level-select / options code (`FUN_800babec`, `FUN_8008f554`, `FUN_80090e20`) keys
+  0x190 on every cursor step, 0x192 on a confirm and 0x195 on back, all at 0x1000 / 0x1e00 without a position. They are the
+  one-shot samples `sfx/0274/1.mp3`, `sfx/0274/2.mp3` and `sfx/0272/7.mp3`. The client plays exactly these for its own menus
+  (buttons, stage vote, stage reel). Every other party-UI cue (points tally, emotes, wheel whoosh, awards, "AND THE WINNER IS")
+  has no original counterpart and is silent; the podium scene brings its own bank-0181 cues.
 * Stage names: the disc has no recording of an arena name. The arena is named in text on the CHOOSE LEVEL screen and the rules
-  card. A 40 s capture from the game options screen through loading to the rules card contains no speech. `announceStage` (TTS in
-  `sfx/custom/stages`) is ours.
+  card. A 40 s capture from the game options screen through loading to the rules card contains no speech. Nothing announces a
+  stage; `announceStage` / `preloadStageCall` (TTS in `sfx/custom/stages`) are ours and no longer called.
+* Nothing is synthesised: `sound.ts` has no oscillator or noise code.
 * Podium (family 0x102): no character bank is loaded. The winner's crowd cheer is 0x352 (engine 1, 2), 0x354 (3, 4, 6, 8) or 0x353
   (5, 7) from bank 0181.
 
@@ -157,7 +163,7 @@ Both run Cortex's scripts (engine 3). `CUSTOM_VOICES` gives them a recording for
 3-6 hit (two takes; 5 / 6 replay them at Cortex's 0.96 pitch), 7 win, 0xc-0x10 and 0x16-0x1b the effort take (Top G: his dash take
 for 0x16 / 0x18, his pick-up take for 0xf). Foley ids (0xa, 0xb, 0x11, 0x14, 0x15, 0x1c) come from Cortex's bank. `level` brings the
 hit, taunt and win takes to the stock roster's mean level for that cue (they were 1.5-4 dB under it). On the title screen they play
-their taunt, as Cortex does. Not recorded: a separate jump, land, throw or teeter take, a third and fourth hit take, and for Big
+their taunt, as Cortex does. Not recorded: a separate jump, land, throw or win-cheer take, a third and fourth hit take, and for Big
 Stein a dash and a pick-up take.
 
 ## Not rendered / unknown
