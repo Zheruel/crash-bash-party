@@ -1,0 +1,174 @@
+addr	status	ours	note
+800b35cc	match	web/shared/games/dashRace.ts:1419	target draw: rand(4), rand(0x1000) vs weight<<19/sum; equal weights -> 4096/live
+800b372c	match	web/shared/games/dashRace.ts:1412	Splash hop probe 64 ahead
+800b3890	match	web/shared/games/dashRace.ts:1389	Toxic barrel avoidance, boost off
+800b3a9c	n/a(Ghidra fragment of 800b3890)		
+800b3bc0	match	web/shared/games/dashRace.ts:1403	Toxic blob avoidance
+800b3e60	match	web/shared/games/dashRace.ts:1324	ray/circle quadratic, Q6 sqrt
+800b406c	match	web/shared/games/dashRace.ts:1419	Toxic shield use within 768
+800b41dc	match	web/shared/games/dashRace.ts:1419	missile use: ahead >99 and on the 2048 ray; called before the Toxic hazard probes, no RNG in those so order is equivalent
+800b442c	match	web/shared/games/dashRace.ts:1366	kart avoidance, not Dot
+800b4708	match	web/shared/games/dashRace.ts:1348	CPU per frame: chase or steer callback, avoidance, items, hazards
+800b478c	n/a(Ghidra fragment of 800b4708)		
+800b48ec	match	web/shared/games/dashRace.ts:1177	yaw/bank smoothing
+800b4a4c	match	web/shared/games/dashRace.ts:252	player setup: movement/CPU/result callbacks, AI tables
+800b4d64	n/a(no caller or pointer in the overlay: sector lookup by polar angle)		
+800b4edc	match	web/shared/games/dashRace.ts:1380	line steering: hub group 0 near probe, outer far probe
+800b5360	match	web/shared/games/dashRace.ts:1380	steer callback: always run+boost then 800b4edc
+800b53d4	n/a(Ghidra fragment of 800b5360)		
+800b5410	n/a(Ghidra fragment of 800b5360)		
+800b5528	match	web/shared/games/dashRace.ts:1379	chase steering +-500, run only
+800b5660	match	web/shared/games/dashRace.ts:1358	chase callback: re-test pickup, fall back to 800b5360
+800b566c	n/a(Ghidra fragment of 800b5660)		
+800b5778	match	web/shared/games/dashRace.ts:256	Splash spoke setup, 6 rand(5) draws
+800b5a40	n/a(Ghidra fragment of 800b5778)		
+800b5a70	match	web/shared/games/dashRace.ts:686	spoke pattern state machine, sfx 0x673/0x674
+800b5d14	match	web/shared/games/dashRace.ts:686	Splash spokes per frame, yaw +-4
+800b5f04	match	web/shared/games/dashRace.ts:269	Toxic barrel objects from 0x800c6f88
+800b6108	match	web/shared/games/dashRace.ts:733	barrel contact pass in seat order, sfx 0x663/0x664
+800b627c	n/a(Ghidra fragment of 800b6108)		
+800b62f4	n/a(no caller or pointer: barrel-barrel separation)		
+800b6474	match	web/client/games/dashRace.ts:565	barrel timers (state 2 only), respawn script 9
+800b66c4	match	web/shared/games/dashRace.ts:286	triangle distance, 8 fractional bits
+800b6dbc	match	web/shared/games/dashRace.ts:315	wall push radius 220, Dot outer rail deflects
+800b7190	match	web/shared/games/dashRace.ts:334	segment group query (fall edge, missile walls)
+800b76a4	n/a(no caller or pointer: animated-mesh collision query)		
+800b7d94	n/a(no caller or pointer: collision query variant)		
+800b7ed8	n/a(only called by the dead 800b7d94/7ee4/8098 queries)		
+800b7ee4	n/a(no caller or pointer in the overlay: collision query variant)		
+800b8098	n/a(no caller or pointer in the overlay: collision query variant)		
+800b82fc	match	web/shared/games/dashRace.ts:377	Splash spoke box contact, face 4 kick
+800b8890	match	web/client/games/dashRace.ts:374	stage init: ambience 0x42e/0x672, monster, spokes
+800b8d68	match	web/shared/games/dashRace.ts:1097	stage per frame: pickup counter, spawners, barrels, spokes, Dante lava word
+800b8f04	match	web/shared/games/dashRace.ts:74	Splash physics overrides
+800b8fd8	match	web/shared/games/dashRace.ts:474	pad -> targets, boost fuel
+800b96b0	n/a(no caller or pointer: radial clamp at 0xafc/0x460)		
+800b96f4	match	web/client/scene/podiumCam.ts:1	result camera fit
+800b980c	match	web/shared/games/dashRace.ts:474	velocity ramp, move, walls, fall edge, laps
+800b9e50	n/a(only called by the dead 800ba004)		
+800ba004	n/a(no caller or pointer: Euler to matrix)		
+800ba278	match	web/shared/games/dashRace.ts:436	0x5b drive update: motors, exhaust 0x1709/0x170a/0x1711, item use, hop test
+800bad54	match	web/shared/games/dashRace.ts:168	0x61 enter: polar angle, item cleared, script 0x4b/0x54, sfx 0x650+p
+800bafc8	match	web/shared/games/dashRace.ts:436	0x61 update: clip, respawn burst script 9/5, sfx 0x655, two bounces
+800bb184	n/a(Ghidra fragment of 800bafc8; sfx 0x66a only in the Toxic special mode 0x80)		
+800bb4fc	n/a(Ghidra fragment of 800bafc8)		
+800bb878	n/a(state 0x5c update; 0x5c is entered only from the dead 800c55a4)		
+800bba04	match	web/shared/games/dashRace.ts:168	0x5d enter: counter 60, vy -160, g 10/20, script 0x4a, hurt voice rand(4) (Splash: pilot cue), rumble
+800bc0a4	match	web/shared/games/dashRace.ts:626	0x5d update
+800bc2d0	match	web/shared/games/dashRace.ts:996	0x5e enter: vy -0x44, sfx 0x68d+p
+800bc4b0	match	web/shared/games/dashRace.ts:1137	0x5e update: two bounces, targets cleared on re-entry
+800bc6c8	n/a(state 0x60 update; 0x60 is entered only from the dead 800bcd1c)		
+800bc7c4	n/a(state 0x5f update; no FUN_800868b4(p, 0x5f) call exists)		
+800bc984	match	web/shared/games/dashRace.ts:661	use item: missile 0x1701 / shield 0x1708 (TNT 0x1703 and 0x1704 items never spawn in versus)
+800bcc20	match	web/shared/games/dashRace.ts:996	hop trigger: fresh Cross press for humans, held bit for CPUs
+800bcd1c	n/a(no caller or pointer: off-track spin entry)		
+800bcdac	match	web/shared/games/dashRace.ts:1172	0x62 enter: stop, script 0x48
+800bce88	n/a(team result routine (mode flags 0x20/0x40/0x80); the party plays individual versus)		
+800bd99c	match	web/shared/games/dashRace.ts:1436	individual result: stable sort by remaining laps, equal leaders draw, winner 0x200 / losers 0x8400
+800be7b4	match	web/shared/games/dashRace.ts:746	barrel velocity exchange, masses 256/128
+800be914	match	web/shared/games/dashRace.ts:1225	kart velocity exchange, boost clamp
+800bebc0	match	web/shared/games/dashRace.ts:1211	kart contacts; the item 0x10 hand-over (sfx 0x454) never occurs in versus
+800bf0f8	match	web/shared/games/dashRace.ts:1296	missile hit: not owner, not 0x61, |dy|<=0x180, d2<0x24000
+800bf2b8	match	web/shared/games/dashRace.ts:661	missile init: 128 above the kart, sfx 0x522
+800bf460	match	web/shared/games/dashRace.ts:675	missile update: 140/frame, trail every 3, three reflections, radius 3840
+800bfc38	match	web/client/games/dashRace.ts:103	pickup init: part words by type
+800bfd84	match	web/shared/games/dashRace.ts:215	pickup update/collect: lowest seat, shield consumes, fruit +0x2000
+800c0218	match	web/shared/games/dashRace.ts:1005	lap line z=-493, sfx 0x656+p, tenth lap dispatches the result
+800c04ec	match	web/shared/games/dashRace.ts:193	fruit spawner: target 3/4/5, cooldown 30, type draws rand(5|4)+rand(0x1000); held-item markers
+800c0cb4	fixed	web/shared/games/dashRace.ts:193	crate spawner; the slot is claimed before FUN_80022a3c, so a crate the full Dante pool cannot create keeps its slot
+800c0f5c	n/a(empty)		
+800c0f68	n/a(TNT 0x1703 update; pickup types 1/2/4 never spawn in versus)		
+800c12f0	n/a(object 0x1704 init; never spawned in versus)		
+800c142c	n/a(object 0x1704 update; never spawned in versus)		
+800c1cfc	match	web/shared/games/dashRace.ts:1046	shield 0x1708: ring + sfx 0x43a, 15 pushes within 900
+800c1ffc	n/a(lightning 0x1706 update; pickup type 4 never spawns in versus)		
+800c2284	match	web/shared/games/dashRace.ts:272	volcano 0x1707 init, three rock yaws
+800c2388	match	web/shared/games/dashRace.ts:865	volcano update: 450 wait, rumble 0x69a, rocks, sfx 0x69b-0x69f
+800c2e10	match	web/shared/games/dashRace.ts:768	Toxic monster: rise/attack/sink, sfx 0x665-0x669, blobs
+800c310c	n/a(rolling ball 0x170c helper; 0x170c is never spawned)		
+800c32bc	n/a(rolling ball 0x170c init; never spawned)		
+800c3494	n/a(rolling ball 0x170c update; never spawned)		
+800c3738	match	web/shared/games/dashRace.ts:101	blob 0x170d init
+800c3934	match	web/shared/games/dashRace.ts:804	blob 0x170d update: land, wait 92, crawl tangent, kart hit r256
+800c3d3c	n/a(alternate volcano 0x170e init; mode flag 0x80 only)		
+800c3f68	n/a(alternate volcano 0x170e update (sfx 0x6a0/0x6a1); mode flag 0x80 only)		
+800c44b0	n/a(engine on-foot speed table; Dash replaces the movement callbacks)		
+800c4618	match	web/client/games/dashRace.ts:71	Splash spray 0x1711 update
+800c4638	match	web/client/games/dashRace.ts:71	Splash spray 0x1711 init, pack 0760
+800c467c	match	web/shared/games/dashRace.ts:215	pickup/respawn bounce, vy -0x2000 g 0x200
+800c4774	match	web/shared/games/dashRace.ts:270	monster 0x170b init, timer 240+rand(90)
+800c4810	n/a(ring object 0x161e update; not spawned by this overlay)		
+800c48e8	n/a(ring object 0x161e init; not spawned by this overlay)		
+800c49dc	n/a(ring object 0x161d update; not spawned by this overlay)		
+800c4abc	n/a(ring object 0x161d init; not spawned by this overlay)		
+800c4bb0	n/a(green puff 0x1710 update; Toxic special mode only)		
+800c4bd0	n/a(green puff 0x1710 init; Toxic special mode only)		
+800c4c14	n/a(green puff 0x170f update; Toxic special mode only)		
+800c4c34	n/a(green puff 0x170f init; Toxic special mode only)		
+800c4c98	match	web/client/games/dashRace.ts:71	run smoke 0x1709 update
+800c4cb8	match	web/client/games/dashRace.ts:71	run smoke 0x1709 init, pack 0403, flag 0x21
+800c4d70	n/a(lightning 0x1706 init (sfx 0x452); never spawned in versus)		
+800c4db8	match	web/shared/games/dashRace.ts:1046	shield 0x1708 init
+800c4df8	n/a(object 0x1705 update; spawned only by the dead 800c5470)		
+800c4e18	n/a(object 0x1705 init; spawned only by the dead 800c5470)		
+800c4e54	n/a(no caller or pointer)		
+800c4f30	n/a(no caller or pointer)		
+800c5028	match	web/client/games/dashRace.ts:70	boost flame 0x170a update
+800c5048	match	web/client/games/dashRace.ts:70	boost flame 0x170a init
+800c50b0	n/a(no caller or pointer)		
+800c5154	match	web/shared/games/dashRace.ts:661	missile spawn at the kart
+800c5334	n/a(no caller or pointer: debug progress print)		
+800c53bc	match	web/shared/games/dashRace.ts:1172	0x62 update: cheer, result steering to yaw 0
+800c5400	match	web/shared/games/dashRace.ts:1172	winner flag 0x200 -> 0x62
+800c5470	n/a(no caller or pointer: spawns 0x1705)		
+800c554c	n/a(no caller or pointer: 0x5c exit test)		
+800c55a4	n/a(no caller or pointer: 0x5c square-hop entry)		
+800c5640	n/a(no caller or pointer)		
+800c56d4	n/a(state 0x60 enter; 0x60 is entered only from the dead 800bcd1c)		
+800c57b4	match	web/shared/games/dashRace.ts:168	0x5b enter: script 0x48 (Splash 0x52), targets cleared
+800c5918	match	web/shared/games/dashRace.ts:252	player reset: 0x5b, yaw 0
+800c5978	n/a(no caller or pointer: generic gravity)		
+800c5b08	n/a(no caller or pointer)		
+800c5b84	n/a(empty)		
+800c5b94	n/a(no caller or pointer: rolling ball 0x170c spawner)		
+800c5bec	n/a(no caller or pointer: copy of the lava word update in 800b8d68)		
+800c5c64	match	web/shared/games/dashRace.ts:1358	nearest pickup, 2D distance
+800c5d8c	match	web/shared/games/dashRace.ts:1348	CPU callback -> 800b4708
+800c5dac	n/a(no caller or pointer: same chase test that 800b4708 inlines)		
+800c5f54	match	web/shared/games/dashRace.ts:252	overlay entry: stage callbacks
+80011d28	n/a(engine animation bookkeeping; the view samples the scripts directly)		
+80015a18	match		render word -> part descriptor; ModelInstance.nativePose; not cited by address
+8001682c	n/a(engine texture upload at stage init)		
+80017640	n/a(engine render list flush)		
+800228a4	n/a(engine helper called only by the dead lightning 0x1706)		
+80024e30	n/a(engine animation component init; flip-book timing is matched in the view)		
+800250b0	n/a(engine animation component step; flip-book timing is matched in the view)		
+80025fac	n/a(engine animation select; monster/blob clips set in the view)		
+8002672c	match	web/shared/games/dantePool.ts:1	component allocation, Dante pool sizes
+8002689c	match	web/shared/games/dantePool.ts:1	gameplay-data allocation, Dante pool sizes
+80026980	n/a(engine object list unlink)		
+80026b70	match	web/shared/games/dantePool.ts:2	reflection link, Dante pool
+800270b0	n/a(engine release used only by the dead 0x161d/0x161e rings)		
+80027f7c	match	web/client/shell/rumble.ts:1	cited port
+80028018	match	web/client/shell/rumble.ts:1	cited port
+800322fc	n/a(debug printf)		
+80032490	match	web/shared/ps1Sqrt.ts:1	cited port
+8003278c	match	web/shared/fitCamera.ts:42	cited port
+80032cac	match	web/shared/games/pushOff.ts:1150	cited port
+800330cc	match	web/shared/fitCamera.ts:61	cited port
+8003322c	n/a(memset)		
+8007b7fc	match	web/shared/games/pushOff.ts:1958	cited port
+8007eb1c	match	web/shared/games/dashRace.ts:253	clock start (shared arenaClock)
+8008502c	match	web/shared/games/kegKaboomData.ts:2	cited port
+800854c0	match	web/shared/games/kegKaboom.ts:133	cited port
+80085718	match	web/client/games/kegKaboomResult.ts:9	cited port
+80085890	match	web/client/games/dashRaceResult.ts:12	cited port
+80089fa4	match	web/shared/games/ballDefence.ts:839	cited port
+8008a200	match	web/shared/games/crateToss.ts:836	cited port
+8008a810	n/a(engine result flow flag)		
+8008b29c	fixed	web/client/games/dashRace.ts:401	kart shadow: pack 0403 mesh 0x202f, scale 0x2000, shade 0x400, subtractive; replaced the generic blob
+8008b418	fixed	web/client/games/dashRace.ts:401	kart shadow per frame: kart X/Z at Y 0, kart yaw, hidden with flags 0xa400
+8008c4c8	match	web/shared/games/dashRace.ts:1340	cited port
+8008c5c4	match	web/shared/games/dashRace.ts:816	cited port
+8008ce20	n/a(engine model descriptor lookup inside 800b82fc)		
+8008ceb0	match	web/shared/games/dashRace.ts:1358	2D distance squared
