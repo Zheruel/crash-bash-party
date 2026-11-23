@@ -26,7 +26,7 @@ import { GameClient, type Status } from './session';
 import { initPortraits, resetPortraits } from './shell/avatar';
 import { Confetti } from './shell/confetti';
 import { sfx } from './shell/sound';
-import { announceHero, preloadRoundVoices } from './shell/voice';
+import { announceHero, announceStage, preloadRoundVoices, preloadStageCall } from './shell/voice';
 import { TouchControls } from './shell/touch';
 import { FinalOverlay } from './ui/final';
 import { $, div, esc } from './ui/dom';
@@ -593,6 +593,10 @@ export class App {
         this.results.hide();
         this.touch.show(false);
         this.showIntro(ms);
+        const c = this.client;
+        if (c?.room?.stage && c.round?.round === 1 && performance.now() - c.phaseStartedAt < 250) {
+          announceStage(c.round.gameId, c.round.variant?.id);
+        }
         this.input.capture = this.canCaptureArenaKeys();
         break;
       case 'countdown':
@@ -701,6 +705,7 @@ export class App {
     this.ps1hud.preloadRound(chars);
     this.count.preloadVoices();
     preloadRoundVoices(m.gameId, chars);
+    if (this.client?.room?.stage && m.round === 1) preloadStageCall(m.gameId, m.variant?.id);
     this.input.game = m.gameId;
     this.input.variant = m.variant?.id ?? this.variantInfo()?.id;
     this.touch.configure(this.input.game, this.input.variant);

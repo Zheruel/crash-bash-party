@@ -135,6 +135,18 @@ export function announceHero(char: number, family: VoiceFamily = 'c') {
   else charVoice(family, char, 1);
 }
 
+function stageCall(game: string, variant?: string | null) {
+  return `sfx/custom/stages/${game}${variant ? '_' + variant : ''}.mp3`;
+}
+
+export function preloadStageCall(game: string, variant?: string | null) {
+  sfx.preloadFile(stageCall(game, variant));
+}
+
+export function announceStage(game: string, variant?: string | null) {
+  sfx.playFile(stageCall(game, variant), .85, true);
+}
+
 /** FUN_80089fa4 / FUN_8008a200, individual versus. A wait of N skips N whole updates. */
 export function winnerVoice(game: string, char: number, previousFrame: number, frame: number) {
   const family = RESULT_BANK[game];

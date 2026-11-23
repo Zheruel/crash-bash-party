@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { ballistixSlidesHorizontally } from '../../shared/games/ballDefence';
 import { COUNT_FRAMES, COUNT_LABELS, type ResultsMsg, type RoundMsg, type StageBallot, type StageOption, type WheelMsg } from '../../shared/protocol';
 import { sfx, sfxRate } from '../shell/sound';
+import { announceStage, preloadStageCall } from '../shell/voice';
 import { ASSET_BASE, ModelInstance, ready } from '../crash';
 import { div, esc, face, icon, MENU_PLAYERS, pop } from './dom';
 import type { SeatView } from './hud';
@@ -136,6 +137,8 @@ export class WheelOverlay {
   run(m: WheelMsg, turnLabel: string) {
     this.hide();
     const token = this.token;
+    const picked = m.options[m.pick];
+    preloadStageCall(picked.gameId, picked.variantId);
     const n = m.options.length;
     // a long strip: several laps, the pick lands on card LAND
     const LAPS = 2, LAND = LAPS * n + m.pick, total = LAND + 4;
@@ -153,8 +156,9 @@ export class WheelOverlay {
     const first = strip.firstElementChild as HTMLElement;
     const second = first.nextElementSibling as HTMLElement;
     const elapsed = m.elapsedMs ?? 0;
-    const spinMs = Math.max(1, (m.ms + elapsed) * 0.65);
+    const spinMs = Math.max(1, (m.ms + elapsed) * 0.52);
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const announce = m.ms > 300 && elapsed < spinMs + 250;
     const start = performance.now() - elapsed;
     let last = -1;
     const frame = (now: number) => {
@@ -168,12 +172,12 @@ export class WheelOverlay {
       const under = Math.floor((reel.clientWidth / 2 - x) / step);
       if (k < 1 && under !== last) { last = under; if (!sfx.playFile(MENU_MOVE, 0.35 + 0.4 * (1 - k))) sfx.play('tick', 0.8 + 0.4 * (1 - k)); }
       if (k < 1) { this.raf = requestAnimationFrame(frame); return; }
-      this.land(m, strip.querySelector(`.rcard[data-i="${LAND}"]`) as HTMLElement, token);
+      this.land(m, strip.querySelector(`.rcard[data-i="${LAND}"]`) as HTMLElement, token, announce);
     };
     this.raf = requestAnimationFrame(frame);
   }
 
-  private land(m: WheelMsg, card: HTMLElement, token: number) {
+  private land(m: WheelMsg, card: HTMLElement, token: number, announce: boolean) {
     if (!sfx.playFile(MENU_SELECT, 0.8)) sfx.play('reveal');
     this.el.classList.add('landed');
     const reel = card.closest<HTMLElement>('.reel')!;
@@ -185,7 +189,9 @@ export class WheelOverlay {
     this.resize = new ResizeObserver(align);
     this.resize.observe(reel);
     card.classList.add('win');
-    this.el.querySelector('.wheel-announcement')!.textContent = m.options[m.pick].name;
+    const stage = m.options[m.pick];
+    this.el.querySelector('.wheel-announcement')!.textContent = stage.name;
+    if (announce) this.timers.push(window.setTimeout(() => announceStage(stage.gameId, stage.variantId), 70));
     if (m.modifier) {
       const mod = this.el.querySelector('.wheel-mod') as HTMLElement;
       mod.innerHTML = `<img class="uka" src="${UKA}" alt="" draggable="false"><div class="bubble"><b class="gt red">${esc(m.modifier.name.toUpperCase())}</b><span class="sm">${esc(m.modifier.desc)}</span></div>`;
@@ -195,7 +201,7 @@ export class WheelOverlay {
         // Uka Uka barges in: red flash, the reel shakes, the picked card is shoved crooked
         this.el.classList.remove('twisted'); void this.el.offsetWidth; this.el.classList.add('twisted');
         sfx.play('chaos');
-      }, Math.min(700, m.ms * 0.14)));
+      }, Math.min(1350, m.ms * 0.45)));
     }
   }
 }
