@@ -4,13 +4,14 @@ import * as THREE from 'three';
 import { createCharacter } from '../characters';
 import { createRingDingOpening, createRingDingResult, ddBalloonBob, ddHeldItem, DD_INTRO_TICKS, DD_LANDING_TICKS, DD_LOSE_SCALE_STEP, DD_S, type RingDingData } from '../../shared/games/ringDing';
 import type { Body, GameEvent } from '../../shared/types';
-import type { BlobShadow } from '../fx';
 import { getCatalog } from '../crash';
 import { sfx, sfxRate } from '../shell/sound';
-import { charVoice } from '../shell/voice';
+import { charVoice, VOICE_VOL } from '../shell/voice';
+import { discStereo } from '../shell/discStereo';
+import { DISC_CHARACTER } from '../../shared/look';
 import { Actor, Kit, catalogInstance, nativeCharScale, preloadCatalogFor } from './kit';
 import { poseTicks } from './playerPose';
-import { preloadFx } from './realFx';
+import { pickupShadow, preloadFx } from './realFx';
 import { specialCrate } from './partyBits';
 import { applyPose, LEVEL_CAMS, levelStage, loadPlacements, ps1Pose, type Placements } from './ps1cam';
 let placements: Placements | null = null;
@@ -49,13 +50,25 @@ const DD_SFX: Record<number, [string, number]> = {
   0x3f7: ['sfx/0158/12.mp3', 0.919],
   0x3f8: ['sfx/0159/10.mp3', 0.919],
   0x3fa: ['sfx/0158/9.mp3', 1],
+  0x446: ['sfx/0164/32.mp3', 1],
+  0x447: ['sfx/0164/33.mp3', 1],
+  0x448: ['sfx/0164/32.mp3', 0.944],
+  0x449: ['sfx/0164/33.mp3', 0.944],
 };
-/** pops per balloon type 8..11: rand 4 of these ids (DAT_800bb8e8) */
-const POP_SFX: Record<number, number[]> = { 8: [0x5dc, 0x5dd, 0x5de, 0x5df], 9: [0x5e0, 0x5e1, 0x5e2, 0x5e3], 10: [0x5e4, 0x5e5, 0x5e6, 0x5e7], 11: [0x5e8, 0x5e9, 0x5ea, 0x5eb] };
-const SLOT_TYPE = [11, 8, 9, 10]; // player index -> balloon type
-const POSE_VOICE: Record<string, number> = { jump: 0xc, land: 0xd, taunt: 2, hurt: 3 };
+/** Script voices: jump 0x2c, taunt 2 and spin 10 use `0x800a` (the player's handle, no position; Koala's spin is a plain
+ *  `0x8008`), landing 8 and hit 0x2b use `0x8009` (at the player). Footsteps (FUN_80087b8c) and the hit's 0x11 call
+ *  (FUN_800b937c) are positional too. */
+const POSE_VOICE: Record<string, number> = { jump: 0xc, land: 0xd, taunt: 2, hurt: 3, hitland: 0x11 };
+const HANDLE_CUES = new Set([2, 0xc, 0xe]);
+/** DAT_8005a5d8: the floor's native Y (Y points down). */
+const FLOOR_Y = -16;
+/** FUN_8002b210 reads the fixed level camera (level 0x1b). */
+const SOUND_CAM = LEVEL_CAMS[27];
+const nativeOrigin = (x: number, height: number, z: number): [number, number, number] =>
+  [Math.round(x / DD_S), FLOOR_Y - Math.round(height / DD_S), Math.round(-z / DD_S)];
+const stereoAt = (x: number, height: number, z: number) => discStereo(SOUND_CAM, ...nativeOrigin(x, height, z));
 /** Balloon pack 0794: pop scripts by displayed colour (table 0x800bb89c = [3,2,0,1], black 4); crate pack 0796 script 2 = '?' crate break. */
-const PACK = 794, CRATES = 796, POP_FX = [3, 2, 0, 1], S = 3.4;
+const PACK = 794, CRATES = 796, PICKUPS = 736, POP_FX = [3, 2, 0, 1], S = 3.4;
 // The native render words 0x2014 and 0x2015 are one-based part numbers.
 const CRATE_MODELS = [
   { model: CRATES, scale: S, parts: ['part19'] },
@@ -95,13 +108,19 @@ function resultFace(face: number, tick: number): number {
 }
 
 const SFX = { black: 0x5ed, recolour: 0x5ee, flash: 0x5ef, reverse: 0x5f0, popOthers: 0x5f1, magnet: 0x5f2, hover: 0x5f3, crate: 0x3fa };
-const play = (id: number, vol: number, late = false) => { const t = DD_SFX[id]; if (t) sfx.playFile(t[0], vol, late, t[1]); };
-const playBlack = (effect: number, late = false) => play(effect === 0 ? SFX.popOthers : effect === 1 ? SFX.reverse : SFX.recolour, 0.8, late);
+/** Every 0180 tone and program has volume 127 and pan 64 and every call keys at 0x1000: no position = full level, centred. */
+const play = (id: number, late = false) => { const t = DD_SFX[id]; if (t) sfx.playFile(t[0], 1, late, t[1]); };
+/** A call with a position: FUN_8002b210 fades by distance from the camera target and pans by screen X. */
+const playAt = (id: number, x: number, height: number, z: number) => {
+  const t = DD_SFX[id];
+  if (t) sfx.startSample(t[0], null, 1, t[1], 0, stereoAt(x, height, z));
+};
+const playBlack = (effect: number, late = false) => play(effect === 0 ? SFX.popOthers : effect === 1 ? SFX.reverse : SFX.recolour, late);
 const DECOR = ['ddWall', 'ddClock', 'ddHands', 'ddGearA', 'ddGearB', 'ddGearC', 'ddShaft', 'ddArm', 'ddAxle'];
 /** Camera: low front view over the ring toward the clock face (fitted against docs/reference/dragonDrop). */
 export const DD_CAM = { pos: [0, 7.4, 16.2] as [number, number, number], look: [0, 2.9, 0] as [number, number, number], fov: 48 };
 
-interface BalloonV { obj: THREE.Group; body: THREE.Object3D; shadow: BlobShadow; slot: number }
+interface BalloonV { obj: THREE.Group; body: THREE.Object3D; shadow: THREE.Object3D; slot: number }
 interface ItemV { obj: THREE.Object3D; kind: number }
 
 export function createRingDingView(): ClientMiniGame {
@@ -118,21 +137,47 @@ export function createRingDingView(): ClientMiniGame {
   // FUN_800b9eec marks each loser gone on the tick that spawns its colour burst.
   const poppedLosers = new Set<number>();
   let stopClock: (() => void) | undefined;
-  const equippedSounds = new Map<number, { kind: number; source?: number; stop: () => void }>();
-  const poseCues: { tick: number; slot: number; cue: number }[] = [];
+  const equippedSounds = new Map<number, { kind: number; source?: number; stop: () => void; setStereo: (levels: [number, number]) => void }>();
+  /** A voice or effect timed by the player's pose clock. `sfx` marks a level-bank id, otherwise `cue` is a script voice. */
+  const poseCues: { tick: number; slot: number; cue: number; sfx?: boolean }[] = [];
+  /** The `0x800a` handle at player +0x94: a new call cuts the last; FUN_800b92bc stops it on hit entry. */
+  const voiceHandles = new Map<number, () => void>();
   function clockSound() {
     stopClock?.();
-    stopClock = sfx.loopFile(DD_SFX[0x5ec][0], 0.0034, 0.55);
+    stopClock = sfx.loopFile(DD_SFX[0x5ec][0], 0.0034, 1);
   }
-  function equippedSound(slot: number, kind: number, source?: number, elapsed = 0) {
+  /** FUN_800b5a40 keys 0x5f3 / 0x5f2 on the item's handle with its live origin, so the stereo follows the item. */
+  function equippedSound(slot: number, kind: number, source?: number, elapsed = 0, at?: [number, number, number]) {
     const current = equippedSounds.get(slot);
-    if (current?.kind === kind && current.source === source) return;
+    if (current?.kind === kind && current.source === source) {
+      if (at) current.setStereo(stereoAt(...at));
+      return;
+    }
     current?.stop();
     equippedSounds.delete(slot);
     if (!kind) return;
     const [file, rate] = DD_SFX[kind];
-    const sample = sfx.startSample(file, kind === SFX.hover ? 0.315 : 1.067, 0.8, rate, elapsed / 30 * rate);
-    if (sample) equippedSounds.set(slot, { kind, source, stop: sample.stop });
+    const sample = sfx.startSample(file, kind === SFX.hover ? 0.315 : 1.067, 1, rate, elapsed / 30 * rate, at ? stereoAt(...at) : [1, 1]);
+    if (sample) equippedSounds.set(slot, { kind, source, stop: sample.stop, setStereo: sample.setStereo });
+  }
+  function playCue(ctx: Parameters<ClientMiniGame['render']>[0], slot: number, cue: number, levelSound: boolean) {
+    const a = kit.actorForSlot(slot);
+    const at = a ? [a.holder.position.x, a.holder.position.y, a.holder.position.z] as const : undefined;
+    if (levelSound) {
+      if (at) playAt(cue, ...at); else play(cue);
+      return;
+    }
+    const look = ctx.seats[slot]?.look.char;
+    if (cue === 3) { voiceHandles.get(slot)?.(); voiceHandles.delete(slot); }
+    const engine = look === undefined ? 1 : DISC_CHARACTER[look] ?? 1;
+    const handle = HANDLE_CUES.has(cue) && !(cue === 0xe && engine === 8);
+    const stereo: [number, number] | undefined = HANDLE_CUES.has(cue) || !at ? undefined : stereoAt(...at);
+    charVoice('c', look, cue, 0, VOICE_VOL, undefined, (file, volume, rate) => {
+      if (handle) voiceHandles.get(slot)?.();
+      const stop = sfx.startSample(file, null, volume, rate, 0, stereo)?.stop;
+      if (handle && stop) voiceHandles.set(slot, stop);
+      return stop;
+    });
   }
 
   /** the real balloon of pack 0794: parts 0-3 = blue / green / red / yellow, part 4 black; colour per owner from table 0x800bb89c */
@@ -143,23 +188,21 @@ export function createRingDingView(): ClientMiniGame {
     const c = new THREE.Color(slot < 0 ? BLACK : kit.hex(slot));
     return new THREE.Mesh(sphereGeo, new THREE.MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: 0.3, flatShading: true }));
   }
+  /** FUN_800b5d3c: each balloon owns a pack 0736 render word 0x2001 shadow, subtractive with fade 0x800, on the ground below. */
   function makeBalloon(slot: number): BalloonV {
     const obj = new THREE.Group();
     obj.name = 'ringDingBalloon';
     const body = balloonModel(slot);
     obj.add(body);
-    kit.root.add(obj);
-    return { obj, body, shadow: kit.fx.shadow(0.4, 0.3), slot };
+    const shadow = pickupShadow(PICKUPS, 0, S, { brightness: 0.5 });
+    kit.root.add(obj, shadow);
+    return { obj, body, shadow, slot };
   }
 
-  function playPop(e: GameEvent, type = SLOT_TYPE[e.o % 4], late = false) {
-    // FUN_8007a524 uses the colour for particles and the native balloon type for sound.
+  /** The burst uses the displayed colour. A colour pop's sound is the sim's 'popsfx'; a black balloon's 0x5ed has no position. */
+  function playPop(e: GameEvent, black = e.o < 0, late = false) {
     kit.real.play(PACK, e.o < 0 ? 4 : POP_FX[e.o % 4], e.x, e.v, e.z);
-    if (type === 12 || e.o < 0) play(SFX.black, 0.7, late);
-    else {
-      const ids = POP_SFX[type];
-      play(ids[Math.floor(Math.random() * ids.length)], 0.7, late);
-    }
+    if (black) play(SFX.black, late);
   }
 
   function build() {
@@ -216,7 +259,7 @@ export function createRingDingView(): ClientMiniGame {
       for (const [file] of Object.values(DD_SFX)) sfx.preloadFile(file);
       placements = await loadPlacements('L27');
       await preloadCatalogFor('ringDing', ['ddRing', ...DECOR], CRATE_MODELS);
-      await preloadFx([PACK, CRATES]);
+      await preloadFx([PACK, CRATES, PICKUPS]);
       loaded = true;
     },
 
@@ -252,7 +295,7 @@ export function createRingDingView(): ClientMiniGame {
       if (done) {
         result ??= createRingDingResult(w, winners.values().next().value);
         for (const e of result.advance(frame)) {
-          if (e.k === 'pop') playPop(e, e.balloonType, true);
+          if (e.k === 'pop') playPop(e, e.balloonType === 12, true);
           else if (e.k === 'black') playBlack(e.v, true);
           else this.onEvent?.(ctx, e);
         }
@@ -265,7 +308,7 @@ export function createRingDingView(): ClientMiniGame {
         const e = poseCues[i];
         if (kit.poseTick(e.slot) < e.tick) { i++; continue; }
         poseCues.splice(i, 1);
-        charVoice('c', ctx.seats[e.slot]?.look.char, e.cue);
+        playCue(ctx, e.slot, e.cue, !!e.sfx);
       }
       ctx.scene.background = new THREE.Color(0x1a1c28);
       const ringAngle = result?.angle ?? d.ang;
@@ -348,7 +391,8 @@ export function createRingDingView(): ClientMiniGame {
           equip.magnet.visible = !!carried?.visible && carried.kind === 2;
           const stopped = ending?.hidden || (resultState && !win && (carried?.elapsed ?? 0) > 0);
           const kind = stopped ? 0 : carried?.kind;
-          equippedSound(s, kind === 1 ? SFX.hover : kind === 2 ? SFX.magnet : 0, carried?.source, carried?.elapsed);
+          equippedSound(s, kind === 1 ? SFX.hover : kind === 2 ? SFX.magnet : 0, carried?.source, carried?.elapsed,
+            carried ? [body.x, carried.height * DD_S, body.z] : undefined);
           if (carried?.kind) {
             const item = carried.kind === 1 ? equip.hover : equip.magnet;
             item.position.set(body.x, carried.height * DD_S, body.z);
@@ -374,8 +418,8 @@ export function createRingDingView(): ClientMiniGame {
           const bob = ddBalloonBob(b.face, age);
           v.obj.position.set(x, y - bob * DD_S, z);
           v.obj.visible = true;
-          v.shadow.set(x, z, Math.max(0, y));
-          v.shadow.mesh.visible = true;
+          v.shadow.position.set(x, 0, z);
+          v.shadow.visible = true;
         } else if (b.kind === 'crate' || b.kind === 'item') {
           const c = result?.crates.get(b.id);
           if (result && !c) continue;
@@ -396,7 +440,7 @@ export function createRingDingView(): ClientMiniGame {
         }
       }
       kit.prune(seen);
-      for (const [id, v] of balloons) if (!seenB.has(id)) { kit.root.remove(v.obj); kit.fx.removeShadow(v.shadow); balloons.delete(id); }
+      for (const [id, v] of balloons) if (!seenB.has(id)) { kit.root.remove(v.obj, v.shadow); balloons.delete(id); }
       for (const [id, v] of crates) if (!seenC.has(id)) { kit.root.remove(v.obj); crates.delete(id); }
       applyPose(ctx.camera, ps1Pose(LEVEL_CAMS[27], getCatalog().arenas.ringDing)); // the real camera (level 0x1b)
       kit.real.update(dt, ctx.camera);
@@ -406,9 +450,10 @@ export function createRingDingView(): ClientMiniGame {
     onEvent(ctx, e) {
       if (!kit) return;
       const tick = e.t + (kit.over.done ? 0 : 1);
-      const cue = POSE_VOICE[e.k];
+      const cue = e.k === 'footstep' ? e.v : POSE_VOICE[e.k];
       if (cue !== undefined) poseCues.push({ tick, slot: e.s, cue });
-      if (e.k === 'land') return;
+      if (e.k === 'hitsfx') poseCues.push({ tick, slot: e.s, cue: e.v, sfx: true });
+      if (e.k === 'land' || e.k === 'footstep' || e.k === 'hitsfx' || e.k === 'hitland') return;
       if (kit.baseEvent(e)) return;
       switch (e.k) {
         case 'pop': {
@@ -422,18 +467,21 @@ export function createRingDingView(): ClientMiniGame {
           playBlack(e.v);
           break;
         }
-        case 'cratespawn':
-          play(SFX.crate, 0.8, true);
+        case 'popsfx': // FUN_800b6044: rand(4) of the original type's ids, at the balloon
+          playAt(e.o, e.x, e.y ?? 0, e.z);
+          break;
+        case 'cratespawn': // FUN_800b51a0, at the crate
+          playAt(SFX.crate, e.x, 0, e.z);
           break;
         case 'cratehit':
           kit.real.play(CRATES, 2, e.x, 0, e.z); // shared crate break FUN_8008e27c, kind 2: shards, smoke, stars
-          play(DD_SFX[e.o] ? e.o : 0x3f5, 0.8, true);
+          play(DD_SFX[e.o] ? e.o : 0x3f5, true);
           break;
         case 'reverse':
           clockSound();
           break;
         case 'flash': // recolour flicker, FUN_800b6044 / FUN_800b6608
-          play(SFX.flash, 0.8);
+          play(SFX.flash);
           break;
         case 'punch':
           if (e.v === 2) {
@@ -462,7 +510,8 @@ export function createRingDingView(): ClientMiniGame {
       stopClock = undefined;
       for (const sound of equippedSounds.values()) sound.stop();
       equippedSounds.clear();
-      for (const v of balloons.values()) kit.fx.removeShadow(v.shadow);
+      for (const stop of voiceHandles.values()) stop();
+      voiceHandles.clear();
       balloons.clear(); crates.clear();
       itemsHeld.length = gears.length = 0;
       kit.dispose();

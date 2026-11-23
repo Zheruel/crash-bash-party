@@ -53,6 +53,10 @@ const BALLOON_TOP = 252;
 
 /** look.ts CHARACTERS index -> game character id 1..8 (1 crash, 2 coco, 3 cortex, 4 brio, 5 tiny, 6 rilla, 7 dingodile, 8 koala). */
 const LOOK_TO_ID = DISC_CHARACTER;
+/** L27 script 0x2b by engine character: the frame of event 8 (event 9 is frame 1). */
+const HIT_EVENT8 = [0, 11, 14, 19, 15, 19, 19, 11, 19];
+/** L27 script 5 by engine character: loop length and the frames of events 8 and 9 (footstep voices 0xa / 0xb). */
+const RUN_STEPS = [[0, 0, 0], [22, 9, 20], [22, 8, 19], [22, 1, 12], [22, 1, 12], [20, 1, 11], [20, 1, 11], [18, 4, 13], [20, 1, 11]];
 const SPIN_TICKS = [0, 16, 16, 19, 13, 12, 16, 14, 14]; // script 0x0a by engine character ID
 
 const COS: number[] = [];
@@ -92,6 +96,8 @@ export interface DDPlayer {
   knockAngle?: number; // native bearing toward the source of the impulse
   pendingHit?: number; // attacker slot, consumed when the victim next updates
   hitFrame?: number;
+  hitLandCue?: true; // FUN_800b937c: script 0x2b event 8 seen, the 0x11 voice waits for the ground
+  runAt?: number; // tick of the first run pose (script 5 frame 0)
   heading?: number; // movement yaw, independent of the rendered actor yaw
   moving?: boolean;
   idleAt?: number; // first frame of the current idle script, including the pre-GO loop
@@ -412,6 +418,7 @@ function hurt(w: World, d: RingDingData, q: DDPlayer, by: number) {
 function enterHit(q: DDPlayer) {
   q.st = 2; q.t = HIT_TICKS - (q.id === 8 ? 1 : 0);
   q.hitFrame = 0;
+  delete q.hitLandCue;
   q.idleAt = undefined;
   q.landing = 0; q.moving = false; q.tauntAt = undefined;
   q.pu = q.put = 0;
@@ -481,10 +488,19 @@ function touchCrates(w: World, d: RingDingData, p: DDPlayer, slot: number, fullC
   }
 }
 
-function stepHit(p: DDPlayer, seats: (DDPlayer | null)[]) {
+/** FUN_800b937c: event 9 plays 0x446 + slot, event 8 arms the 0x11 voice, which plays once the player is within 0x20 of the
+ *  ground (FUN_80025f44), still in the hit state. Both are positional. */
+function stepHit(w: World, p: DDPlayer, seats: (DDPlayer | null)[], slot: number) {
   if (p.kn > 0) shovePlayers(p, seats);
   p.hitFrame = (p.hitFrame ?? 0) + 1;
-  if (--p.t <= 0) p.st = 0;
+  const y = p.h * DD_S;
+  if (p.hitFrame === 1) emit(w, 'hitsfx', p.x * DD_S, -p.z * DD_S, slot, 0x446 + slot, -1, undefined, y);
+  if (p.hitFrame === HIT_EVENT8[p.id]) p.hitLandCue = true;
+  if (p.hitLandCue && Math.abs(p.h) < 0x20) {
+    delete p.hitLandCue;
+    emit(w, 'hitland', p.x * DD_S, -p.z * DD_S, slot, 0x11, -1, undefined, y);
+  }
+  if (--p.t <= 0) { p.st = 0; delete p.hitLandCue; }
 }
 
 function spinContact(p: DDPlayer, seats: (DDPlayer | null)[], crates: readonly DDCrate[], slot: number, result: boolean) {
@@ -612,7 +628,7 @@ function stepPlayer(w: World, d: RingDingData, p: DDPlayer, slot: number, inp: I
   }
 
   if (hit) {
-    stepHit(p, d.P);
+    stepHit(w, p, d.P, slot);
     if (p.kn > 0) {
       touchBalloons(w, d, p, slot, true);
       touchCrates(w, d, p, slot, true);
@@ -634,6 +650,17 @@ function stepPlayer(w: World, d: RingDingData, p: DDPlayer, slot: number, inp: I
   integrateHorizontal(p, drive ? Math.round(p.spd * w.params.speed) : 0);
   if (p.moving || p.ph || p.st || p.landing || p.tauntAt !== undefined) p.idleAt = undefined;
   else p.idleAt ??= w.tick + 1;
+  runSteps(w, p, slot);
+}
+
+/** FUN_8008a924 starts script 5 on entering run; FUN_80087b8c plays block*0x32 + 0xa / 0xb at the player on its events 8 / 9. */
+function runSteps(w: World, p: DDPlayer, slot: number) {
+  const running = p.st === 0 && p.ph === 0 && !!p.moving;
+  if (!running) { delete p.runAt; return; }
+  if (p.runAt === undefined) { p.runAt = w.tick; return; }
+  const [length, left, right] = RUN_STEPS[p.id];
+  const frame = (w.tick - p.runAt) % length;
+  if (frame === left || frame === right) emit(w, 'footstep', p.x * DD_S, -p.z * DD_S, slot, frame === left ? 0xa : 0xb, -1, undefined, p.h * DD_S);
 }
 
 type RingResultPlayer = DDPlayer & { entered: number; hidden: boolean };
@@ -652,7 +679,7 @@ function stepResultPlayer(p: RingResultPlayer, slot: number, players: (RingResul
     const touchdown = snapJumpToFloor(p);
     const spin = p.st === 1, hit = p.st === 2;
     if (hit) {
-      stepHit(p, players);
+      stepHit(w, p, players, slot);
       if (p.kn > 0) {
         touchBalloons(w, d, p, slot, true);
         touchCrates(w, d, p, slot, true);
@@ -711,6 +738,7 @@ function stepResultBalloon(w: World, d: RingDingData, o: DDBalloon,
     p.entered = -1;
     emit(w, 'hurt', x, z, o.tc);
   }
+  if (o.ty !== 12) popSound(w, o);
   return false;
 }
 
@@ -854,22 +882,32 @@ function blackEffect(w: World, d: RingDingData, o: DDBalloon) {
   }
 }
 
+/** FUN_800b6044 after the score: the burst, then rand(4) of the original type's four pop ids (table 0x800bb8e8), keyed at the
+ *  balloon's origin. */
+const POP_SOUNDS: Record<number, number[]> = { 8: [0x5dc, 0x5dd, 0x5de, 0x5df], 9: [0x5e0, 0x5e1, 0x5e2, 0x5e3],
+  10: [0x5e4, 0x5e5, 0x5e6, 0x5e7], 11: [0x5e8, 0x5e9, 0x5ea, 0x5eb] };
+function popSound(w: World, o: DDBalloon) {
+  emit(w, 'popsfx', o.x * DD_S, -o.z * DD_S, -1, o.ty, POP_SOUNDS[o.ty][ri(w, 4)], undefined, o.hy * DD_S);
+}
+
 function popBalloon(w: World, d: RingDingData, o: DDBalloon) {
   const ds = dispSlot(d, o);
   const xw = o.x * DD_S, zw = -o.z * DD_S;
   emit(w, 'pop', xw, zw, o.tc, o.hy * DD_S, ds);
   if (o.ty === 12) { blackEffect(w, d, o); return; }
   const s = o.tc;
-  if (s < 0 || s > 3) return;
-  const owner = d.rc === 0 ? o.ow : d.rcO;
-  if (owner === s) {
-    d.score[s]++;
-    emit(w, 'score', xw, zw, s, 1);
-  } else {
-    const p = d.P[s];
-    if (p) hurt(w, d, p, -1);
-    emit(w, 'hurt', xw, zw, s, 1);
+  if (s >= 0 && s <= 3) {
+    const owner = d.rc === 0 ? o.ow : d.rcO;
+    if (owner === s) {
+      d.score[s]++;
+      emit(w, 'score', xw, zw, s, 1);
+    } else {
+      const p = d.P[s];
+      if (p) hurt(w, d, p, -1);
+      emit(w, 'hurt', xw, zw, s, 1);
+    }
   }
+  popSound(w, o);
 }
 
 function updateBalloon(w: World, d: RingDingData, o: DDBalloon): boolean {
