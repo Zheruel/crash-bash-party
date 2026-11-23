@@ -131,6 +131,36 @@ const WIN_CUES: { cues: [number, number][]; period: number }[] = [
 /** FUN_800ce664: the pose a mounted rider holds from stun tick 32 on, while the bear turns. */
 const DAZED_WORD = [0, 0x4100, 0x4000, 0x4100, 0x4080, 0x4000, 0x4000, 0x4000, 0x4000];
 /** Object 0x1615 draws a static part of the rider's own bear model (the MELT models keep it under another index). */
+/**
+ * FUN_800cde8c: a stunned rider's node gets flag 0x400000 and +0x8e = 0x2002 (Brio mounted 0x2001): the animated frames keep
+ * their vertices and take static part 1's darker faces (part 0's own for Brio). Idle, item, knock-off, win and the stun's end
+ * clear it, a slip does not. The custom riders have no such part: their materials are halved instead.
+ */
+const stunWord = (ch: number, onFoot: boolean) => (ch === 4 && !onFoot ? 0x2001 : 0x2002);
+const darkMaterials = new WeakMap<THREE.Material, THREE.Material>();
+function darkMaterial(m: THREE.Material): THREE.Material {
+  let dark = darkMaterials.get(m);
+  if (!dark) {
+    dark = m.clone();
+    (dark as THREE.MeshBasicMaterial).color?.multiplyScalar(0.5);
+    darkMaterials.set(m, dark);
+  }
+  return dark;
+}
+function stunSkin(inst: ModelInstance, word: number | null) {
+  const skinned = inst.staticSkin(word);
+  const dark = word !== null && !skinned;
+  if (!!inst.root.userData.stunDark === dark) return;
+  inst.root.userData.stunDark = dark;
+  inst.root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    if (dark) {
+      mesh.userData.lit = mesh.material;
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(darkMaterial) : darkMaterial(mesh.material);
+    } else if (mesh.userData.lit) { mesh.material = mesh.userData.lit; delete mesh.userData.lit; }
+  });
+}
 function dashPart(ch: number, melt: boolean): { model: number; part: number } | null {
   if (ch === 7) return melt ? { model: 918, part: 1 } : { model: 950, part: 2 };
   if (ch === 8) return melt ? { model: 914, part: 2 } : { model: 944, part: 2 };
@@ -158,8 +188,11 @@ export function createPushOffView(): ClientMiniGame {
   const slips = new Map<number, number>();
   let audio: PolarAudio | null = null;
   let pfx: PolarFx | null = null;
-  /** effect scripts (object 0x1605) drawn through the level's tilt */
+  /** effect scripts (object 0x1605) drawn through the level's tilt, and the ones without entity flag 0x200000 */
   let tiltFx: RealFx | null = null;
+  let worldFx: RealFx | null = null;
+  /** the HUD's forced-victory cues 0x194 / 0x195 (bank 0277) */
+  const promptSounds = new Map<number, string>();
   const tiltCamera = new THREE.PerspectiveCamera();
   const riders: (PoP | undefined)[] = [];
   const riderTick: number[] = [];
@@ -210,6 +243,8 @@ export function createPushOffView(): ClientMiniGame {
     pfx = new PolarFx(R, platform, variant);
     tiltFx?.dispose();
     tiltFx = new RealFx(platform, S);
+    worldFx?.dispose();
+    worldFx = new RealFx(R, S);
     reflections?.dispose();
     reflections = variant === 'manic' ? undefined : new PolarReflections(platform,
       variant === 'melt' ? { ...ref, parts: ['part2'] } : undefined);
@@ -221,7 +256,7 @@ export function createPushOffView(): ClientMiniGame {
     hazards.length = 0;
     for (let slot = 0; slot < 4; slot++) {
       const bomb = propClone('poBomb'), zap = propClone('poZap');
-      // FUN_800d2248: a burnt rider becomes flat shared mesh 0x202d.
+      // FUN_800d2248: a burnt rider's entity draws shared mesh 0x202d.
       const burn = variant === 'manic' ? catalogInstance({ model: 403, scale: S, parts: ['part44'] })?.root ?? new THREE.Group() : new THREE.Group();
       bomb.visible = zap.visible = burn.visible = false;
       zap.scale.setScalar(0.5);
@@ -321,6 +356,13 @@ export function createPushOffView(): ClientMiniGame {
       audio?.dispose();
       audio = new PolarAudio(variant);
       preloadPolarAudio(variant);
+      // samples are shared between banks on disc, so the file comes from audio/index.json
+      if (!promptSounds.size) void fetch(ASSET_BASE + 'audio/index.json').then((r) => (r.ok ? r.json() : null)).then((j) => {
+        for (const id of [0x194, 0x195]) {
+          const file = j?.sfx?.banks?.['0277']?.samples?.[id - 0x192]?.file;
+          if (file) { promptSounds.set(id, file); sfx.preloadFile(file); }
+        }
+      }).catch(() => { /* silent */ });
       voiceAge = resultAt = undefined;
       resultWorld = null;
       follow = null;
@@ -439,6 +481,8 @@ export function createPushOffView(): ClientMiniGame {
             hidden, role, script, scriptFrame, renderWord: dazed ? DAZED_WORD[q.ch] : undefined, keepYaw: win,
             pose: frozenClip == null ? undefined : { clip: frozenClip, frame: 0 },
           });
+          const stunned = q?.st === S_STUN || (q?.st === S_SLIP && q.pst === S_STUN);
+          stunSkin(a.inst, stunned && !win ? stunWord(q.ch, onFoot) : null);
           pfx?.dashMesh(b.slot, hidden || win ? undefined : q, b.x, b.y, b.z, b.face, q ? dashPart(q.ch, variant === 'melt') : null);
           if (variant === 'tilt' && !hidden) {
             a.holder.position.applyQuaternion(platform.quaternion);
@@ -457,11 +501,14 @@ export function createPushOffView(): ClientMiniGame {
           a.holder.scale.setScalar(win ? 1 : playerData.scale?.[b.slot] ?? 1);
           if (reflections && q) {
             reflections.render(b.slot, !hidden && q.st !== S_SLIP, !!snowball,
-              b.x, b.y, b.z, b.face, a.holder.scale.x, bearReflectionWord(script, q.ch, scriptFrame, win));
+              b.x, b.y, b.z, b.face, a.holder.scale.x, q.st === S_STUN || q.st === S_FROZEN ? 0x4000 : bearReflectionWord(script, q.ch, scriptFrame, win));
           }
           const { bomb, zap, burn } = hazards[b.slot];
           burn.visible = b.alive && q?.st === S_BURN;
-          if (burn.visible) burn.position.set(b.x, 0.01, b.z);
+          if (burn.visible) { // the rider's own entity: its place and yaw (0x800 from the hit), rotation order 2
+            burn.position.set(b.x, b.y, b.z);
+            burn.rotation.set(0, b.face, 0);
+          }
           const item = playerData.item?.[b.slot];
           const showItem = !hidden && !b.fall && !win && playerData.c6c === b.slot && (item === 3 || item === 5);
           bomb.visible = showItem && item === 3;
@@ -539,7 +586,10 @@ export function createPushOffView(): ClientMiniGame {
       pfx?.update(dt, ctx.camera);
       tiltCamera.quaternion.copy(platform.quaternion).invert().multiply(ctx.camera.quaternion);
       tiltFx?.update(dt, tiltCamera);
-      emitter?.render(w.bodies.find(b => b.kind === 'mask'), d, ctx.camera, platform.quaternion, 0,
+      worldFx?.update(dt, ctx.camera);
+      // FUN_800d257c: after a forced victory the winner's enter hides MELT's mask nodes
+      const mask = variant === 'melt' && d.skip ? undefined : w.bodies.find(b => b.kind === 'mask');
+      emitter?.render(mask, d, ctx.camera, platform.quaternion, 0,
         countdownLeft, slots);
       kit.fx.update(dt);
     },
@@ -571,7 +621,6 @@ export function createPushOffView(): ClientMiniGame {
         case 'skid': audio?.hold(e.s, 0x456 + e.v, undefined, 0x1d80 + Math.max(0, e.o)); break;
         case 'thump': audio?.play(0x446 + (Math.max(0, e.o) >> 2)); break;
         case 'snowbump': audio?.play(0x48b); break;
-        case 'hit': kit.actorForSlot(e.s)?.hit(e.v); break; // the voice comes as its own event
         case 'dash':
           audio?.release(e.s);
           if (e.v === 1 && char != null) { // the mounted dash script 0x3e voices itself; the on-foot one (0x45) has no cue
@@ -590,6 +639,12 @@ export function createPushOffView(): ClientMiniGame {
         case 'hang': playSlip(e.s, e.t + 1, 0); break; // state 0x4e: script 0x3d + 0x45c
         case 'climb': audio?.release(e.s); break;
         case 'splash': audio?.play(0x45d); break;
+        case 'sfx': { // the forced-victory prompt (FUN_8007d5ec) and its acceptance (FUN_8007d6d0)
+          const file = promptSounds.get(e.o);
+          if (file) sfx.playFile(file, 1, true, sfxRate('0277', e.o));
+          break;
+        }
+        case 'skipOut': worldFx?.play(403, 5, e.x, e.y ?? 0, e.z); break; // FUN_800b5910: each rider it puts out
         case 'bomb': audio?.play(0x454); break; // bomb or zap handed on
         case 'boom': audio?.play(0x453); break;
         case 'pillar': // FUN_800c0888: 0x46a + rand(3) and three chunks (0x1604)
@@ -617,7 +672,6 @@ export function createPushOffView(): ClientMiniGame {
         case 'grab': audio?.play(0x48e); break; // a bear takes it
         case 'zapped': // hit by a bolt: 0x490 + rand(4)
           audio?.play(0x490 + (e.v >> 2));
-          kit.actorForSlot(e.s)?.hit(1.5);
           break;
       }
     },
@@ -630,9 +684,10 @@ export function createPushOffView(): ClientMiniGame {
         if (!seat) return;
         out.push({ tex: hudFace(seat.look.char), x, y: 10, w: 64, h: 40 });
         const m = Math.max(0, Math.min(1, (resultWorld?.data.meter ?? w.data.meter)?.[slot] ?? 0));
-        const g = Math.round(52 * m);
-        out.push({ tex: `${ASSET_BASE}hud/barR.png`, x: x + 16, y: 39, w: 52, h: 6 });
-        if (g > 0) out.push({ tex: `${ASSET_BASE}hud/barG.png`, x: x + 16, y: 39, w: g, h: 6 });
+        // FUN_8007ce50: the green quad is gauge >> 2 of the bar's 0x40 HUD units (at most 0x3f), the red one the rest
+        const units = Math.min(0x3f, Math.round(m * 0x100) >> 2), g = Math.round(units * 52 / 0x40);
+        if (units < 0x3f) out.push({ tex: `${ASSET_BASE}hud/barR.png`, x: x + 16 + g, y: 39, w: 52 - g, h: 6 });
+        if (units > 0) out.push({ tex: `${ASSET_BASE}hud/barG.png`, x: x + 16, y: 39, w: g, h: 6 });
         out.push({ tex: hudTex(33), x: x - 8, y: 33, w: 24, h: 18 });
       });
       out.push(...arenaClockSprites('pushOff', w));
@@ -653,6 +708,8 @@ export function createPushOffView(): ClientMiniGame {
       pfx = null;
       tiltFx?.dispose();
       tiltFx = null;
+      worldFx?.dispose();
+      worldFx = null;
       reflections?.dispose();
       reflections = undefined;
       emitter?.dispose();

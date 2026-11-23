@@ -9,7 +9,7 @@ import { preloadBoardTextures } from './scene/tex';
 import { PodiumScene, preloadPodium } from './scene/podium';
 import { ShowcaseScene } from './scene/showcase';
 import { preloadCharacters } from './characters';
-import { getCatalog, ready } from './crash';
+import { devSetGame, getCatalog, ready } from './crash';
 import { VIEWS } from './games';
 import { POLAR_DRAW_TICKS, POLAR_WIN_TALLY_TICKS, S_WIN } from '../shared/games/pushOff';
 import { ballistixCupDelay } from './games/ballDefenceResult';
@@ -27,7 +27,7 @@ import { GameClient, type Status } from './session';
 import { initPortraits, resetPortraits } from './shell/avatar';
 import { Confetti } from './shell/confetti';
 import { sfx } from './shell/sound';
-import { announceHero, announceStage, preloadRoundVoices, preloadStageCall } from './shell/voice';
+import { announceHero, preloadRoundVoices } from './shell/voice';
 import { TouchControls } from './shell/touch';
 import { FinalOverlay } from './ui/final';
 import { $, div, esc } from './ui/dom';
@@ -61,6 +61,11 @@ export class App {
   private nopeer = this.params.get('nopeer') === '1';
   /** ?game=ringDing,tankArena: only rotate through these mini-games */
   private games = this.params.get('game')?.split(',').filter(Boolean);
+  /** dev only (scripts/pose-sweep.mjs): ?chars=0,1,2 forces seat characters, ?allbots=1 lets bots drive every seat, ?rounds=N */
+  private dev = import.meta.env.DEV && (this.params.has('chars') || this.params.has('allbots'))
+    ? { chars: this.params.get('chars')?.split(',').map(Number).filter((n) => Number.isInteger(n) && n >= 0), bots: this.params.get('allbots') === '1' }
+    : undefined;
+  private rounds = import.meta.env.DEV ? Number(this.params.get('rounds')) || 8 : 8;
   private stage!: Stage;
   private input = new InputManager();
   private touch!: TouchControls;
@@ -238,7 +243,7 @@ export class App {
         if (closing) (document.body.dataset.screen === 'game' ? this.stage.renderer.domElement : mute).focus({ preventScroll: true });
       }
     };
-    mute.onclick = () => { sfx.unlock(); this.showOptions(!this.optionsOpen); sfx.play('click'); };
+    mute.onclick = () => { sfx.unlock(); this.showOptions(!this.optionsOpen); sfx.play('select'); };
     reactions.addEventListener('click', e => {
       const button = (e.target as Element).closest<HTMLButtonElement>('button[data-emote]');
       if (button) { this.client?.emote(Number(button.dataset.emote)); this.showOptions(false); }
@@ -253,13 +258,13 @@ export class App {
       mute.click();
     });
     chk.onchange = () => { sfx.setMuted(chk.checked); paintMute(); };
-    vs.onchange = () => sfx.play('coin');
+    vs.onchange = () => sfx.play('move');
     $('#leave', top).onclick = () => { this.showOptions(false); this.leave(true); };
     this.skipBtn = document.createElement('button');
     this.skipBtn.id = 'skip';
     this.skipBtn.className = 'mi small hidden';
     this.skipBtn.textContent = 'SKIP ▸';
-    this.skipBtn.onclick = () => { this.client?.skip(); sfx.play('click'); };
+    this.skipBtn.onclick = () => { this.client?.skip(); sfx.play('select'); };
     root.append(this.skipBtn);
   }
   private skipBtn!: HTMLButtonElement;
@@ -323,7 +328,9 @@ export class App {
   // ------------------------------------------------------------ connect
   private timing(): Timing | undefined {
     if (!this.fast) return undefined;
-    return this.fast === '2' ? FAST_TIMING : FASTISH;
+    const cap = import.meta.env.DEV ? Number(this.params.get('cap')) : 0; // dev: ?cap=40 lets rounds play 40 s so bots reach a real winner
+    const t = this.fast === '2' ? FAST_TIMING : FASTISH;
+    return cap > 0 ? { ...t, playCap: cap } : t;
   }
 
   private async createParty(p: Profile, solo: boolean) {
@@ -337,7 +344,7 @@ export class App {
         make = () => new WsTransport();
       } else {
         let code = newRoomCode();
-        let core = createHostCore(code, 8, this.timing(), this.games);
+        let core = createHostCore(code, this.rounds, this.timing(), this.games, this.dev);
         let peer: PeerHost | null = null;
         if (!solo && !this.nopeer) {
           const proxy: HostCore = { open: (...a) => core.open(...a), message: (...a) => core.message(...a), close: (...a) => core.close(...a), destroy: () => core.destroy() };
@@ -345,7 +352,7 @@ export class App {
           peer.onFatal = (m) => this.toast('Matchmaking connection problem: ' + m);
           try {
             const final = await peer.start();
-            if (final !== code) { core.destroy(); code = final; core = createHostCore(code, 8, this.timing(), this.games); }
+            if (final !== code) { core.destroy(); code = final; core = createHostCore(code, this.rounds, this.timing(), this.games, this.dev); }
           } catch (e) {
             core.destroy();
             peer.stop();
@@ -566,6 +573,7 @@ export class App {
   private onPhase(p: Phase, ms: number) {
     const prev = this.phase;
     this.phase = p;
+    if (import.meta.env.DEV) (window as unknown as { __phase?: string }).__phase = p;
     if (this.optionsOpen) this.refreshControls();
     this.skipBtn?.classList.toggle('hidden', !(this.isHost && (p === 'wheel' || p === 'intro' || p === 'results')));
     switch (p) {
@@ -586,10 +594,6 @@ export class App {
         this.results.hide();
         this.touch.show(false);
         this.showIntro(ms);
-        const c = this.client;
-        if (c?.room?.stage && c.round?.round === 1 && performance.now() - c.phaseStartedAt < 250) {
-          announceStage(c.round.gameId, c.round.variant?.id);
-        }
         this.input.capture = this.canCaptureArenaKeys();
         break;
       case 'countdown': {
@@ -630,7 +634,6 @@ export class App {
   }
 
   private onEmote(slot: number, id: number) {
-    sfx.play('emote');
     if (this.stage.gameVisible && this.seats[slot] && EMOTE_LABELS[id]) {
       this.toast(`${this.seats[slot].name} · ${EMOTE_LABELS[id]}`, 1500);
     }
@@ -702,11 +705,11 @@ export class App {
     this.ps1hud.preloadRound(chars);
     this.count.preloadVoices();
     preloadRoundVoices(m.gameId, chars);
-    if (this.client?.room?.stage && m.round === 1) preloadStageCall(m.gameId, m.variant?.id);
     this.input.game = m.gameId;
     this.input.variant = m.variant?.id ?? this.variantInfo()?.id;
     this.touch.configure(this.input.game, this.input.variant);
     this.gameName = m.gameName;
+    devSetGame(m.gameId + (m.variant ? ':' + m.variant.id : ''));
     this.seats = m.seats.map((s) => ({ name: s.name, look: s.look, bot: s.bot }));
     this.hud.setSeats(this.seats, this.mySlot());
   }
@@ -790,7 +793,6 @@ export class App {
     const m = c?.round;
     if (!c || !m) return;
     this.intro.show(m, this.variantInfo(), c.roundSlot, m.seats.map((s) => ({ name: s.name, look: s.look, bot: s.bot })), this.touch.enabled, ms, m.gameId);
-    sfx.play('whoosh');
     this.hud.setPillText(m.modifier ? m.modifier.name : 'MINI-GAME', m.gameName.toUpperCase());
   }
 
@@ -938,7 +940,10 @@ export class App {
 
     const ballistix = this.phase === 'play' && c?.round?.gameId === 'ballDefence' ? arenaWorld?.data as BallistixData | undefined : undefined;
     const localShip = c?.roundSlot == null ? undefined : ballistix?.pl?.[c.roundSlot];
-    const watching = !!localShip && localShip.score <= 0;
+    // Polar Push offers the same HUD object 5 once every human is out (FUN_8007d5ec).
+    const polar = this.phase === 'play' && c?.round?.gameId === 'pushOff'
+      ? arenaWorld?.data as { t: number; elim?: number[]; skipShown?: number; skipTaken?: number } | undefined : undefined;
+    const watching = (!!localShip && localShip.score <= 0) || (c?.roundSlot != null && (polar?.elim?.[c.roundSlot] ?? -1) >= 0);
     if (this.input.watchingBallistix !== watching) {
       this.input.watchingBallistix = watching;
       if (this.phase === 'play') this.touch.show(c?.roundSlot != null && !watching);
@@ -948,6 +953,9 @@ export class App {
       const closing = ballistix.pl.filter(p => p.score > 0).length > 1 ? -1
         : Math.max(0, ballistix.f - Math.max(...ballistix.pl.map(p => p.dead)));
       this.ps1hud.setForceVictory(age, closing, keyLabels('b')[0], this.touch.enabled);
+    } else if (polar?.skipShown !== undefined && this.input.watchingBallistix && this.canCaptureArenaKeys()) {
+      this.ps1hud.setForceVictory(polar.t - polar.skipShown, polar.skipTaken === undefined ? -1 : polar.t - polar.skipTaken,
+        keyLabels('b')[0], this.touch.enabled);
     } else this.ps1hud.forceVictory.hidden = true;
 
     // HUD cards: points + trophies (from the room's seats, updated on results)

@@ -119,7 +119,7 @@ US disc overlay `0720.t64.bin` loads at `0x800b32b4` in L27. Party difficulty ro
 | 0x5f3 | hover boots | 26 |
 | 0x3fa | crate spawn | 31 in bank 0180 |
 | 0x3f0, 0x41c | silent (slot 255) | - |
-Pop particle effect id `DAT_800bb89c[owner] = [3,2,0,1,4]` (`FUN_8007a524`). Hit/jump voices live in the character voice banks (not mapped here). The client has no looping sfx API, so the ring loop (21) is not played.
+Pop particle effect id `DAT_800bb89c[owner] = [3,2,0,1,4]` (`FUN_8007a524`). Superseded by the two sections below.
 
 ## Animation
 On-foot character models. Common scripts 1, 5 and 10 drive idle, run and spin. The overlay uses 0x2b for hit and 0x2c for jump.
@@ -155,7 +155,7 @@ PCSX ReARMed captures from the US L27 save state, with tick 0 at the first rise 
 - Captured all four origins for a draw and a win in each slot, plus fixed-order captures with collisions, jumps, an active spin and residual knockback. In the unseeded draw, slot 0 went from `(-938,-16,-433)` to `(-984,-16,-319)`, slots 1 and 2 stayed put on the hub, and slot 3 landed on tick 1 and rode the ring to `(0,-16,-1335)` on tick 13. With slot 3 winning, it kept `(x,z)=(166,-1319)` through its landing. Replaying 44 ticks per capture matched 1,332 of 1,408 position samples exactly. The remaining samples differ by at most two PS1 units near the carried crate.
 - The view uses the online result for ranking. The chosen character model stays on the actor throughout, including Top G and Big Stein.
 
-## Camera: unchanged (`DD_CAM` fitted to `docs/reference/dragonDrop` frames; not read from code).
+## Camera: the fixed level camera. L27 RAM holds translation (0, 0, 2595), target (-5, -414, -2414), angles (295, 2, 0), H 512, the same as `LEVEL_CAMS[27]`; no camera mode runs during the round.
 
 ## Unknowns
 Exact spin hit shape (cone vs disc) and range, knockback for the 0xb/9/10 attacks (measured on 8/10 only), black-outcome rand argument, hover boots' extra effects, ordering between balloon and crate callbacks, exact item pickup range.
@@ -175,6 +175,35 @@ The level loads VAB **0180** (L27 RAM dump: loaded tone table == disc 0180, ids 
 above were read against 0179 (Dragon Drop's bank) and are superseded by `DD_SFX` in web/client/games/ringDing.ts:
 pops 0x5dc-0x5eb = two ids per sample (9,9,10,10 / 11,11,12,12 / 13,13,14,14 / 15,15,16,16), ring loop 0x5ec = 17,
 black 0x5ed = 18, recolour 0x5ee, reverse 0x5f0 = 21, pop others 0x5f1 = 22, magnet 0x5f2 = 23, hover 0x5f3 = 24, crate spawn 0x3fa = 31.
+
+## Sound audit (2026-11-23)
+`re/audit.py` now reads Ring Ding from `re/out_dragonDrop` (the level 27/28 name swap). Every literal id, checked against the L27 tone
+table (`0x80064508 + id*2`) and VAB 0180, plus the script and handler sounds:
+- 0x5ec-0x5f3, 0x3fa, the break table 0x3f5/0x3f7/0x3f8 and 0x446-0x449 are in `DD_SFX`. Winner calls in `FUN_8008a200` come from
+  `winnerVoice` (name block*0x32+1, 0x1b0, block*0x32+7).
+- 0x5ef: in the last 30 recolour ticks each colour balloon's update checks bit 1 of the timer. A clear bit resets `DAT_800bbd68`; a set
+  bit plays 0x5ef once while it is clear (timer 27, 23, ..., 3 with colour balloons live). Sim event `flash`, flag `rcCue`.
+- Pops: `FUN_800b6044` scores (or hits), bursts, then draws rand(4) from the shared RNG for one of the original type's four ids
+  (`DAT_800bb8e8`) and keys it at the balloon. The sim now draws it (event `popsfx`); it was browser random and missing from the RNG order.
+- Hit (`FUN_800b937c`, script 0x2b): `0x8009` voice n=3 on entry, event 9 (frame 1, the entry update) plays 0x446 + slot at the player,
+  event 8 (frames 11, 14, 19, 15, 19, 19, 11, 19 by engine character) arms voice n=0x11, which plays at the player once within 0x20 of
+  the ground while still in the hit. Events `hitsfx`, `hitland`. The 0x2d / state 0x38 branch needs +0x562 < 1 (20 in versus).
+- Run (`FUN_8008a924` starts script 5, `FUN_80087b8c` updates): events 8 / 9 play n=0xa / 0xb at the player. Loop length and event frames by
+  engine character: (22,9,20) (22,8,19) (22,1,12) (22,1,12) (20,1,11) (20,1,11) (18,4,13) (20,1,11). Event `footstep`, field `runAt`.
+- Script ops: taunt 2, jump 0x2c and spin 10 use `0x800a` (player handle +0x94, no position; Koala's spin is a plain `0x8008`); landing 8 and
+  hit 0x2b use `0x8009` (positional). Hit entry and win / lose entry stop the handle.
+- Silent: 0x3f0 (crate kind 5) and 0x41c (boots pickup) have slot 0xff in L27. Unreachable: 0x1a4/0x1a5/0x1ae (team), 0x1b1/0x1b2
+  (level 0x20), 0x1b8-0x1ba (flag 0x1e0 modes).
+- Mix: every 0180 tone and program has volume 127, pan 64, and every call keys at 0x1000. Calls without a position play at full level,
+  centred. Calls with one go through `FUN_8002b210` (`web/client/shell/discStereo.ts`, the US stereo default) against the fixed L27
+  camera: pops, crate spawn, hit 0x446+, footsteps, voices n=3 / 0xd / 0x11, and the 0x5f2 / 0x5f3 loops, which follow the holder's
+  origin (`FUN_800b6c50` keeps the item there). Voices keep the shared `VOICE_VOL`.
+
+## Shadows
+- `FUN_800bb560` (hook 0x8009d700) replaces each player's shadow node with pack 0794 word `DAT_800bc04c[seat]` = 0x2013, 0x2012, 0x2010,
+  0x2011 (parts 18, 17, 15, 16, the seat's balloon colour), entity flags 0x8021 (additive), no darkening flag. `FUN_8008672c` keeps it
+  under the player on the ground. The view draws these discs and drops the kit's dark blob.
+- `FUN_800b5d3c` gives each balloon a pack 0736 word 0x2001 shadow, flags 0x41, fade 0x800 with the darkening flag, on the ground below.
 
 ## Horizontal contact and result motion
 

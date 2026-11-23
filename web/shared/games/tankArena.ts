@@ -87,6 +87,11 @@ export const TANK_TIMEOUT_TICK = 2698;
 export const TANK_HIT_TICKS = [27, 22, 30, 30, 30, 30, 28, 30];
 export const TANK_WRECK_TICKS = [58, 50, 41, 41, 41, 41, 51, 41];
 const S_HIT = 0x69, S_DIE = 0x6a, S_DEAD = 0x6b, S_RUN = 0x6e, S_TURN = 0x6f;
+/** Pilot script lengths: 0x59 idle, 0x5a taunt, 0x5b mine and 0x5d fire, by engine character. */
+const PILOT_TICKS: Record<number, number[]> = {
+  0x59: [19, 20, 20, 20, 20, 20, 20, 20], 0x5a: [41, 40, 40, 60, 41, 45, 31, 45],
+  0x5b: [50, 44, 39, 57, 40, 50, 62, 50], 0x5d: [19, 20, 20, 20, 20, 20, 20, 20],
+};
 
 interface Ai { mode: number; timer: number; target: number; pad: number; tx: number; tz: number; shoot: number; mref: number; mineId?: number; idle: number }
 // 1321 emits script 4 at ages 1, 5, 10 and 15. Its mesh lasts four updates.
@@ -99,7 +104,9 @@ interface Tk {
   x: number; z: number; yaw: number; hull: number; st: number; stT: number; dir: number; tn: number; td: number;
   vx: number; vz: number; bank: number; wpn: number; ammo: number; cd: number; busy: number; gunFrame: number; gunPose: number;
   mines: number; mcd: number; hp: number; cpu: boolean; skill: number; char: number; speed: number; pad: number; prev: number;
-  ghostAt?: number; resultVoiceTicks?: number; anim?: number; animAt?: number; rotor?: number;
+  ghostAt?: number; resultVoiceTicks?: number; anim?: number; animAt?: number; animN?: number; prevSt?: number; rotor?: number;
+  /** FUN_800c8090 / FUN_800c8008 looping channels (sound id or 0) and the manual turret countdown at 0x800cad94. */
+  motor?: number; turretSnd?: number; turretT?: number;
   aim: number; inv: number; shieldCd: number; dodge: boolean; taunt: number; hy: number; hvy: number; kills: number;
   elim: number; hpAt: number; ai: Ai; body: number; bot: number;
 
@@ -115,7 +122,7 @@ interface Dr { born?: number; y?: number; id: number; x: number; z: number; vx: 
 const DROP_Z = [0x100, 0x500, 0xb00, 0xf00];
 interface Data {
   variant: string; lv: number; f: number; over: boolean; overF: number; hum: number;
-  tk: Tk[]; shells: Sh[]; mines: Mn[]; flames: Fl[]; bombs: Bm[]; pickups: TankPickup[]; dropper: Dr | null; spawnT: number; par: number; bump: number;
+  tk: Tk[]; shells: Sh[]; mines: Mn[]; flames: Fl[]; bombs: Bm[]; pickups: TankPickup[]; dropper: Dr | null; spawnT: number; par: number; bump: number; bumpP?: number; sinkSnd?: number;
   result?: { winner: number; rankedAt: number; poseAt?: number; recovered?: boolean };
   metalWalls?: MetalWalls; jungleStatues?: JungleStatues;
 }
@@ -141,6 +148,36 @@ function mk(w: World, d: Data, kind: string, slot: number, gx: number, gz: numbe
 const gone = (t: Tk) => t.st === S_DIE || t.st === S_DEAD;
 const alive = (t: Tk) => t.hp > 0;
 
+/** FUN_800854c0. A script set after this tick's advance shows its first frame one tick later. */
+function pilotScript(w: World, t: Tk, script: number, afterAdvance = false) {
+  t.anim = script;
+  t.animN = 0;
+  t.animAt = w.tick + (afterAdvance ? 2 : 1);
+}
+
+/** FUN_8008502c in the drive and turn updates, then FUN_800b6ed8 when the script ends. */
+function stepPilot(w: World, d: Data, p: number, t: Tk) {
+  const n = (t.animN ?? 0) + 1;
+  t.animN = n;
+  if (n < (PILOT_TICKS[t.anim ?? 0x59]?.[t.char - 1] ?? 20)) return;
+  if (t.cpu && ++t.ai.idle >= 80 && !d.over) {
+    R(w, 30); // FUN_800b6ed8 stores this draw and then clears the counter.
+    t.ai.idle = 0;
+    pilotScript(w, t, 0x5a, true);
+    emit(w, 'taunt', 0, 0, p);
+    return;
+  }
+  pilotScript(w, t, 0x59, true);
+}
+
+/** FUN_800b906c: entering the grid turn restarts the idle script and plays the seat's turn cue. */
+function enterTurn(w: World, d: Data, p: number, t: Tk) {
+  t.st = S_TURN;
+  pilotScript(w, t, 0x59, true);
+  const L = L_(d);
+  sfx(w, 0x4fd + p, px(L, t.x), pz(L, t.z), p);
+}
+
 // ---------------------------------------------------------------- damage
 function hurt(w: World, d: Data, p: number, dmg: number, by: number) {
   const t = d.tk[p];
@@ -149,10 +186,13 @@ function hurt(w: World, d: Data, p: number, dmg: number, by: number) {
     if (d.hum === 0) dmg *= 3;
     else if (t.cpu) dmg = Math.trunc((dmg * ((((0x20 - t.skill) * 0x96) >> 5) + 0x32)) / 100);
   }
-  t.st = S_HIT; t.stT = 0; t.hvy = -100; t.hy = 0; t.inv = 60;
+  // FUN_800ba964 enters state 0x69 and picks one of four hurt voices before the health changes.
+  t.prevSt = t.st; t.st = S_HIT; t.stT = 0; t.hvy = -100; t.hy = 0; t.inv = 60;
+  const take = R(w, 4);
   t.hp -= dmg;
   const L = L_(d);
   emit(w, 'hit', px(L, t.x), pz(L, t.z), p, dmg / TA_HP, by === p ? -1 : by);
+  emit(w, 'hitVoice', px(L, t.x), pz(L, t.z), p, take);
   if (t.hp <= 0) {
     t.hpAt = t.hp + dmg; t.hp = 0; t.elim = d.f;
     if (by >= 0 && by !== p) d.tk[by].kills++;
@@ -180,11 +220,16 @@ function gridStep(d: Data, p: number, t: Tk) {
   if (dir === 1 || dir === 3) t.x = snap(x + DVX[dir] * sp); else t.z = snap(z + DVZ[dir] * sp);
 }
 
-function gridMove(d: Data, p: number, t: Tk) {
+function gridMove(w: World, d: Data, p: number, t: Tk) {
   const pad = t.pad;
   if (t.st === S_TURN) {
     t.hull = (t.hull + t.td) & 0xfff;
-    if (--t.tn <= 0) { t.st = S_RUN; if (pad & 0xf0) gridStep(d, p, t); }
+    if (--t.tn <= 0) {
+      // FUN_800c7db8, entering state 0x6e (also reached from FUN_800c7ef8), restarts the idle script.
+      t.st = S_RUN;
+      pilotScript(w, t, 0x59, true);
+      if (pad & 0xf0) gridStep(d, p, t);
+    }
     return;
   }
   if (!(pad & 0xf0)) return;
@@ -199,7 +244,9 @@ function gridMove(d: Data, p: number, t: Tk) {
       t.dir = want;
       if (((from + 2) & 3) === want) return;
       const pos = (want === 3 && from === 2) || (want === 1 && from === 0) || (want === 2 && from === 1) || (want === 0 && from === 3);
-      t.td = pos ? 0x80 : -0x80; t.tn = 8; t.st = S_TURN;
+      // FUN_800c7e68 / FUN_800c7eb0
+      t.td = pos ? 0x80 : -0x80; t.tn = 8;
+      enterTurn(w, d, p, t);
       return;
     }
   }
@@ -210,6 +257,7 @@ function gridMove(d: Data, p: number, t: Tk) {
 
 const JUNGLE_PEDESTAL = [{ x: 2048, z: 2048 }];
 
+/** FUN_800b993c (Jungle Fox) with the statue input block at 0x800c7d44. */
 function freeMove(d: Data, p: number, t: Tk) {
   const L = L_(d);
   let pad = t.pad;
@@ -244,6 +292,7 @@ function freeMove(d: Data, p: number, t: Tk) {
   }
 }
 
+/** FUN_800b9430 (Swamp Fox boat) and the boat bump FUN_800b96f4; FUN_800c8294 clamps to the pen. */
 function boatMove(d: Data, p: number, t: Tk) {
   const L = L_(d), pad = t.pad, sp = t.speed;
   const turn = Math.trunc((sp * 3) / 2);
@@ -265,6 +314,8 @@ function boatMove(d: Data, p: number, t: Tk) {
     const q = d.tk[o];
     if (o === p || gone(q)) continue;
     if (Math.abs(nx - q.x) < 0x1c1 && Math.abs(nz - q.z) < 0x1c0) {
+      // FUN_800b96f4 queues the bump cue for the next level frame unless one is cooling down.
+      if (d.bump === 0) { d.bump = -1; d.bumpP = p; }
       q.vx += Math.trunc(t.vx / 2); q.vz += Math.trunc(t.vz / 2);
       t.vx = Math.trunc(t.vx / 4); t.vz = Math.trunc(t.vz / 4);
       return;
@@ -276,6 +327,8 @@ function boatMove(d: Data, p: number, t: Tk) {
 // ---------------------------------------------------------------- weapons
 const SHELL_HEIGHT: Record<number, number> = { 2: -0xe6, 8: -0xfa, 9: -0x104, 10: -0x14a, 11: -0x113 };
 
+/** Shell objects 0x130c/0x130d/0x130e/0x130f/0x1302 (inits FUN_800c7b38, FUN_800c7aac, FUN_800c798c, FUN_800c78b4,
+ * FUN_800c76a8); FUN_800c7c08 scales the Swamp Fox speed and life. */
 function spawnShell(w: World, d: Data, p: number, t: Tk, wpn: number, offset: number) {
   const [, , life, speed] = SHELL[wpn];
   const double = wpn === 2;
@@ -299,8 +352,11 @@ function spawnShell(w: World, d: Data, p: number, t: Tk, wpn: number, offset: nu
   else emit(w, 'shellMuzzle', px(L, sx), pz(L, sz), p, -(SHELL_HEIGHT[wpn] + t.hy) * G, MUZZLE[wpn], -t.yaw * TAU / 4096);
 }
 
+/** The fire part of FUN_800b77e8 / FUN_800b7ee4 / FUN_800b8098 (one routine split by the decompiler). */
 function fire(w: World, d: Data, p: number, t: Tk) {
   const L = L_(d), wp = t.wpn;
+  // FUN_800b77e8 switches on rand(4) for cases 5-7, so every shot plays script 0x5d.
+  R(w, 4);
   t.cd = Math.round((wp === 3 ? 60 : 10) / Math.max(1, w.params.fireRate));
   t.busy = wp;
   t.gunFrame = 0;
@@ -311,7 +367,7 @@ function fire(w: World, d: Data, p: number, t: Tk) {
     spawnShell(w, d, p, t, wp, 0);
     sfx(w, SHOT_SFX[t.char - 1], px(L, t.x), pz(L, t.z), p);
   }
-  t.anim = 0x5d; t.animAt = w.tick + 1;
+  pilotScript(w, t, 0x5d);
   if (wp !== 3) emit(w, 'shoot', px(L, t.x), pz(L, t.z), p, 1);
 }
 
@@ -363,6 +419,7 @@ function mineRack(d: Data) {
   return rack;
 }
 
+/** Timed mine 0x1303 (FUN_800c7614) or the Swamp Fox floating mine 0x131d (FUN_800c7598). */
 function spawnMine(w: World, d: Data, owner: number, x: number, z: number) {
   const id = mk(w, d, 'mine', owner, x, z, 0x80);
   const mine: Mn = { id, rack: mineRack(d).indexOf(undefined), o: owner, x, z, n: 120, born: d.f };
@@ -373,6 +430,7 @@ function spawnMine(w: World, d: Data, owner: number, x: number, z: number) {
   d.mines.push(mine);
 }
 
+/** The mine part of FUN_800b8098. */
 function layMine(w: World, d: Data, p: number, t: Tk) {
   const L = L_(d), X = px(L, t.x), Z = pz(L, t.z);
   if (t.mines <= 0) { if (!t.cpu) sfx(w, 0x4f2, X, Z, p); return; }
@@ -384,7 +442,7 @@ function layMine(w: World, d: Data, p: number, t: Tk) {
   }
   spawnMine(w, d, p, t.x, t.z);
   sfx(w, L.level === 5 ? 0x50a : 0x4e9, X, Z, p); sfx(w, 0x4ec + p, X, Z, p);
-  t.anim = 0x5b; t.animAt = w.tick + 1;
+  pilotScript(w, t, 0x5b);
   t.mines--; t.mcd = L.level === 5 ? 30 : 120;
   emit(w, 'mine', X, Z, p, 1);
 }
@@ -411,6 +469,8 @@ function stepDoubleShot(w: World, d: Data, s: Sh): 0 | 2 {
   return 2;
 }
 
+/** FUN_800baffc (with its tails FUN_800bb184 / FUN_800bb4fc) driven by the shell callbacks FUN_800bb6d4 (11),
+ * FUN_800bb874 (8), FUN_800bba9c (10) and FUN_800bbef4 (9). */
 function shellStep(w: World, d: Data, s: Sh): number {
   const L = L_(d);
   if (s.w === 8 && (d.f & 7) === 0) emit(w, 'shellTrail', px(L, s.x), pz(L, s.z), s.o, -s.y * G, 2);
@@ -496,6 +556,7 @@ function floatingMine(frame: number) {
   return { angle: (frame + TANK_INTRO_TICKS) & 0xfff, age: 0, y: -20, armed: false };
 }
 
+/** FUN_800bd084 */
 function stepFloatingMine(w: World, d: Data, m: Mn): boolean {
   const drift = m.drift ??= floatingMine(m.born ?? d.f); // snapshots from before drift was recorded
   drift.y += MINE_BOB[drift.age++ & 15];
@@ -513,6 +574,8 @@ function stepFloatingMine(w: World, d: Data, m: Mn): boolean {
   return true;
 }
 
+/** FUN_800bcd80 and its blast FUN_800bd654: area damage (L5/L7) or four flames 0x1304 (FUN_800c73b0 / FUN_800bd868)
+ * leaving trail objects 0x1305 (FUN_800c7494 / FUN_800c7428). */
 function explodeMine(w: World, d: Data, m: Mn) {
   const L = L_(d), X = px(L, m.x), Z = pz(L, m.z);
   if (m.drift) emit(w, 'floatingMineBlast', X, Z, m.o, -m.drift.y * G);
@@ -535,10 +598,11 @@ function explodeMine(w: World, d: Data, m: Mn) {
   }
 }
 
+/** FUN_800bc27c (object 0x130b, init FUN_800c7714) */
 function explodeBomb(w: World, d: Data, b: Bm, all: boolean) {
   const L = L_(d), X = px(L, b.x), Z = pz(L, b.z);
-  sfx(w, 0x4ba + R(w, 4), X, Z); sfx(w, 0x490 + R(w, 2), X, Z);
-  emit(w, 'explode', X, Z, -1, 1.4, b.o);
+  sfx(w, 0x4ba + R(w, 4), X, Z); sfx(w, R(w, 4) < 2 ? 0x490 : 0x491, X, Z);
+  emit(w, 'bombBlast', X, Z, b.o, -b.y * G);
   for (let p = 0; p < 4; p++) {
     const t = d.tk[p];
     if (gone(t)) continue;
@@ -584,6 +648,7 @@ function spawnPickup(w: World, d: Data, rack: number, x: number, y: number, z: n
   return k;
 }
 
+/** Collection in FUN_800be988 (crate object 0x1308, init FUN_800be7dc). */
 function collect(w: World, d: Data, p: number, k: TankPickup): boolean {
   const t = d.tk[p], L = L_(d), X = px(L, k.x), Z = pz(L, k.z);
   const ty = k.t;
@@ -615,6 +680,7 @@ function collect(w: World, d: Data, p: number, k: TankPickup): boolean {
 // ---------------------------------------------------------------- AI
 const hasHuman = (d: Data) => d.tk.some((t) => !t.cpu && t.hp > 0);
 const skillOf = (d: Data, t: Tk) => (d.hum === 0 ? 30 : t.skill);
+/** FUN_800b3c7c (Desert / Metal lane scan) and FUN_800b3b24 (= FUN_800b3a9c) weighted choice. */
 function pickTarget(w: World, d: Data, p: number): number {
   const scanLanes = d.variant === 'desert' || d.variant === 'metal';
   const start = scanLanes ? R(w, 4) : 0;
@@ -644,6 +710,7 @@ function routePickup(d: Data, t: Tk) {
   return supplyRack(d).find(k => k && Math.abs(t.x - k.x) + t.z - k.z < 0x600);
 }
 
+/** Pickup route inside FUN_800b4a28 (decompiler tail FUN_800b478c); tile probes use FUN_800c8950. */
 function seek(w: World, d: Data, t: Tk) {
   const pickup = routePickup(d, t);
   let bit = 0;
@@ -683,6 +750,7 @@ function away(w: World, d: Data, t: Tk, ox: number, oz: number) {
   }
 }
 
+/** FUN_800b4490 */
 function avoidMine(w: World, d: Data, t: Tk): boolean {
   if (!d.hum || R(w, t.skill + 1) < 8 || t.ai.mode === 2) return false;
   const a = t.ai;
@@ -700,6 +768,7 @@ function avoidMine(w: World, d: Data, t: Tk): boolean {
   return true;
 }
 
+/** FUN_800b4a28 (land decide; jumptables 0x800b3338 / 0x800b3350, tails FUN_800b53d4 / FUN_800b5410). */
 function decide(w: World, d: Data, p: number, t: Tk) {
   const a = t.ai;
   a.timer = 30; a.target = pickTarget(w, d, p);
@@ -734,6 +803,7 @@ function shootGate(w: World, d: Data, t: Tk): boolean {
   const index = row * L.W + col;
   return !L.tiles[index] && !metalWallAt(d.metalWalls, index % L.W, Math.floor(index / L.W));
 }
+/** FUN_800b4688 (Swamp Fox decide; jumptables 0x800b3300 / 0x800b3318, weight tables from FUN_800b5788). */
 function decide5(w: World, d: Data, p: number, t: Tk) {
   const a = t.ai;
   a.target = pickTarget(w, d, p);
@@ -768,6 +838,7 @@ function decide5(w: World, d: Data, p: number, t: Tk) {
     a.timer = 90;
   }
 }
+/** FUN_800b5228 (land) and FUN_800b4fac (Swamp Fox), installed by FUN_800b5588; FUN_80013c94 sets their pad hold. */
 function aiFrame(w: World, d: Data, p: number, t: Tk) {
   const a = t.ai, L = L_(d);
   if (L.level === 5) {
@@ -830,7 +901,7 @@ function tankStep(w: World, d: Data, p: number, t: Tk, inp: InputState) {
   if (d.over) t.pad = 0;
   else if (t.cpu && alive(t)) aiFrame(w, d, p, t);
   else if (!t.cpu) t.pad = alive(t) ? humanPad(inp, lv) : 0;
-  const pad = t.pad, prevPad = t.prev, press = pad & ~t.prev;
+  const pad = t.pad, press = pad & ~t.prev;
   t.prev = pad;
   if (lv === 5 && t.st !== S_DEAD) {
     t.rotor = ((t.rotor ?? BOAT_ROTOR_AT_GO) - ((pad & 0xa00) ? 0x2a7 : BOAT_IDLE_SPIN)) & 0xfff;
@@ -848,14 +919,17 @@ function tankStep(w: World, d: Data, p: number, t: Tk, inp: InputState) {
     if (++t.stT < TANK_HIT_TICKS[t.char - 1]) return;
     t.hy = 0;
     if (t.hp <= 0) { t.st = S_DIE; t.stT = 0; return; }
-    t.st = S_RUN;
+    // FUN_800baab0 returns to the previous state through its enter callback, then selects idle.
+    if (t.prevSt === S_TURN && L.level !== 5 && L.level !== 7) enterTurn(w, d, p, t);
+    else t.st = S_RUN;
+    pilotScript(w, t, 0x59, true);
     if (d.result?.winner === p && d.f > d.result.rankedAt) {
       enterTankWin(d.result, d.f, t);
       d.result.recovered = true; // FUN_800baab0 selects idle after the recovery callback enters victory.
     }
     return;
   }
-  if (t.st === S_DIE) {
+  if (t.st === S_DIE) { // FUN_800c7d24 enters wreck script 0x58; the state update ends it with script 14 and 0x4f0
     stepGun(w, d, p, t);
     if (++t.stT >= TANK_WRECK_TICKS[t.char - 1]) {
       t.st = S_DEAD;
@@ -877,6 +951,7 @@ function tankStep(w: World, d: Data, p: number, t: Tk, inp: InputState) {
         if (lv === 7) t.hull = (t.hull - 0x15) & 0xfff;
       }
     }
+    if (t.st === S_RUN || t.st === S_TURN) stepPilot(w, d, p, t);
     stepGun(w, d, p, t);
     return;
   }
@@ -884,8 +959,8 @@ function tankStep(w: World, d: Data, p: number, t: Tk, inp: InputState) {
   if (lv !== 5) {
     const previousYaw = t.yaw;
     if (!drv) {
-      if (pad & 0xa00) t.yaw = (t.yaw + 0x40) & 0xfff;
-      else if (pad & 0x500) t.yaw = (t.yaw - 0x40) & 0xfff;
+      if (pad & 0xa00) { t.yaw = (t.yaw + 0x40) & 0xfff; t.turretT = 2; }
+      else if (pad & 0x500) { t.yaw = (t.yaw - 0x40) & 0xfff; t.turretT = 2; }
     } else if (t.aim >= 0) {
       const df = sext(t.aim - t.yaw);
       t.yaw = (t.yaw + (df >> 2)) & 0xfff;
@@ -910,16 +985,23 @@ function tankStep(w: World, d: Data, p: number, t: Tk, inp: InputState) {
     sfx(w, 0x510 + p, px(L, t.x), pz(L, t.z), p); emit(w, 'shield', px(L, t.x), pz(L, t.z), p);
   }
   // Triangle held (0x80051388), taunt cooldown run out, in the idle / drive / turn states 0x6c 0x6e 0x6f: clip 0x5a + voice
-  if ((pad & 0x1000) && t.taunt <= 0 && (t.st === S_RUN || t.st === S_TURN)) { t.taunt = 0x5a; t.anim = 0x5a; t.animAt = w.tick + 1; emit(w, 'taunt', 0, 0, p); }
-  // FUN_800b8ec4 -> FUN_800b6ed8: every time a CPU tank stops (enters the idle state 0x6c) a counter (starts rand(30)) goes up;
-  // past 0x4f it taunts (clip 0x5a + its taunt voice) and the counter restarts at 0
-  if (t.cpu && t.st === S_RUN && (prevPad & 0xf0) && !(pad & 0xf0) && ++t.ai.idle > 0x4f) { t.ai.idle = 0; t.taunt = 0x5a; t.anim = 0x5a; t.animAt = w.tick + 1; emit(w, 'taunt', 0, 0, p); }
+  if ((pad & 0x1000) && t.taunt <= 0 && (t.st === S_RUN || t.st === S_TURN)) { t.taunt = 0x5a; pilotScript(w, t, 0x5a); emit(w, 'taunt', 0, 0, p); }
+  // The drive and turn updates advance the pilot script after the weapon routine. A CPU counts each finished script.
+  stepPilot(w, d, p, t);
   // movement
   const sp0 = t.speed;
   t.speed = Math.max(1, Math.round(sp0 * w.params.speed));
-  if (lv === 5) boatMove(d, p, t); else if (lv === 7) freeMove(d, p, t); else gridMove(d, p, t);
+  if (lv === 5) boatMove(d, p, t); else if (lv === 7) freeMove(d, p, t); else gridMove(w, d, p, t);
   t.speed = sp0;
   stepGun(w, d, p, t);
+}
+
+/** FUN_800b6c24: the boat thrust or tread loop and the turret loop. FUN_800b5fc4 silences a destroyed tank. */
+function loopChannels(d: Data, p: number, t: Tk, x: number, z: number) {
+  if (t.hp < 1) { t.motor = 0; t.turretSnd = 0; t.turretT = 0; return; }
+  if (L_(d).level === 5) { t.motor = t.pad & 0x800 ? 0x50b + p : 0; return; }
+  t.motor = t.x === x && t.z === z ? 0 : 0x4c2 + p;
+  if (t.turretT) t.turretSnd = --t.turretT ? 0x4be + p : 0;
 }
 
 // ---------------------------------------------------------------- objects
@@ -955,16 +1037,16 @@ function objects(w: World, d: Data) {
     }
     if (end) { drop(w, f.id); d.flames.splice(i, 1); }
   }
+  // FUN_800bc27c: a direct hit, else the landing. The callback has no arena bound.
   for (let i = d.bombs.length - 1; i >= 0; i--) {
     const b = d.bombs[i];
     b.x += b.vx; b.z += b.vz; b.vy += 12; b.y += b.vy;
     let done = false;
     for (let p = 0; p < 4 && !done; p++) {
       const t = d.tk[p];
-      if (p !== b.o && !gone(t) && Math.abs(b.x - t.x) < 0x181 && Math.abs(b.z - t.z) < 0x181) { explodeBomb(w, d, b, true); done = true; }
+      if (p !== b.o && !gone(t) && Math.abs(b.x - t.x) < 0x181 && Math.abs(b.z - t.z) < 0x180) { explodeBomb(w, d, b, true); done = true; }
     }
-    if (!done && b.vy >= 1 && b.y >= -0x103) { explodeBomb(w, d, b, false); done = true; }
-    if (!done && (b.x < -0x400 || b.x > L.bx + 0x500 || b.z < -0x400 || b.z > L.bz + 0x500)) done = true;
+    if (!done && b.vy >= 1 && b.y >= -0x103) { b.y = -0x104; explodeBomb(w, d, b, false); done = true; }
     if (done) { drop(w, b.id); d.bombs.splice(i, 1); }
   }
   for (let i = d.pickups.length - 1; i >= 0; i--) {
@@ -982,7 +1064,7 @@ function objects(w: World, d: Data) {
           if (m.drift) m.drift.angle = 1;
           else m.n = 1;
         }
-        if (L.level < 8) { emit(w, 'land', px(L, k.x), pz(L, k.z), -1, -k.y * G); sfx(w, 0x4b4 + R(w, 4), px(L, k.x), pz(L, k.z)); }
+        if (L.level < 8) { emit(w, 'crateLand', px(L, k.x), pz(L, k.z), -1, -k.y * G); sfx(w, 0x4b4 + R(w, 4), px(L, k.x), pz(L, k.z)); }
         if (k.t === 6) {
           spawnMine(w, d, -1, k.x, k.z);
           drop(w, k.id);
@@ -1006,6 +1088,7 @@ function objects(w: World, d: Data) {
   if (d.dropper) stepDropper(w, d, d.dropper);
 }
 
+/** FUN_800be47c (drone 0x1307). */
 function stepDropper(w: World, d: Data, q: Dr) {
   if (q.born === d.f) return;
   q.x += q.vx;
@@ -1026,6 +1109,7 @@ function stepDropper(w: World, d: Data, q: Dr) {
   else k.t = R(w, 1000) < 501 ? 4 : 5;
 }
 
+/** FUN_800bdc50 (supply controller 0x1309). */
 function stepSupply(w: World, d: Data) {
   const L = L_(d);
   if (L.level === 5 || d.over) return;
@@ -1107,6 +1191,8 @@ export const tankArena: MiniGame = {
     if (t && !t.cpu) t.prev = humanPad(pad, L_(d).level) & 0xe000; // fire, mine and shield use rising edges
   },
 
+  /** FUN_800b58b0 / FUN_800b5a40 (level setup, BCD clock FUN_8007b7fc), FUN_800c83d8 (engine hooks) and FUN_800b6658
+   * (per seat; FUN_800c8334 clears its motion), stock weapon FUN_800b6ff4. FUN_800c8360 frees the loop channels at the end. */
   setup(w, slots) {
     const variant = pickVariant(w, TA_VARIANTS);
     const lv = TA_LV.findIndex((l) => l.id === variant);
@@ -1130,6 +1216,9 @@ export const tankArena: MiniGame = {
       const weapon = TANK_STOCK_WEAPON[char - 1];
       const boatFrame = L.level === 5 ? TANK_INTRO_TICKS % 6 : 0;
       const id = mk(w, d, 'tank', i, x, z, 0xe0);
+      // FUN_800b6658 enters idle first (FUN_800b8ec4 draws the 0x8009d57a timer), then seeds the CPU taunt counter.
+      R(w, 0x96);
+      const tauntCount = R(w, 0x1e);
       d.tk.push({
         x, z, yaw, hull: L.level === 7 ? 0 : HULL[dir], st: S_RUN, stT: 0, dir, tn: 0, td: 0, vx: 0, vz: 0, bank: 0,
         ...(L.level === 5 ? { rotor: BOAT_ROTOR_AT_GO } : {}),
@@ -1137,7 +1226,7 @@ export const tankArena: MiniGame = {
         gunPose: tankGunIdle(L.level, weapon, boatFrame), mines: 3, mcd: 0, hp: TA_HP, cpu,
         skill, char, resultVoiceTicks: winnerCheerFrame(s?.char ?? i), speed, pad: 0, prev: 0, aim: -1, inv: 0, shieldCd: 0,
         dodge: false, taunt: 0, hy: 0, hvy: 0, kills: 0, elim: -1, hpAt: 0,
-        ai: { mode: 0, timer: 1, target: -1, pad: 0, tx: 0, tz: 0, shoot: ((L.skill[lvl] * 0x55) >> 5) + 5, mref: 0, idle: R(w, 0x1e) }, body: id, bot: -1,
+        ai: { mode: 0, timer: 1, target: -1, pad: 0, tx: 0, tz: 0, shoot: ((L.skill[lvl] * 0x55) >> 5) + 5, mref: 0, idle: tauntCount }, body: id, bot: -1,
       });
       byId(w, id)!.face = (-yaw * TAU) / 4096;
     }
@@ -1149,7 +1238,22 @@ export const tankArena: MiniGame = {
     const d = w.data as Data;
     d.f++;
     d.hum = hasHuman(d) ? 1 : 0;
-    for (let p = 0; p < 4; p++) { const t = d.tk[p]; t.ai.shoot = (((d.hum ? t.skill : 30) * 0x55) >> 5) + 5; tankStep(w, d, p, t, inputs[p] ?? IDLE); }
+    // FUN_800b5fc4, the level frame before the players: the boat bump cue (60-tick cooldown) and the sinking platform cue.
+    if (d.bump < 1) {
+      if (d.bump !== 0) {
+        const t = d.tk[d.bumpP ?? 0], L = L_(d);
+        sfx(w, 0x4b9, px(L, t.x), pz(L, t.z));
+        d.bump = 60;
+      }
+    } else d.bump--;
+    if (d.sinkSnd && --d.sinkSnd === 0) sfx(w, 0x501, 0, 0);
+    for (let p = 0; p < 4; p++) {
+      const t = d.tk[p];
+      t.ai.shoot = (((d.hum ? t.skill : 30) * 0x55) >> 5) + 5;
+      const x = t.x, z = t.z;
+      tankStep(w, d, p, t, inputs[p] ?? IDLE);
+      loopChannels(d, p, t, x, z);
+    }
     for (const t of d.tk) {
       if (!t.shield) continue;
       const age = d.f - t.shield.start;
@@ -1163,6 +1267,8 @@ export const tankArena: MiniGame = {
       stepMetalWalls(d.metalWalls, d.f, d.tk.filter(t => !gone(t)), d.over, {
         firstLaterId: w.nextId,
         onWave: () => sfx(w, 0x501, 0, 0),
+        onSink: () => { d.sinkSnd = 2; },
+        // FUN_800c0348 (wave controller 0x1310) and FUN_800c04e0 (platform 0x1311)
         onRise: wall => breakPickupAt(w, d, wall.x, wall.y, wall.z),
       });
     }

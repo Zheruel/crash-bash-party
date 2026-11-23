@@ -214,6 +214,19 @@ function loadModel(id: number) {
   return p;
 }
 
+// ---- dev-only T-pose detector (stripped from production builds). Read by scripts/pose-sweep.mjs.
+export interface TPoseRecord { model: number; kind: 'bind' | 'role-miss' | 'word-miss' | 'hidden'; role: string; word: number | null; game: string; count: number }
+let devGameId = '';
+/** Dev only: which mini-game / variant is on screen, stamped on every record. */
+export function devSetGame(id: string) { if (import.meta.env.DEV) devGameId = id; }
+function devRecord(model: number, kind: TPoseRecord['kind'], role: string, word: number | null) {
+  const w = window as unknown as { __tposes?: TPoseRecord[] };
+  const list = (w.__tposes ??= []);
+  const hit = list.find((r) => r.model === model && r.kind === kind && r.role === role && r.word === word && r.game === devGameId);
+  if (hit) hit.count++;
+  else list.push({ model, kind, role, word, game: devGameId, count: 1 });
+}
+
 /** A placed model instance. `root` is what you add to the scene; play() switches animation roles. */
 export class ModelInstance {
   readonly root = new THREE.Group();
@@ -225,7 +238,17 @@ export class ModelInstance {
   private groupClips = new Map<number, { clip: number; part: string }>();
   private activePart: string | null = null;
   private modelParts: { mesh: THREE.Mesh; name: string; visible: boolean }[] = [];
+  private lastWord: number | null = null;
+  private driven = false;
   constructor(public ref: ModelRef | null) {}
+
+  /** Dev only: a model with clips that is on screen with nothing playing and no part shown is in bind pose (a T-pose). */
+  private devCheck() {
+    if (!import.meta.env.DEV || !this.model || !this.clips.length || !this.driven) return;
+    if (this.action || this.activePart !== null || !this.model.visible) return;
+    for (let o: THREE.Object3D | null = this.root; o; o = o.parent) if (!o.visible) return;
+    devRecord(this.ref?.model ?? -1, 'bind', this.role, this.lastWord);
+  }
 
   /** Fill from cache (must be preloaded) or return false so the caller can show a fallback. */
   build(): boolean {
@@ -257,10 +280,21 @@ export class ModelInstance {
   play(role: string, fade = 0.15) {
     if (this.model) this.model.visible = true;
     this.showPart(null);
-    if (!this.mixer || role === this.role) return;
-    const idx = this.ref?.anims?.[role];
-    const clip = idx != null ? this.clips[idx] : undefined;
-    if (!clip) return;
+    if (import.meta.env.DEV) this.driven = true;
+    if (!this.mixer || role === this.role) { this.devCheck(); return; }
+    let idx = this.ref?.anims?.[role];
+    let clip = idx != null ? this.clips[idx] : undefined;
+    if (!clip) {
+      if (import.meta.env.DEV) devRecord(this.ref?.model ?? -1, 'role-miss', role, this.lastWord);
+      // A role this model lacks keeps the pose already showing. Only when nothing has ever shown (the model would sit in
+      // bind pose, a T-pose) start the idle clip, or the first clip of a model with no anims map.
+      if (this.action || this.activePart !== null) { this.devCheck(); return; }
+      idx = this.ref?.anims?.idle ?? 0;
+      clip = this.clips[idx];
+      if (!clip) { this.devCheck(); return; }
+      role = 'idle';
+      if (role === this.role) { this.devCheck(); return; }
+    }
     this.role = role;
     const next = this.mixer.clipAction(clip);
     if (next === this.action && this.posed < 0) return;
@@ -273,6 +307,7 @@ export class ModelInstance {
       previous.fadeOut(fade);
     } else if (previous !== next) previous?.stop();
     this.action = next;
+    this.devCheck();
   }
 
   clipTicks(clip: number) { return (this.clips[clip]?.duration ?? 0) * 30; }
@@ -293,6 +328,7 @@ export class ModelInstance {
     const time = Math.max(0, frame / 30);
     this.action.time = loop && c.duration > 0 ? time % c.duration : Math.min(time, c.duration);
     this.mixer.update(0);
+    if (import.meta.env.DEV) { this.driven = true; this.devCheck(); }
   }
   private posed = -1;
 
@@ -304,6 +340,18 @@ export class ModelInstance {
 
   /** A PS1 render word selects either a static part or an animation group and frame. */
   nativePose(word: number): boolean {
+    if (!this.model) return false;
+    if (import.meta.env.DEV) { this.lastWord = word; this.driven = true; }
+    const ok = this.nativePoseInner(word);
+    if (import.meta.env.DEV) {
+      // models with named clips only (the custom base rigs) are never addressed by word: the kit falls back to roles
+      if (!ok && this.groupClips.size) devRecord(this.ref?.model ?? -1, 'word-miss', this.role, word);
+      this.devCheck();
+    }
+    return ok;
+  }
+
+  private nativePoseInner(word: number): boolean {
     if (!this.model) return false;
     if ((word & 0xe000) === 0x2000) {
       const part = 'part' + ((word & 0x1fff) - 1);
@@ -324,6 +372,7 @@ export class ModelInstance {
     const frames = this.clips[group.clip].userData.frames;
     // The disc submits no geometry when a word exceeds the group's frame table.
     if (typeof frames === 'number' && frame >= frames) {
+      if (import.meta.env.DEV) devRecord(this.ref?.model ?? -1, 'hidden', this.role, word);
       this.model.visible = false;
       return true;
     }
@@ -332,10 +381,51 @@ export class ModelInstance {
     return true;
   }
 
+  /**
+   * Node flag 0x400000 (FUN_80019a60): an animated word keeps its vertex frames but takes the faces (texture, UVs and
+   * colours) of static part word `word` (node +0x8e). Primitives pair up by corner count and facing. Returns false when
+   * the model has no such part; `null` restores the normal faces.
+   */
+  staticSkin(word: number | null): boolean {
+    const part = word === null ? null : 'part' + ((word & 0xfff) - 1);
+    if (part === this.skinPart) return this.skinned.length > 0 || part === null;
+    for (const s of this.skinned) { s.mesh.geometry = s.geometry; s.mesh.material = s.material; }
+    this.skinned = [];
+    this.skinPart = part;
+    if (part === null) return true;
+    const source = this.modelParts.filter(p => p.name === part).map(p => p.mesh);
+    const used = new Set<THREE.Mesh>();
+    for (const { mesh, name } of this.modelParts) {
+      if (name === part) continue;
+      const geometry = mesh.geometry, count = geometry.attributes.position.count, facing = geometry.userData.ps1Facing;
+      const from = source.find(s => !used.has(s) && s.geometry.attributes.position.count === count && s.geometry.userData.ps1Facing === facing);
+      if (!from || !from.geometry.attributes.color) continue;
+      used.add(from);
+      let pairs = skinCache.get(geometry);
+      if (!pairs) skinCache.set(geometry, pairs = new Map());
+      let skin = pairs.get(from.geometry);
+      if (!skin) {
+        skin = geometry.clone();
+        skin.setAttribute('color', from.geometry.attributes.color);
+        if (from.geometry.attributes.uv) skin.setAttribute('uv', from.geometry.attributes.uv);
+        pairs.set(from.geometry, skin);
+      }
+      this.skinned.push({ mesh, geometry, material: mesh.material });
+      mesh.geometry = skin;
+      mesh.material = from.material;
+    }
+    return this.skinned.length > 0;
+  }
+  private skinPart: string | null = null;
+  private skinned: { mesh: THREE.Mesh; geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[] }[] = [];
+
   update(dt: number) {
     this.mixer?.update(dt);
+    this.devCheck();
   }
 }
+/** Static-skin geometries per (animated, static) geometry pair; they share the shared model's buffers. */
+const skinCache = new WeakMap<THREE.BufferGeometry, Map<THREE.BufferGeometry, THREE.BufferGeometry>>();
 
 // loadModel() resolves into this map so build() can be synchronous after preload().
 const peeked = new Map<number, { scene: THREE.Object3D; anims: THREE.AnimationClip[] }>();

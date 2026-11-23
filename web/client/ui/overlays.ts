@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { ballistixSlidesHorizontally } from '../../shared/games/ballDefence';
 import { COUNT_FRAMES, COUNT_LABELS, type ResultsMsg, type RoundMsg, type StageBallot, type StageOption, type WheelMsg } from '../../shared/protocol';
 import { sfx, sfxRate } from '../shell/sound';
-import { announceStage, preloadStageCall } from '../shell/voice';
 import { ASSET_BASE, ModelInstance, ready } from '../crash';
 import { div, esc, face, icon, MENU_PLAYERS, pop } from './dom';
 import type { SeatView } from './hud';
@@ -46,7 +45,6 @@ export function controlsHtml(text: string, touch: boolean, game = '', variant?: 
   return text.split(/(?<=\.)\s+(?=[{A-Z])/).map(s =>
     `<li>${esc(s).replace(/\{(\w+)\}/g, (_, token: string) => `<span class="keys">${key(token)}</span>`)}</li>`).join('');
 }
-const MENU_MOVE = 'sfx/0272/7.mp3', MENU_SELECT = 'sfx/0272/9.mp3';
 
 function stageArt(stage: StageOption) {
   return `<img class="stage-art" src="${esc(thumb(stage.gameId, stage.variantId))}" alt="" draggable="false">`;
@@ -96,7 +94,7 @@ export class VoteOverlay {
           const next = this.buttons[(index + direction + this.buttons.length) % this.buttons.length];
           if (next.disabled) return;
           next.focus();
-          if (!sfx.playFile(MENU_MOVE, .55)) sfx.play('tick');
+          sfx.play('move');
         };
       });
       if (eligible) this.buttons[0]?.focus({ preventScroll: true });
@@ -114,7 +112,7 @@ export class VoteOverlay {
     });
     const status = ownVote ? 'VOTE LOCKED IN' : eligible ? 'VOTE TO BOOST A STAGE’S ODDS' : 'WATCHING THE VOTE';
     if (this.status!.textContent !== status) {
-      if (ownVote && this.status!.textContent && !sfx.playFile(MENU_SELECT, .65)) sfx.play('click');
+      if (ownVote && this.status!.textContent) sfx.play('select');
       this.status!.textContent = status;
     }
   }
@@ -138,14 +136,12 @@ export class WheelOverlay {
     this.hide();
     const token = this.token;
     const picked = m.options[m.pick];
-    preloadStageCall(picked.gameId, picked.variantId);
     const n = m.options.length;
     // a long strip: several laps, the pick lands on card LAND
     const LAPS = 2, LAND = LAPS * n + m.pick, total = LAND + 4;
     const cards = Array.from({ length: total }, (_, i) => m.options[i % n]);
     this.el.classList.remove('hidden');
     this.el.classList.toggle('showdown', !!m.showdown);
-    if (m.showdown) sfx.play('drum');
     this.el.innerHTML = `
       <div class="wheel-head"><small class="sm">${esc(turnLabel)}</small><h2 class="gt or">${m.showdown ? 'LAST ROUND!' : 'NEXT MINI-GAME'}</h2>${m.showdown ? '<em class="gt red">DOUBLE POINTS</em>' : ''}</div>
       <div class="reel" aria-hidden="true"><div class="reel-strip">${cards.map((o, i) => `<div class="rcard" data-i="${i}">${stageArt(o)}<b class="gt or">${esc(o.name.toUpperCase())}</b></div>`).join('')}</div>
@@ -158,7 +154,6 @@ export class WheelOverlay {
     const elapsed = m.elapsedMs ?? 0;
     const spinMs = Math.max(1, (m.ms + elapsed) * 0.52);
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const announce = m.ms > 300 && elapsed < spinMs + 250;
     const start = performance.now() - elapsed;
     let last = -1;
     const frame = (now: number) => {
@@ -170,15 +165,15 @@ export class WheelOverlay {
       const x = reel.clientWidth / 2 - firstBox.width / 2 - (1.5 + (LAND - 1.5) * e) * step;
       strip.style.transform = `translateX(${x}px)`;
       const under = Math.floor((reel.clientWidth / 2 - x) / step);
-      if (k < 1 && under !== last) { last = under; if (!sfx.playFile(MENU_MOVE, 0.35 + 0.4 * (1 - k))) sfx.play('tick', 0.8 + 0.4 * (1 - k)); }
+      if (k < 1 && under !== last) { last = under; sfx.play('move'); }
       if (k < 1) { this.raf = requestAnimationFrame(frame); return; }
-      this.land(m, strip.querySelector(`.rcard[data-i="${LAND}"]`) as HTMLElement, token, announce);
+      this.land(m, strip.querySelector(`.rcard[data-i="${LAND}"]`) as HTMLElement, token);
     };
     this.raf = requestAnimationFrame(frame);
   }
 
-  private land(m: WheelMsg, card: HTMLElement, token: number, announce: boolean) {
-    if (!sfx.playFile(MENU_SELECT, 0.8)) sfx.play('reveal');
+  private land(m: WheelMsg, card: HTMLElement, token: number) {
+    sfx.play('select');
     this.el.classList.add('landed');
     const reel = card.closest<HTMLElement>('.reel')!;
     const strip = card.parentElement!;
@@ -191,7 +186,6 @@ export class WheelOverlay {
     card.classList.add('win');
     const stage = m.options[m.pick];
     this.el.querySelector('.wheel-announcement')!.textContent = stage.name;
-    if (announce) this.timers.push(window.setTimeout(() => announceStage(stage.gameId, stage.variantId), 70));
     if (m.modifier) {
       const mod = this.el.querySelector('.wheel-mod') as HTMLElement;
       mod.innerHTML = `<img class="uka" src="${UKA}" alt="" draggable="false"><div class="bubble"><b class="gt red">${esc(m.modifier.name.toUpperCase())}</b><span class="sm">${esc(m.modifier.desc)}</span></div>`;
@@ -200,7 +194,6 @@ export class WheelOverlay {
         mod.classList.remove('hidden');
         // Uka Uka barges in: red flash, the reel shakes, the picked card is shoved crooked
         this.el.classList.remove('twisted'); void this.el.offsetWidth; this.el.classList.add('twisted');
-        sfx.play('chaos');
       }, Math.min(1350, m.ms * 0.45)));
     }
   }
@@ -460,13 +453,11 @@ export class ResultsOverlay {
       slots.forEach((slot) => q(slot).classList.toggle('lead', lead > 0 && pts[slot] === lead));
     };
     crownTo(m.prev);
-    sfx.play('whoosh');
     // +N pops, last place first
     const rev = m.placements.filter((slot) => seats[slot]).reverse();
     if (!m.draw) rev.forEach((slot, k) => this.later(250 + k * 180, () => {
       const g = q(slot).querySelector('.lg') as HTMLElement;
       g.classList.remove('hidden'); pop(g, 'pop');
-      sfx.play(k === 3 ? 'lucky' : 'coin', 0.8 + k * 0.12);
     }));
     // count totals up
     const t0 = 250 + 4 * 180 + 150, dur = 600;
@@ -481,7 +472,6 @@ export class ResultsOverlay {
         if (k < 1) this.raf = requestAnimationFrame(step);
       };
       this.raf = requestAnimationFrame(step);
-      if (!m.draw) sfx.play('coin');
     });
     // re-sort + crown + trophy + streaks
     this.later(t0 + dur + 100, () => {
@@ -495,7 +485,6 @@ export class ResultsOverlay {
       const leadSlot = after[0];
       if (after[0] !== before[0] && m.scores[leadSlot] > 0) {
         // a new leader takes the crown: stinger + tag on the row
-        sfx.play('crystal');
         pop(q(leadSlot).querySelector('.crown') as HTMLElement, 'crownpop');
         const tag = document.createElement('span');
         tag.className = 'newlead gt or';
@@ -507,7 +496,6 @@ export class ResultsOverlay {
         const st = q(i).querySelector('.streak') as HTMLElement;
         if ((streaks[i] ?? 0) >= 2) { st.textContent = `${streaks[i]} IN A ROW!`; st.classList.remove('hidden'); pop(st, 'pop'); }
       }
-      if (lastNext) sfx.play('chaos');
     });
   }
 }

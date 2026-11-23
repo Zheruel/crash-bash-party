@@ -98,34 +98,35 @@ export class PolarFx {
   }
 
   /**
-   * One player update as object 0x1606 (FUN_800c01c8) and the dash object 0x1616 see it, i.e. after the rider's own tick:
-   * a rider that moved leaves a track every other idle (sliding) tick and at walk-script pc 9.
+   * One player update as object 0x1606 (FUN_800c01c8, 17 nodes from FUN_800ca890) and the dash object 0x1616 see it, i.e.
+   * after the rider's own tick: a rider whose reflection entity moved leaves a track every other idle (sliding) tick and at
+   * walk-script pc 9, while one of its 17 nodes is free. MANIC never moves the reflection entity (FUN_800cc3b4 returns
+   * first), so its additive 0x2030 branch never draws.
    */
   riderTick(slot: number, q: PolarRider) {
     const last = this.riders[slot];
-    const moved = !!last && (last.x !== q.x || last.z !== q.z);
+    const moved = !!last && (last.x !== q.x || last.z !== q.z) && this.variant !== 'manic';
     this.riders[slot] = { ...q };
     const list = this.tracks[slot];
-    if (moved && q.md === 0) {
-      let slide = false;
-      if (q.st === S_IDLE) slide = (this.trackCount[slot]++ & 1) === 0;
-      const print = q.st === S_WALK && ((q.af - 1) & 15) + 1 === 9;
-      if (slide || print) {
-        let t = list.find((track) => !track.on);
-        if (!t && list.length < 16) {
-          const manic = this.variant === 'manic';
-          const n = makeNode(this.ice, PACK, manic ? 47 : 1, manic ? 1 : 3, 3);
-          if (n) { t = { n, on: false, dark: 0 }; list.push(t); }
-        }
-        if (t) {
-          t.on = true;
-          t.dark = print ? 0 : 0x400;
-          place(t.n.obj, q.x, q.y, q.z);
-          t.n.obj.position.y += 6 * U; // the engine sorts it over the ice (node +0x51 = 2)
-          t.n.obj.rotation.set(0, -(q.yaw + 0x800) * A, 0);
-          t.n.obj.scale.setScalar(q.sc / 0x1000);
-        }
+    const free = () => {
+      let t = list.find((track) => !track.on);
+      if (!t && list.length < 17) {
+        const n = makeNode(this.ice, PACK, 1, 3, 3); // 0x2002, node flags 0x40008061: B + F/4
+        if (n) { t = { n, on: false, dark: 0 }; list.push(t); }
       }
+      return t;
+    };
+    const t = moved ? free() : undefined;
+    // the idle counter (object +0x64) only counts while a node is free
+    const slide = !!t && q.st === S_IDLE && (this.trackCount[slot]++ & 1) === 0;
+    const print = !!t && q.st === S_WALK && ((q.af - 1) & 15) + 1 === 9;
+    if (t && (slide || print)) {
+      t.on = true;
+      t.dark = print ? 0 : 0x400;
+      place(t.n.obj, q.x, q.y, q.z);
+      t.n.obj.position.y += 6 * U; // the engine sorts it over the ice (node +0x51 = 2)
+      t.n.obj.rotation.set(0, -(q.yaw + 0x800) * A, 0);
+      t.n.obj.scale.setScalar(q.sc / 0x1000);
     }
     for (const t of list) {
       if (!t.on) continue;
@@ -169,7 +170,11 @@ export class PolarFx {
     if (nodes.length) this.bursts.push({ nodes, v, p, t: 0, x, y, z });
   }
 
-  /** Three objects 0x1604 from a broken pillar (FUN_800c0888); `a` is the bear's angle from the centre after the bounce. */
+  /**
+   * Three objects 0x1604 from a broken pillar (FUN_800c0888); `a` is the bear's angle from the centre after the bounce.
+   * FUN_800caa90 makes an opaque 0x200c; FUN_800caa60 / FUN_800bfd38 move it (gravity 3, spin flags 0x1c) and drop it
+   * 0x400 below its start.
+   */
   pillar(x: number, y: number, z: number, a: number) {
     const cos = (t: number) => Math.round(Math.cos(t * A) * 4096);
     const add = (vx: number, vy: number, vz: number, spin: number[]) => {
@@ -200,7 +205,8 @@ export class PolarFx {
     const lift = ((q.sc * (spin && q.ch === 7 ? 0x208 : 0x1a4)) >> 12) * U;
     d.n.obj.visible = true;
     d.n.obj.position.set(x, y + lift, z);
-    d.n.obj.rotation.set(spin ? (q.af - from) * 0x200 * A : 0, face + (spin ? 0x400 * A : 0), 0, 'YXZ');
+    // spawned at pc 7 / 10, first updated on the next tick: +0x1c gains 0x200 per update
+    d.n.obj.rotation.set(spin ? (q.af - from + 1) * 0x200 * A : 0, face + (spin ? 0x400 * A : 0), 0, 'YXZ');
     d.n.obj.scale.setScalar(q.sc / 0x1000);
     shade(d.n, dark);
   }

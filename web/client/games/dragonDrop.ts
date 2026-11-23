@@ -5,6 +5,7 @@ import { CHARACTERS, DISC_CHARACTER } from '../../shared/look';
 import { createDragonDropResult, dragonCupFrame, dragonResultFrames, dragonRiderScript, RD_INTRO_GONG, RD_INTRO_TARGETS, RD_S, RD_TARGET_Y, type DragonDropData, type DragonTarget } from '../../shared/games/dragonDrop';
 import type { Body } from '../../shared/types';
 import { getCatalog } from '../crash';
+import { discStereo } from '../shell/discStereo';
 import { sfx, sfxRate } from '../shell/sound';
 import { hitVoice, winnerVoice } from '../shell/voice';
 import { Actor, Kit, catalogInstance, preloadCatalogFor } from './kit';
@@ -81,6 +82,8 @@ const RD_SFX: Record<number, [string, number]> = {
   0x6d2: ['sfx/0164/32.mp3', 0.935],
   0x6d3: ['sfx/0164/33.mp3', 0.935],
 };
+/** Every Dragon Drop cue calls FUN_80022660 at volume 0x1000: SPU level 127 at the default effects option (as Polar Push). */
+const FULL = 0.8;
 const SND = {
   gong: 0x6bf,
   score: 0x6b1, // on every target hit
@@ -138,7 +141,19 @@ export function createDragonDropView(): ClientMiniGame {
 
   const jewelObj = (ci: number, size: number) => catalogInstance({ model: SMOKE, parts: [`part${ci}`], scale: S })?.root
     ?? makeJewel(JEWEL_COLORS[ci % JEWEL_COLORS.length], size);
-  const play = (id: number, vol = 0.5, late = false) => { const t = RD_SFX[id]; if (t) sfx.playFile(t[0], vol, late, t[1]); };
+  const play = (id: number, late = false) => { const t = RD_SFX[id]; if (t) sfx.playFile(t[0], FULL, late, t[1]); };
+  // FUN_800bc1bc keys the skid cue on the rider's handle (+0x94) at the rider's position; idle entry FUN_800bcac0 releases it.
+  const held = new Map<number, { sample: NonNullable<ReturnType<typeof sfx.startSample>> }>();
+  const lastState: number[] = [];
+  const release = (slot: number) => { held.get(slot)?.sample.stop(); held.delete(slot); };
+  const riderAt = (slot: number): [number, number, number] | null => {
+    const p = (kit.world?.data as DragonDropData | undefined)?.P?.[slot];
+    return p ? [p.x, 0, p.z] : null;
+  };
+  const levels = (at: [number, number, number] | null): [number, number] | undefined => {
+    const c = follow?.camera;
+    return c && at ? discStereo({ ...c, x: Math.round(c.x), y: Math.round(c.y), z: Math.round(c.z) }, ...at) : undefined;
+  };
 
   function piece(name: string): THREE.Object3D | null {
     const inst = catalogInstance(getCatalog().props[name]);
@@ -219,6 +234,7 @@ export function createDragonDropView(): ClientMiniGame {
     init(ctx, world) {
       kit = new Kit(ctx, 'dragonDrop', { bg: 0x6a9ad8, hemi: [0xffffff, 0xb0b0b0, 1.6], sun: [4, 18, 8] });
       burstLosers.clear();
+      lastState.length = 0;
       introTargetTick = -1;
       result = undefined;
       build();
@@ -300,13 +316,15 @@ export function createDragonDropView(): ClientMiniGame {
               for (const [at, sound, period] of WIN_CUES[char - 1]) {
                 if (winTick < at) continue;
                 const latest = period ? winTick - (winTick - at) % period : at;
-                if (latest > playedWinThrough) play(sound, 0.5, true);
+                if (latest > playedWinThrough) play(sound, true);
               }
             }
             continue;
           }
           // states: 99 idle, 100 run, 101 throw, 102 barge (action via body.dash), 103 recoil
           const st = result?.riders.players[s]?.st ?? playerData.st?.[s] ?? 99;
+          if (st === 99 && lastState[s] !== 99) release(s);
+          lastState[s] = st;
           const role = st === 101 ? 'throw' : st === 103 ? 'hit' : st === 100 ? 'run' : st === 99 ? 'idle' : undefined;
           const script = dragonRiderScript(st);
           a.update(body, dt, { role, script, scriptFrame: intro ?? p?.poseFrame ?? (st === 101 ? p?.tt : undefined), freeze: true, keepYaw: done });
@@ -331,7 +349,7 @@ export function createDragonDropView(): ClientMiniGame {
           if (j?.tracked ?? (b.m !== 1)) tracked.push({ pos: v.obj.position, face: v.obj.rotation.y, r: 512, h: 512, f: 512 });
           if (intro !== undefined && b.slot < 2 && introTargetTick === 0 && intro > 0) {
             kit.real.play(LEVEL, 0, b.x, -192 * RD_S, b.z);
-            play(SND.spawn, 0.5, true);
+            play(SND.spawn, true);
           }
         }
       }
@@ -343,7 +361,7 @@ export function createDragonDropView(): ClientMiniGame {
       let swing: Readonly<DragonTarget> = d;
       if (intro !== undefined) {
         swing = RD_INTRO_TARGETS[intro];
-        if (introTargetTick >= 0 && introTargetTick < RD_INTRO_GONG && intro >= RD_INTRO_GONG) play(SND.gong, 0.5, true);
+        if (introTargetTick >= 0 && introTargetTick < RD_INTRO_GONG && intro >= RD_INTRO_GONG) play(SND.gong, true);
         introTargetTick = intro;
       }
       target.position.set(swing.tx * RD_S, -RD_TARGET_Y * RD_S, -swing.tz * RD_S);
@@ -362,6 +380,11 @@ export function createDragonDropView(): ClientMiniGame {
         shadow.position.y = floorY - 2 * JEWEL_SHADOW_SCALE * RD_S * rayScale;
         shadow.scale.setScalar(rayScale);
       }
+      for (const [slot, h] of held) {
+        if (h.sample.ended) { held.delete(slot); continue; }
+        const at = levels(riderAt(slot));
+        if (at) h.sample.setStereo(at);
+      }
       kit.real.update(catchingUp ? frame / 30 : dt, ctx.camera);
       kit.fx.update(dt);
     },
@@ -371,21 +394,19 @@ export function createDragonDropView(): ClientMiniGame {
       const s = e.s >= 0 ? e.s % 4 : 0;
       switch (e.k) {
         case 'gong':
-          play(SND.gong, 0.5);
+          play(SND.gong);
           break;
         case 'score': {
-          play(SND.score, 0.6);
-          play(SND.mult[e.v] ?? 0x6bb, 0.6);
-          if (e.v >= 5) play(0x6b2, 0.6); // silent in the game's table
+          play(SND.score);
+          play(SND.mult[e.v] ?? 0x6bb);
+          if (e.v >= 5) play(0x6b2); // silent in the game's table
           break;
         }
-        case 'throw':
-          kit.actorForSlot(e.s)?.squash.kick(-0.3);
-          play(SND.throw[s], 0.45);
+        case 'throw': // FUN_800bc948
+          play(SND.throw[s]);
           break;
-        case 'barge':
-          kit.actorForSlot(e.s)?.action();
-          play(SND.barge[s], 0.5);
+        case 'barge': // FUN_800ba574
+          play(SND.barge[s]);
           break;
         case 'bargesmoke':
           if (kit.world?.data.P?.[s]?.poseFrame !== undefined) break;
@@ -394,41 +415,41 @@ export function createDragonDropView(): ClientMiniGame {
             kit.real.sprite(SMOKE, SMOKE_FRAMES, e.x, 420 * RD_S, e.z, { life: 16 / 30, follow: at });
           }
           break;
-        case 'bargesound':
-          play(SND.bargeHit[s], 0.4);
+        case 'bargesound': { // FUN_800bc1bc
+          const t = RD_SFX[SND.bargeHit[s]];
+          release(s);
+          const sample = t && sfx.startSample(t[0], null, FULL, t[1], 0, levels(riderAt(s)));
+          if (sample) held.set(s, { sample });
           break;
-        case 'bargehit':
-          kit.actorForSlot(e.s)?.hit();
-          break;
-        case 'recoil': // recoil enter (anim 0x4d): hit voice rand(4) of the 0x8009e080 ids
-          kit.actorForSlot(e.s)?.hit();
-          hitVoice('b', ctx.seats[e.s]?.look.char, 0.8, kit.world && !kit.world.data.random ? -1 : e.v);
+        }
+        case 'recoil': // FUN_800b9e68 (anim 0x4d): hit voice rand(4) of the 0x8009e080 ids
+          hitVoice('b', ctx.seats[e.s]?.look.char, 0.8, kit.world && !kit.world.data.random ? -1 : e.v, undefined, undefined, e.s);
           break;
         case 'bump':
-          play(SND.bump[e.v & 3], 0.45);
+          play(SND.bump[e.v & 3]);
           break;
         case 'wallbump':
-          play(SND.bump[e.v & 3], 0.45);
+          play(SND.bump[e.v & 3]);
           break;
         case 'step':
-          play(SND.step[s][e.v & 1], 0.25);
+          play(SND.step[s][e.v & 1]);
           break;
         case 'jpick':
-          play(SND.pick, 0.45);
+          play(SND.pick);
           break;
         case 'jbounce':
-          play(SND.bounce[e.v & 3], 0.4);
+          play(SND.bounce[e.v & 3]);
           break;
         case 'jclash':
         case 'jdrop':
-          play(SND.drop[e.v & 3], 0.4);
+          play(SND.drop[e.v & 3]);
           break;
         case 'jspawn':
           kit.real.play(LEVEL, 0, e.x, -192 * RD_S, e.z); // jewel state 7: level script 0 at the jewel, 256 u lower (entity y -64)
-          play(SND.spawn, 0.5);
+          play(SND.spawn);
           break;
         case 'jwall':
-          play(SND.wall, 0.35);
+          play(SND.wall);
           break;
       }
       void ctx;
@@ -446,6 +467,7 @@ export function createDragonDropView(): ClientMiniGame {
     },
 
     dispose(ctx) {
+      for (const slot of [...held.keys()]) release(slot);
       jewels.clear();
       puffs.clear();
       tracks?.dispose();

@@ -1,0 +1,145 @@
+addr	status	ours	note
+800b3a9c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b4694	match	web/client/scene/podium.ts:535	shared render: podium branch = FUN_800baafc + HUD; warp branch n/a
+800b478c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b488c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b4c94	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b4e1c	match	web/client/scene/podium.ts:341	overlay hooks: podium = 800b875c / 800b88b8 / 800bab40
+800b4eac	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b5158	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b53d4	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b5410	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b551c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b566c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b5710	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b5a40	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b6224	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b627c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b64c8	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b694c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b6a3c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b6e20	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b6fd4	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b77b0	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7988	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7a78	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7b38	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7b7c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7ba4	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7c78	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7ca8	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7d8c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7e14	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7ee4	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7f24	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7fac	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b7fd0	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b8098	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b8284	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b8324	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b83d4	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b8474	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b84cc	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b8588	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b85a8	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b85e4	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b875c	match	web/client/scene/podium.ts:341	setup: clip loads per engine char, seats; ours loads all podium models up front
+800b88b8	match	web/client/scene/podium.ts:341	per load: 0x1f01 objects, scripts, strip, sky; fireworks counter 0x5a (playReal fwTimer = first)
+800b8aa4	match	web/client/ui/final.ts:53	points sort best first, stable by seat; the party breaks ties by trophies (custom, see notes)
+800b8bc8	match	web/client/scene/podium.ts:348	tie pattern 0..7
+800b8ca0	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800b8f50	fixed	web/client/scene/podium.ts:504	counter runs to -1 before firing: first burst on frame 92 (was 91), then every rand(20)+12 (was +11); volume 0x1000 = FULL 0.9 (was 0.45)
+800b92a0	match	web/client/scene/podium.ts:66	idle counter: win rand(40)+10 / Cortex rand(30)+20 / Brio rand(60)+60, lose rand(40); only from states 0 / 4
+800b93b4	match	web/client/scene/podium.ts:366	script table per engine char; customs run Cortex (3) scripts on 9012 / 9112 (clip order and lengths checked: WIN 32, LOSE 54, WIN_BREATHE 32 frames)
+800b9538	match	web/client/scene/podium.ts:499	trophy grows >>5 to 0xeff; bob and rock on the level clock
+800b96f4	fixed	web/client/scene/podium.ts:484	crowd 0x352-0x354 now loops on its VAG loop at 0x1000 (was one-shot at 0.7, and skipped for late joiners); phase 3 = 240 frames from the phase start incl. the 40-frame rise (was 40 + 240 after arrival), phase 4 one idle frame, phase 5 60 frames, then 100 = stripDone (was: strip gone); camera in web/client/scene/podiumCam.ts
+800b9b0c	match	web/client/scene/podium.ts:578	strip at x 40 y 540, two-digit points per seat
+800b9d1c	match	web/client/scene/podium.ts:121	12 sparks, colour by DAT_800bd394
+800b9e90	match	web/client/scene/podium.ts:121	spark start and velocity
+800ba1b4	match	web/client/scene/podium.ts:121	joints follow, damping 230/256, gravity +6
+800ba374	match	web/client/scene/podium.ts:121	trail ribbon, fade from frame 20 (x220/256)
+800ba7bc	match	web/client/scene/podium.ts:121	burst object dies after 30 frames (fireworks.life)
+800ba804	match	web/client/scene/podium.ts:484	strip down 5 while y < 0x21c
+800ba848	match	web/client/scene/podium.ts:484	strip up 5 while y > 0x154
+800ba8ec	match	web/client/scene/podium.ts:499	trophy init: hidden until phase 2 (trophyOn)
+800ba978	n/a(object teardown)		
+800ba9c8	match	web/client/scene/podium.ts:358	0x1f01 at (x,0,z), pedestal part + lift 0/320/384/512 (pedestalHeight)
+800baafc	match	web/client/scene/podium.ts:535	sky draw + HUD object 6
+800bab40	fixed	web/client/scene/podium.ts:568	cross from any pad in phase 3 -> phase 4 (was: only cut the hold once the strip was up); phase 100 leaves (the party shows its buttons)
+800babec	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800bb038	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800bb184	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800bb280	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800bb364	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800bb38c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800bb3d0	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800bb4ac	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800bb4fc	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800bb5f0	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800bbc64	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800bbe24	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800bbf44	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80012ffc	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800139a8	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80013f44	match	web/client/scene/podiumCam.ts:68	camera block easing; emulator trace within 1 unit
+80014388	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80015284	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80015480	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80015984	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800159c4	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80015d70	n/a(engine node alloc)		
+8001636c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800163e0	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80016450	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+800165f8	n/a(asset load)		clip name hash lookup; done offline by tools/levels/podium.py
+80016d44	n/a(asset load)		clip load by name; tools/levels/podium.py extracts the clips
+80018b08	n/a(engine render)		
+80018f3c	n/a(engine node alloc)		
+80019a60	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8001c2c0	n/a(engine render)		
+8001d334	n/a(HUD engine)		
+8001d3b0	n/a(HUD engine)		
+8001d894	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8001daf8	n/a(engine render)		
+8001dcd4	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8001ddd8	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8001e054	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8001e21c	match	web/client/scene/podiumCam.ts:17	polyline point
+8001e41c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8001e48c	match	web/client/scene/podiumCam.ts:51	path select 1 / 2
+8001e588	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8001e934	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80024e30	match	web/client/scene/podium.ts:66	anim VM start (Actor.start)
+800250b0	match	web/client/scene/podium.ts:66	anim VM step (Actor.step)
+80025fac	match	web/client/scene/podium.ts:66	script table jump (start(1 | 5))
+8002689c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80027040	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8002a2ec	match	web/client/scene/podium.ts:121	grey colour word for the trail brightness
+8002c248	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8002c284	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8002f254	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8002faf4	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80032490	match	web/client/scene/podiumCam.ts:51	isqrt (floor sqrt)
+800798a4	n/a(engine render)		
+8007a6d0	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8007a718	n/a(engine render)		
+800900cc	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+8009020c	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80090248	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80092af4	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80093110	n/a(engine render)		
+8009440c	match	web/client/scene/podium.ts:535	sky rotation frame*speed>>12, H 320
+80095258	match	web/client/scene/podium.ts:276	sky layers, speed table 0x800a02d8
+80095a04	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80095a60	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80095bec	n/a(HUD engine)		HUD object layout
+80095e38	n/a(HUD engine)		HUD object lookup
+80095f48	n/a(warp rooms: overlay 0721 is shared; not reached from the podium hooks in FUN_800b4e1c)		
+80089fa4	match	web/client/shell/voice.ts:199	individual versus: name wait 0x1e, state 0, duck on (FUN_8002c29c) at winner entry. Team (state 9), adventure (0x14) and level 0x20 branches: n/a, the party has no such modes
+8008a200	match	web/client/shell/voice.ts:199	name id per engine char, waits 0x18 / 0x17 / 0x1a, then "wins" 0x1b0, 30 more, then reaction n=7: WINNER_NAME_FRAME / winnerCheerFrame (web/shared/look.ts:31) match; winner yaw ease >>2 lives in the sims; the draw call (-1) returns 1 while state < 9
+8007d9dc	todo(sound.ts belongs to another agent)	web/client/shell/sound.ts:14	draw: case 0 ducks and sets the timer to 0x78; case 0xd clears the duck (FUN_8002c290) only when that timer reaches 0, the tick the result leaves (FUN_8008352c). DRAW_DUCK_MS = 2 ticks is wrong: a draw stays ducked through the result, like a win
+80082d90	match	web/client/ui/overlays.ts:245	countdown 0x1a6 / 0x1a5 / 0x1a4 / 0x1a7 with meshes 0x2004..0x2005; draw TIE 0x2006 (FUN_80082ac4 sets state 5): scale += (0x1000 - s) >> 3 from 0x100, 0x1af when the error < 0x100, yaw wobble sin(t*0x20)*3>>9 degrees
+80082ac4	match	web/client/ui/overlays.ts:252	draw setup: versus -> TIE 0x2006; 0x201b and the adventure announcer n/a
+8002c29c	match	web/client/shell/sound.ts:92	duck flag on
+8002c290	todo(sound.ts belongs to another agent)	web/client/shell/sound.ts:14	duck off: at result exit for a win and a draw alike
+8002bea8	match	web/client/shell/sound.ts:8	music 0x7f -> 0x55 while ducked

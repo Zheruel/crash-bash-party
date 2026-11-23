@@ -7,7 +7,7 @@ import { MM_S, MM_SLOTS, createMalletMashResult, mmFace, mmOpeningPose, mmPose, 
 import type { GameEvent } from '../../shared/types';
 import { createCharacter } from '../characters';
 import { charEntry, getCatalog } from '../crash';
-import { charVoice, winnerVoice } from '../shell/voice';
+import { charVoice, hitVoice, winnerVoice } from '../shell/voice';
 import { sfx, sfxRate } from '../shell/sound';
 import { Kit, catalogInstance, preloadCatalogFor } from './kit';
 import { preloadFx } from './realFx';
@@ -147,10 +147,7 @@ export function createMalletMashView(): ClientMiniGame {
       if (audio) sfx.playFile(BANK(e.v ? 18 : 33), 0.7, true, sfxRate('0178', e.v ? 0x72a : 0x528));
     } else {
       kit.real.play(PACK, 0, e.x, 0, e.z, { delay });
-      if (audio) {
-        const take = Math.floor(Math.random() * 4);
-        sfx.playFile(BANK(26), 0.8, true, sfxRate('0178', 0x733 + take));
-      }
+      if (audio) sfx.playFile(BANK(26), 0.8, true, sfxRate('0178', 0x733 + (e.v & 3)));
     }
   }
 
@@ -307,32 +304,28 @@ export function createMalletMashView(): ClientMiniGame {
           const gold = e.o === 1;
           real.play(PACK, 1, e.x, 0, e.z);
           real.number(e.v, e.x, 0, e.z);
-          kit.shake(gold ? 0.35 : 0.14);
-          kit.actorForSlot(e.s)?.squash.kick(0.2);
           sfx.playFile(BANK(10 + (e.s & 3)), 0.8, true);
           if (gold) sfx.playFile(BANK(19), 0.6, true);
           break;
         }
         case 'boom': // a mushroom explodes (state 5): script 0 (green ring, flash, green smoke)
           mushroomEvent(e, 0, true);
-          kit.shake(0.3);
           break;
         case 'wave': { // object 0x1a03: the blue ring (part 19) 128 u over the floor, target scale 4 (power wave 8)
           const power = e.o === 1;
           const ring = prop('mmRingB');
           if (ring) { ring.position.set(e.x, 0x80 / MM_S, e.z); ring.scale.set(0.001, 1, 0.001); kit.root.add(ring); waves.push({ obj: ring, t: 0, s: 0, target: power ? 0x8000 : 0x4000, yaw: 0, done: false }); }
-          kit.shake(power ? 0.8 : 0.6);
           if (power) sfx.playFile(BANK(20), 0.8, true);
           sfx.playFile(BANK(22 + (e.s & 3)), 0.8, true);
           break;
         }
-        case 'stun':
-          kit.actorForSlot(e.s)?.hit();
+        case 'stun': // FUN_800b4910: hit request with 0x446, then one of the victim's four hit voices
           sfx.playFile(BANK(27), 0.7, true);
+          hitVoice('c', ctx.seats[e.s]?.look.char, undefined, e.v, undefined, undefined, e.s);
           break;
         case 'cbreak': // crate state 4: script 2 (purple shards, smoke, stars)
           real.play(PACK, 2, e.x, 0, e.z);
-          { const i = Math.floor(Math.random() * 4); sfx.playFile(BANK(29 + (i & 1)), 0.8, true, sfxRate('0178', 0x3f5 + i)); } // 0x3f5-0x3f8: two samples, two pitches
+          { const i = e.v & 3; sfx.playFile(BANK(29 + (i & 1)), 0.8, true, sfxRate('0178', 0x3f5 + i)); } // 0x3f5-0x3f8: two samples, two pitches
           break;
         case 'crate':
           sfx.playFile(BANK(e.v === 0 ? 32 : 21), 0.8, true);

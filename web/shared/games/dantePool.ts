@@ -1,4 +1,5 @@
-// USA L26 uses a 0x7800-byte component pool. The four racers and the volcano
+// USA L26 uses a 0x7800-byte component pool (FUN_8002672c transforms and components, FUN_8002689c gameplay data,
+// FUN_80026b70 links the reflection). The four racers and the volcano
 // retain its first 7572 bytes. Every temporary actor draws from the rest.
 type Block = [offset: number, bytes: number];
 interface DanteActor {

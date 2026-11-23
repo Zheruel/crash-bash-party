@@ -32,6 +32,8 @@ interface TankPosition { x: number; z: number }
 interface WallUpdate {
   firstLaterId?: number;
   onWave?: () => void;
+  /** FUN_800c04e0 sets 0x800cb0ec = 2 as a platform starts to sink. */
+  onSink?: () => void;
   onRise?: (wall: MetalWall) => void;
 }
 
@@ -54,9 +56,11 @@ export function metalWallPulse(wall: MetalWall, tick: number): number | undefine
   return wall.phase === 'cleared' ? SINK_PULSE[wall.ticks - 1] : RISE_PULSE[tick - wall.born];
 }
 
+/** FUN_800c0348 (0x1310 waves), FUN_800c04e0 (0x1311 platform, init FUN_800c6f20) and the pulse 0x1312 (FUN_800c6f00 /
+ * FUN_800c6e5c). */
 export function stepMetalWalls(
   map: MetalWalls, tick: number, tanks: readonly TankPosition[], over: boolean,
-  { firstLaterId = 0, onWave, onRise }: WallUpdate = {},
+  { firstLaterId = 0, onWave, onRise, onSink }: WallUpdate = {},
 ) {
   for (let i = 0; i < map.walls.length;) {
     const wall = map.walls[i];
@@ -81,7 +85,7 @@ export function stepMetalWalls(
         if (wall.y === 0) wall.phase = 'raised';
         break;
       case 'raised':
-        if (!over && --wall.life === 0) wall.phase = 'sinking';
+        if (!over && --wall.life === 0) { wall.phase = 'sinking'; onSink?.(); }
         break;
       case 'sinking':
         wall.y += 30;

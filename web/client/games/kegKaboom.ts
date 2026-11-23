@@ -214,7 +214,6 @@ export function createKegKaboomView(): ClientMiniGame {
       }
       case 'boom': // the keg explodes the next frame: effect script 0 of the pack (ring, flash, six smoke puffs, sparks)
         kit.real.play(PACK, 0, e.x, 0, e.z);
-        if (audible) kit.shake(e.o >= 1 ? 0.6 : 0.35);
         if (audible) playAt(e, BOOM_SAMPLE[e.v & 3], 0x745 - (e.v & 3));
         return true;
     }
@@ -439,7 +438,8 @@ export function createKegKaboomView(): ClientMiniGame {
           if (id != null) charVoice('c', c, jump ? 0xc : 0xd, 1, 0.8, id);
         }
       }
-      if (kit.baseEvent(e) || kegEvent(e, true)) return;
+      // The L30 camera is fixed: the shared landing shake has no native counterpart.
+      if ((e.k !== 'land' && kit.baseEvent(e)) || kegEvent(e, true)) return;
       switch (e.k) {
         case 'step': { // Native footfall 8 has an origin. Footfall 9 is centered.
           const char = ctx.seats[e.s]?.look.char;
@@ -448,11 +448,10 @@ export function createKegKaboomView(): ClientMiniGame {
           break;
         }
         case 'stun':
-          hitVoice('c', ctx.seats[e.s]?.look.char, 1, e.v, (file, volume, rate) => playSpatial(e, file, volume, rate));
+          hitVoice('c', ctx.seats[e.s]?.look.char, 1, e.v, (file, volume, rate) => playSpatial(e, file, volume, rate), undefined, e.s);
           break;
         case 'wave': // shock: script 3 (white ring out to ~5x) at the player
           kit.real.play(PACK, 3, e.x, kit.actorForSlot(e.s)?.holder.position.y ?? 0, e.z);
-          kit.shake(0.3);
           playAt(e, 21, 0x43a);
           break;
       }

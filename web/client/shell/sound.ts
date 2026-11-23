@@ -1,9 +1,9 @@
-// WebAudio: synthesised SFX, plus lazily-streamed Crash Bash music (assets/audio) with seamless loops and crossfades.
+// WebAudio: disc samples (menu blips, announcer, voices, effects) plus lazily-streamed Crash Bash music (assets/audio)
+// with seamless loops and crossfades. Nothing here is synthesised: every sound is a sample the game itself plays.
 import { ASSET_BASE } from '../crash';
-type Wave = OscillatorType;
 
 interface MusicMeta { file: string; loopStart: number | null; loopEnd: number | null }
-interface AudioIndex { music: Record<string, MusicMeta>; sfx?: { ui?: { guesses?: Record<string, string> }; banks?: Record<string, { samples: { file?: string | null }[] }> } }
+interface AudioIndex { music: Record<string, MusicMeta>; sfx?: { banks?: Record<string, { samples: { file?: string | null }[] }> } }
 
 // FUN_8002bea8 changes SEQ volume from 0x7f to 0x55. FUN_800447dc squares it for the SPU.
 const RESULT_MUSIC_GAIN = (0x55 / 0x7f) ** 2;
@@ -11,21 +11,30 @@ const RESULT_MUSIC_GAIN = (0x55 / 0x7f) ** 2;
 // full-level effect (FUN_80022660 volume 0x1000) the music sits 1.3-7.5 dB (mean 3.9 dB) above what our RMS-normalised
 // tracks gave at the default sliders. The two trims move the default mix there and keep the summed peak where it was.
 const MUSIC_TRIM = 1.25, SFX_TRIM = 0.8;
-const DRAW_DUCK_MS = 2 * 1000 / 30;
+// FUN_8007d9dc ducks a draw (FUN_8002c29c) and only clears it (FUN_8002c290) when its 120-tick result timer runs out, on the
+// tick the round leaves, so a draw stays ducked through the whole result like a win.
+const DRAW_DUCK_MS = Infinity;
 
-export type Sfx =
-  | 'click' | 'pop' | 'turn' | 'roll' | 'land' | 'step' | 'coin' | 'bad' | 'lucky' | 'chaos' | 'crystal'
-  | 'beep' | 'go' | 'tick' | 'whoosh' | 'win' | 'lose' | 'thud' | 'boom' | 'emote' | 'reveal' | 'drum';
+/**
+ * The menu blips of the announcer banks 0276 / 0277 / 0278 (all three hold the same tones; the titles, level-select and
+ * options code keys them: 0x190 on every cursor step, 0x192 on a confirm, 0x195 on back / cancel). Every one keys at
+ * volume 0x1000, pitch 0x1e00, no position.
+ */
+export type Sfx = 'move' | 'select' | 'back';
+const MENU: Record<Sfx, { id: number; file: string }> = {
+  move: { id: 0x190, file: 'sfx/0274/1.mp3' },
+  select: { id: 0x192, file: 'sfx/0274/2.mp3' },
+  back: { id: 0x195, file: 'sfx/0272/7.mp3' },
+};
+const MENU_VOL = 0.9;
 
 class SoundSystem {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private sfxBus: GainNode | null = null;
   private musicBus: GainNode | null = null;
-  private noiseBuf: AudioBuffer | null = null;
   muted = false;
   vol = { music: 0.6, sfx: 0.8 };
-  private lastPlay = new Map<string, number>();
   // music
   private want: string | null = null;
   private wantRoundMusic = false;
@@ -280,12 +289,7 @@ class SoundSystem {
       this.musicBus = this.ctx.createGain();
       this.musicBus.gain.value = this.vol.music * MUSIC_TRIM;
       this.musicBus.connect(this.master);
-      // menu blips from the disc (small files)
-      void this.loadIndex().then((idx) => { for (const p of Object.values(idx?.sfx?.ui?.guesses ?? {})) void this.loadBuffer(p.replace(/^sfx\//, 'sfx/')); });
-      const n = this.ctx.sampleRate;
-      this.noiseBuf = this.ctx.createBuffer(1, n, n);
-      const d = this.noiseBuf.getChannelData(0);
-      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      for (const m of Object.values(MENU)) void this.loadBuffer(m.file);
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
     void this.applyMusic();
@@ -297,83 +301,10 @@ class SoundSystem {
     if (this.master) this.master.gain.value = m ? 0 : 0.5;
   }
 
-  private uiFiles: Record<string, string> = { cursorSelect: 'sfx/0272/9.mp3' };
-  private uiFile(k: string) { return this.uiFiles[k]; }
-
-  private tone(f: number, dur: number, type: Wave = 'square', vol = 0.2, slide = 0, delay = 0) {
-    const c = this.ctx, m = this.master;
-    if (!c || !m) return;
-    const t = c.currentTime + delay;
-    const o = c.createOscillator(), g = c.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(f, t);
-    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, f + slide), t + dur);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(this.sfxBus ?? m);
-    o.start(t);
-    o.stop(t + dur + 0.02);
-  }
-
-  private noise(dur: number, vol = 0.2, freq = 1200, q = 1, delay = 0, sweepTo = 0) {
-    const c = this.ctx, m = this.master;
-    if (!c || !m || !this.noiseBuf) return;
-    const t = c.currentTime + delay;
-    const s = c.createBufferSource();
-    s.buffer = this.noiseBuf;
-    const f = c.createBiquadFilter();
-    f.type = 'bandpass';
-    f.frequency.setValueAtTime(freq, t);
-    if (sweepTo) f.frequency.exponentialRampToValueAtTime(sweepTo, t + dur);
-    f.Q.value = q;
-    const g = c.createGain();
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(f).connect(g).connect(this.sfxBus ?? m);
-    s.start(t, Math.random() * 0.5);
-    s.stop(t + dur + 0.02);
-  }
-
-  play(name: Sfx, pitch = 1) {
-    if (this.muted || !this.ctx) return;
-    // rate limit identical sounds a little
-    const now = performance.now();
-    if (now - (this.lastPlay.get(name) ?? 0) < 35) return;
-    this.lastPlay.set(name, now);
-    const p = pitch;
-    switch (name) {
-      case 'click': if (!this.playFile(this.uiFile('cursorSelect'), 0.7)) this.tone(660 * p, 0.06, 'square', 0.12); break;
-      case 'pop': this.tone(420 * p, 0.12, 'sine', 0.25, 500); break;
-      case 'turn': this.tone(784, 0.1, 'triangle', 0.25); this.tone(1175, 0.18, 'triangle', 0.25, 0, 0.09); break;
-      case 'roll':
-        for (let i = 0; i < 9; i++) { this.noise(0.05, 0.25, 900 + Math.random() * 1400, 2, i * 0.055); this.tone(140 + Math.random() * 80, 0.05, 'square', 0.1, 0, i * 0.055); }
-        break;
-      case 'land': this.tone(180, 0.18, 'sine', 0.4, -110); this.noise(0.1, 0.3, 500, 1); break;
-      case 'step': this.tone(320 * p, 0.07, 'sine', 0.22, -120); this.noise(0.03, 0.1, 2500, 2); break;
-      case 'coin': this.tone(988, 0.07, 'square', 0.16); this.tone(1319, 0.22, 'square', 0.16, 0, 0.07); break;
-      case 'bad': this.tone(330, 0.3, 'sawtooth', 0.2, -200); this.tone(220, 0.35, 'sawtooth', 0.18, -120, 0.12); break;
-      case 'lucky': [659, 784, 988, 1319].forEach((f, i) => this.tone(f, 0.16, 'triangle', 0.25, 0, i * 0.07)); break;
-      case 'chaos': for (let i = 0; i < 6; i++) this.tone(300 + (i % 2) * 180, 0.09, 'sawtooth', 0.14, 60, i * 0.07); this.noise(0.4, 0.15, 400, 1, 0, 2000); break;
-      case 'crystal':
-        [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => this.tone(f, i === 6 ? 0.7 : 0.14, 'square', 0.17, 0, i * 0.1));
-        [1047, 1319, 1568].forEach((f, i) => this.tone(f, 0.9, 'triangle', 0.12, 0, 0.7 + i * 0.01));
-        break;
-      case 'beep': this.tone(520, 0.16, 'square', 0.22); break;
-      case 'go': this.tone(1040, 0.5, 'square', 0.25); this.tone(1560, 0.5, 'triangle', 0.15); break;
-      case 'tick': this.tone(1500 * p, 0.025, 'square', 0.09); break;
-      case 'whoosh': this.noise(0.35, 0.25, 300, 0.8, 0, 3000); break;
-      case 'win':
-        [523, 659, 784, 1047, 0, 784, 1047, 1319].forEach((f, i) => f && this.tone(f, 0.2, 'square', 0.18, 0, i * 0.13));
-        this.tone(1568, 0.9, 'triangle', 0.18, 0, 1.1);
-        break;
-      case 'lose': [392, 349, 311, 262].forEach((f, i) => this.tone(f, 0.22, 'triangle', 0.22, -15, i * 0.16)); break;
-      case 'thud': this.tone(120, 0.12, 'sine', 0.4, -60); this.noise(0.06, 0.2, 800, 1); break;
-      case 'boom': this.tone(90, 0.4, 'sawtooth', 0.35, -60); this.noise(0.45, 0.35, 600, 0.8, 0, 120); break;
-      case 'emote': this.tone(880, 0.07, 'triangle', 0.2); this.tone(1175, 0.1, 'triangle', 0.2, 0, 0.06); break;
-      case 'reveal': this.tone(523, 0.12, 'square', 0.15); this.tone(784, 0.3, 'square', 0.15, 0, 0.1); break;
-      case 'drum': for (let i = 0; i < 8; i++) { this.noise(0.06, 0.25, 220, 1.5, i * 0.07); this.tone(110, 0.06, 'sine', 0.3, 0, i * 0.07); } break;
-    }
+  /** A menu blip of the announcer banks (see MENU). */
+  play(name: Sfx) {
+    const m = MENU[name];
+    this.playFile(m.file, MENU_VOL, true, sfxRate('0276', m.id));
   }
 }
 

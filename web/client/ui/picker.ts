@@ -44,7 +44,7 @@ export class LookPicker {
   }
   private select(char: number) {
     this.look = { ...this.look, char };
-    sfx.play('click');
+    sfx.play('select');
     this.render();
     this.onChange(this.look);
     const selected = this.el.querySelector<HTMLButtonElement>('[aria-checked="true"]');

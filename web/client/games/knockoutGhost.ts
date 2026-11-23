@@ -16,6 +16,20 @@ export function makeKnockoutGhost(scale: number, seed: number, socketY: number, 
   const root = new THREE.Group();
   root.name = 'knockout-ghost';
   root.add(body.root, glow.root);
+  // The disc adds the spirit body and its glow to the picture (B + F): neither darkens what is behind it.
+  const owned: THREE.Material[] = [];
+  const added = new Map<THREE.Material, THREE.Material>();
+  const add = (source: THREE.Material) => {
+    let mat = added.get(source);
+    if (!mat) { added.set(source, mat = ownMaterial(source, true)); owned.push(mat); }
+    return mat;
+  };
+  for (const part of [body.root, glow.root]) part.traverse(node => {
+    const mesh = node as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(add) : add(mesh.material);
+    mesh.renderOrder = 6;
+  });
   const random = discRandomState(seed);
   const frames = ghostSparkFrames(socketY, floor, n => drawDiscRandom(random, n));
   const unit = scale / 1024;
@@ -54,6 +68,9 @@ export function makeKnockoutGhost(scale: number, seed: number, socketY: number, 
       for (const mat of trail.materials) mat.color.setScalar(1 - sample.fade / 4096);
     }
   };
-  const dispose = () => { for (const trail of trails) trail?.materials.forEach(m => m.dispose()); };
+  const dispose = () => {
+    for (const mat of owned) mat.dispose();
+    for (const trail of trails) trail?.materials.forEach(m => m.dispose());
+  };
   return { root, pose, dispose };
 }

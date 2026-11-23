@@ -46,8 +46,9 @@ interface CustomVoices {
 
 // A custom character has a recording for every cue a stock character voices: 1 name, 2 taunt, 3-6 hit, 7 win, the
 // family c set (0xc jump, 0xd land / spin, 0xe spin, 0xf pick-up, 0x10 throw) and the family b set (0x16 / 0x18 dash,
-// 0x17, 0x19-0x1b the teeter yelps of Cortex's Polar scripts). The remaining ids are foley (0xa / 0xb footsteps, 0x11,
-// the polar bear's 0x14 / 0x15 / 0x1c) and come from Cortex's bank, whose scripts both characters run.
+// 0x17 short call, 0x19-0x1b the win cheers). The remaining ids are foley (0xa / 0xb footsteps, 0x11, and the family b
+// on-foot footsteps 0x14 / 0x15 and Cortex's on-foot dash 0x1c) and come from Cortex's bank, whose scripts both
+// characters run.
 const CUSTOM_VOICES: Partial<Record<string, CustomVoices>> = {
   'big-stein': {
     announcement: { file: 'sfx/custom/big-stein.mp3' },
@@ -102,8 +103,9 @@ function customCue(char: number, n: number): { file: string; rate: number; gain:
   const file = custom.cues[n];
   return file ? { file, rate: 1, gain: custom.level[n] ?? 1 } : undefined;
 }
-type PlayCue = (file: string, volume: number, rate: number) => void;
-const playCue: PlayCue = (file, volume, rate) => { sfx.playFile(file, volume, true, rate); };
+/** Plays a cue; a returned function cuts it (the sound handle of the original). */
+type PlayCue = (file: string, volume: number, rate: number) => void | (() => void);
+const playCue: PlayCue = (file, volume, rate) => sfx.startSample(file, null, volume, rate)?.stop;
 
 /** Play sound id `id` from the voice bank of the family that owns it (id / 0x32 = voice block). */
 export function playVoiceId(family: VoiceFamily, id: number, vol = VOICE_VOL, play = playCue) {
@@ -114,18 +116,29 @@ export function playVoiceId(family: VoiceFamily, id: number, vol = VOICE_VOL, pl
   if (f) play(f, vol, sfxRate(bank, id));
 }
 
-/** The game's hit voice: rand(4) of the character's four hit ids (0x8009e080). */
-export function hitVoice(family: VoiceFamily, char: number | undefined, vol = VOICE_VOL, variation = -1, play = playCue, stockCue?: () => void) {
+/** One sound handle per player: a new hit take cuts the previous one (FUN_80022660's handle argument). */
+const hitHandles = new Map<string, () => void>();
+
+/**
+ * The game's hit voice: rand(4) of the character's four hit ids (0x8009e080). Keyed on the player's handle, so a new take
+ * cuts the last one; pass `slot` (the player's seat) so two players with one character keep separate handles.
+ */
+export function hitVoice(family: VoiceFamily, char: number | undefined, vol = VOICE_VOL, variation = -1, play: PlayCue = playCue, stockCue?: () => void, slot?: number) {
   if (char == null) return;
   const take = variation >= 0 ? variation & 3 : Math.floor(Math.random() * 4);
   const custom = customCue(char, 3 + take);
+  if (!custom && stockCue) { stockCue(); return; }
+  const key = `${family}:${slot ?? 'c' + char}`;
+  const onHandle: PlayCue = (file, volume, rate) => {
+    hitHandles.get(key)?.();
+    const stop = play(file, volume, rate);
+    if (stop) hitHandles.set(key, stop); else hitHandles.delete(key);
+  };
   if (custom) {
-    play(custom.file, vol * custom.gain, custom.rate);
+    onHandle(custom.file, vol * custom.gain, custom.rate);
     return;
   }
-  if (stockCue) { stockCue(); return; }
-  const ids = HIT[engineOf(char)];
-  playVoiceId(family, ids[take], vol, play);
+  playVoiceId(family, HIT[engineOf(char)][take], vol, onHandle);
 }
 
 /** voice block (id / 0x32) of a character = the block its hit ids sit in */
@@ -190,7 +203,7 @@ export function preloadStageCall(game: string, variant?: string | null) {
   sfx.preloadFile(stageCall(game, variant));
 }
 
-/** Ours: the disc has no stage-name recordings (banks 0276-0278 hold the whole announcer; see docs/audio.md). */
+/** Ours and unused: the disc has no stage-name recordings (banks 0276-0278 hold the whole announcer; see docs/audio.md), so nothing announces a stage. */
 export function announceStage(game: string, variant?: string | null) {
   sfx.playFile(stageCall(game, variant), .85, true);
 }
@@ -208,6 +221,9 @@ export function winnerVoice(game: string, char: number, previousFrame: number, f
 }
 /** "wins", id 0x1b0 of the versus announcer bank 0278 */
 const WINS = 'sfx/0278/14.mp3';
+
+/** Family b voice ids Polar Push keys: n 0x14-0x1c (steps, dash, throw, win cheers, on-foot dash). */
+const POLAR_VOICES = [0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c];
 
 /** Warm the round's announcer cues before the match countdown. */
 export function preloadRoundVoices(game: string, chars: number[]) {
@@ -227,11 +243,19 @@ export function preloadRoundVoices(game: string, chars: number[]) {
   void load().then(() => {
     if (!data) return;
     for (const char of characters) {
-      if (customVoices(char)) continue;
+      if (customVoices(char)) {
+        // the custom riders run Cortex's scripts, so their foley (steps 0x14 / 0x15, on-foot dash 0x1c) is Cortex's
+        if (game === 'pushOff') for (const n of POLAR_VOICES) {
+          const file = data.ids[data.families[family][2]]?.[2 * 50 + n];
+          if (file) sfx.preloadFile(file);
+        }
+        continue;
+      }
       const block = voiceBlock(char);
       const bank = data.families[family][block];
       const ids = [...HIT[engineOf(char)], block * 50 + 1, block * 50 + 7];
       if (game === 'ringDing') ids.push(...[2, 0xc, 0xd, 0xe].map(n => block * 50 + n));
+      if (game === 'pushOff') ids.push(...POLAR_VOICES.map(n => block * 50 + n));
       for (const id of ids) {
         const file = data.ids[bank]?.[id];
         if (file) sfx.preloadFile(file);

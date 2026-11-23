@@ -115,6 +115,18 @@ for (const { id } of DR_VARIANTS) {
   assert.equal(restored!.data.winner, d.winner);
 }
 
+// FUN_800c0cb4 marks the crate slot before it asks FUN_80022a3c for the object, so a crate the
+// full Dante pool cannot create still holds its slot. The fruit spawner only claims a created one.
+{
+  const race = fresh('dante'), d = race.data;
+  for (let t = 1; t < 61; t++) step(race);
+  const held = d.occ.filter(Boolean).length;
+  d.dantePool.free = [];
+  step(race);
+  assert.equal(race.bodies.some(b => b.kind === 'item'), false);
+  assert.equal(d.occ.filter(Boolean).length, held + 1);
+}
+
 // Dot and Splash shared this dispatch table at their recorded GO checkpoints.
 const versusDispatch = [
   [1, 3, 2, 0], [1, 2, 0, 3], [0, 3, 1, 2], [2, 3, 0, 1],

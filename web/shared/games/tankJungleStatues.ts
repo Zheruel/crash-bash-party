@@ -22,6 +22,8 @@ export interface StatueEvents {
   crushPickup: (x: number, y: number, z: number) => void;
 }
 
+/** Controller 0x131a (FUN_800c6d80 / FUN_800c0898) launches the two statues 0x131b / 0x131c (FUN_800c6d60, FUN_800c6d40,
+ * FUN_800c6d20, FUN_800c6d00 -> FUN_800c0c68 init and FUN_800c0f24 update; FUN_800c0da0 is the landing shock). */
 export function initialJungleStatues(countdown: number): JungleStatues {
   const actors = [0, 13].map((route, i): JungleStatue => ({
     x: 2048, y: i === 0 ? -660 : -330, z: 2048, yaw: 0, pose: 0x4180,

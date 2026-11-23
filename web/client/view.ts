@@ -177,13 +177,12 @@ export class Stage {
   get activeGame() { return this.gameShown ? this.game : null; }
   get gameVisible() { return this.gameShown && !!this.game; }
 
-  /** Forward a sim event to the view (or apply sensible defaults when the view doesn't handle events). */
+  /** Forward a sim event to the view. Every game view handles its own events (sound, shake), so there are no defaults. */
   gameEvent(e: GameEvent) {
     if (!this.game || !this.gameShown) return;
     if (this.game.onEvent) {
       try { this.game.onEvent(this.ctx, e); } catch (err) { console.error(err); }
-    } else if (e.k === 'hit') { sfx.play('thud'); this.shake(0.2 * (e.v || 0.5)); }
-    else if (e.k === 'ko') { sfx.play('boom'); this.shake(0.7); }
+    }
     rumbleFor(this.game.id, e, this.ctx.mySlot);
   }
 

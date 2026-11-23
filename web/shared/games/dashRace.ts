@@ -165,6 +165,7 @@ const sext = (a: number) => ((a & 0xfff) ^ 0x800) - 0x800;
 
 const phys = (v: string): Phys => (v === 'splash' ? PHYS_SPLASH : PHYS);
 
+/** FUN_800868b4 enter handlers: FUN_800c57b4 (0x5b script 0x48 / 0x52), FUN_800bba04 (0x5d road script 0x4a), FUN_800bad54 (0x61). */
 function setState(d: Data, s: number, st: number) {
   d.state[s] = st;
   d.st[s] = 0;
@@ -179,7 +180,7 @@ function setState(d: Data, s: number, st: number) {
   }
 }
 
-/** FUN_800868b4(p, 0x5d): hit state. Enter: counter 60, vy -160, gravity 10 up / 20 down. No speed cut: the pad is zeroed, so the kart only decelerates. */
+/** FUN_800868b4(p, 0x5d) -> FUN_800bba04: hit state. Enter: counter 60, vy -160, gravity 10 up / 20 down. No speed cut: the pad is zeroed, so the kart only decelerates. */
 function hit(w: World, d: Data, s: number, by: number, interruptFall = false) {
   if (d.state[s] === S_HIT || (d.state[s] === S_FALL && !interruptFall) || d.state[s] === S_WIN || d.first >= 0) return;
   setState(d, s, S_HIT);
@@ -189,12 +190,15 @@ function hit(w: World, d: Data, s: number, by: number, interruptFall = false) {
   emit(w, 'hit', d.gx[s] * G, -d.gz[s] * G, s, d.variant === 'splash' ? 0 : discRandomInt(w, 4), by);
 }
 
+/** Slot probe and FUN_80022a3c(.., 0x1702) shared by FUN_800c04ec (fruit) and FUN_800c0cb4 (crates). */
 function spawnPickup(w: World, d: Data, kind: 'fruit' | 'item', start: number, rad: number): 'occupied' | 'unavailable' | 'spawned' {
   // The native search gives up at the sixteenth probe, including a free last slot.
   let k = start, probes = 1;
   while (probes < 16 && d.occ[k]) { k = (k + 1) & 15; probes++; }
   if (probes === 16) return 'occupied';
   if (d.dantePool) {
+    // FUN_800c0cb4 claims the crate slot before FUN_80022a3c; FUN_800c04ec claims a fruit slot only for a created object.
+    if (kind === 'item') d.occ[k] = true;
     const slot = spawnDanteActor(d.dantePool, 'pickup', -1, w.nextId);
     if (!slot) return 'unavailable';
     d.occ[k] = true;
@@ -245,7 +249,8 @@ function setup(w: World, slots: SlotInfo[]) {
     const b = addBody(w, 'player', k, x * G, -z * G, DR_KART_R * w.params.playerScale, 3);
     b.face = 0;
   }
-  // Prepare the GO snapshot. Finish and pickup clocks only advance during play.
+  // FUN_800c5f54 -> FUN_800b4a4c installs the callbacks; FUN_800c5918 (player reset): drive state, yaw 0.
+  // FUN_8007eb1c starts the clock. Prepare the GO snapshot. Finish and pickup clocks only advance during play.
   d.f = DASH_OPENING_TICKS;
   d.st.fill(d.f);
   // FUN_800b5778 initializes six spoke slots on every course. The last draw selects the pattern.
@@ -261,10 +266,10 @@ function setup(w: World, slots: SlotInfo[]) {
     }
     syncSpokes(w, d);
   }
-  if (variant === 'toxic') for (const [bx, bz] of DR_BARRELS) d.bar.push({ x: bx, z: bz, t: 0 });
+  if (variant === 'toxic') for (const [bx, bz] of DR_BARRELS) d.bar.push({ x: bx, z: bz, t: 0 }); // FUN_800b5f04
   if (variant === 'toxic') d.monTim = 0xf0 + discRandomInt(w, 0x5a) - d.f; // FUN_800c4774: hidden for 240..329 frames first
   if (variant === 'dante') {
-    for (let i = 0; i < 3; i++) discRandomInt(w, 4096); // The three hidden rock meshes receive a yaw at setup.
+    for (let i = 0; i < 3; i++) discRandomInt(w, 4096); // FUN_800c2284: the three hidden rock meshes receive a yaw at setup.
     d.vt = 0x1c2 - d.f;
   }
   for (let tick = 0; tick < d.f; tick++) {
@@ -577,6 +582,7 @@ function moveKart(w: World, d: Data, s: number, rawPad: Pad, ph: Phys, ai: boole
   if (d.state[s] !== S_FALL && atFallEdge(v, d.gx[s], d.gz[s])) enterFall(w, d, s);
 }
 
+/** FUN_800bad54 */
 function enterFall(w: World, d: Data, s: number) {
   if (d.pitch) d.pitch[s] = 0;
   if (d.motors) d.motors[s].run = d.motors[s].boost = -1;
@@ -652,6 +658,7 @@ function lapCheck(w: World, d: Data, s: number, pz: number) {
   }
 }
 
+/** FUN_800bc984: item 1 -> FUN_800c5154 missile 0x1701 (init FUN_800bf2b8, sound 0x522); item 0x20 -> shield 0x1708. */
 function useItem(w: World, d: Data, s: number) {
   if (d.item[s] === 1) {
     const x = Math.trunc(d.gx[s]), z = Math.trunc(d.gz[s]);
@@ -723,7 +730,7 @@ function syncSpokes(w: World, d: Data) {
   });
 }
 
-/** FUN_800b6108 resolves all karts touching the same barrel, in seat order. */
+/** FUN_800b6108 (and its fragment FUN_800b627c) resolves all karts touching the same barrel, in seat order. */
 function stepToxicBarrels(w: World, d: Data) {
   for (const [index, barrel] of d.bar.entries()) {
     if (barrel.t > 0) continue;
@@ -794,7 +801,7 @@ function stepToxic(w: World, d: Data, ended = false) {
   if (spitAge >= 1 && spitAge <= 3) {
     for (let draw = 0; draw < 16; draw++) discRandomInt(w, 4096);
   }
-  // blobs
+  // blobs: object 0x170d, init FUN_800c3738, update FUN_800c3934
   const gone = new Set<number>();
   for (let i = 0; i < activeBlobs; i++) {
     const b = d.blobs[i];
@@ -986,7 +993,7 @@ function step(w: World, inputs: (InputState | null | undefined)[], _dt: number) 
     const rawPad = padOf(raw);
     const pad = st !== S_FALL && d.hitLock?.[s] ? NOPAD : rawPad;
     moveKart(w, d, s, rawPad, ph, cpu, ps);
-    // Humans need a fresh Cross press to hop. A CPU sends the hop bit while a spoke is in range.
+    // FUN_800bcc20 -> FUN_800bc2d0. Humans need a fresh Cross press to hop. A CPU sends the hop bit while a spoke is in range.
     if (v === 'splash' && pad.use && (cpu || !d.prevB[s]) && st === S_DRIVE && d.state[s] === S_DRIVE) {
       setState(d, s, S_HOP);
       d.hopBounce[s] = false;
@@ -1036,6 +1043,7 @@ function stepRespawnEffects(w: World, d: Data) {
   }
 }
 
+/** Shield object 0x1708 (init FUN_800c4db8, update FUN_800c1cfc). */
 function stepShields(w: World, d: Data) {
   for (let s = 0; s < 4; s++) {
     if (d.shield[s] <= 0) continue;
@@ -1059,6 +1067,7 @@ function stepShields(w: World, d: Data) {
   }
 }
 
+/** FUN_800c04ec: fruit spawner and the held-item markers. */
 function stepFruitAndHeldItems(w: World, d: Data) {
   const cap = d.f <= 900 ? 3 : d.f <= 1800 ? 2 : 1;
   const fruits = w.bodies.filter(b => b.kind === 'fruit' && b.alive).length;
@@ -1085,6 +1094,7 @@ function stepFruitAndHeldItems(w: World, d: Data) {
   }
 }
 
+/** FUN_800b8d68 counts DAT_800c6bb0 down, then runs FUN_800c04ec and (off Splash) the crate spawner FUN_800c0cb4. */
 function spawnPickups(w: World, d: Data, locked = false) {
   if (!locked) d.pre--;
   if (d.pre >= 0) return;
@@ -1159,6 +1169,7 @@ export function stepDashResult(w: World, winner: number | undefined) {
     const cpu = !!((d.cpuSeats ?? 0) & (1 << s));
     // The dispatcher still calls the winning CPU, including its held-item decision.
     const pad = s === winner && cpu ? padOf(dashCpuInput(w, s, true)) : NOPAD;
+    // FUN_800c5400 enters 0x62 (FUN_800bcdac), then FUN_800c53bc updates it.
     // Splash's hop handler returns to drive before it can dispatch the result.
     if (s === winner && d.state[s] !== S_HOP) {
       const entering = d.state[s] !== S_WIN;
@@ -1282,7 +1293,7 @@ function stepMissile(w: World, d: Data, m: Missile, canHit: boolean) {
   const dx = -(140 * Ti(m.yaw - 0x400) >> 12), dz = -(140 * Ti(m.yaw) >> 12);
   m.x += dx; m.z += dz;
   let hitKart = false;
-  for (let s = 0; canHit && s < 4; s++) {
+  for (let s = 0; canHit && s < 4; s++) { // FUN_800bf0f8
     if (s === m.owner || d.state[s] === S_FALL) continue;
     if (Math.abs(m.y + dashRideHeight(d.variant) + d.gy[s]) > 0x180) break;
     if ((m.x - d.gx[s]) ** 2 + (m.z - d.gz[s]) ** 2 < 0x24000) {
@@ -1334,7 +1345,7 @@ function insideCourseGroup(edges: number[][], x: number, z: number): boolean {
 const CPU_CONTROL = Symbol('Crash Dash CPU control');
 const cpuRequest = { ...IDLE, [CPU_CONTROL]: true };
 
-/** FUN_800b4708 checks opponents, chooses a driving line, then reacts to stage hazards. */
+/** FUN_800b4708 (CPU callback FUN_800c5d8c) checks opponents, chooses a driving line, then reacts to stage hazards. */
 export function dashCpuInput(w: World, slot: number, afterVerdict = false): InputState {
   const d = w.data as Data;
   if (!d) return IDLE;
@@ -1344,7 +1355,7 @@ export function dashCpuInput(w: World, slot: number, afterVerdict = false): Inpu
   const dx = Ti(yaw - 0x400), dz = Ti(yaw);
   let l = false, r = false, boost = true, use = false;
   const pMe = atan2g(x, z) & 4095;
-  // nearest pickup (FUN_800c5c64); chased when within 1600 and further along the lap (larger polar angle)
+  // nearest pickup (FUN_800c5c64 by FUN_8008ceb0 X/Z distance, test FUN_800c5dac / FUN_800b5660); chased when within 1600 and further along the lap (larger polar angle)
   let near: { x: number; z: number } | null = null, nd = Infinity;
   for (const o of w.bodies) {
     if ((o.kind !== 'fruit' && o.kind !== 'item') || !o.alive) continue;
@@ -1366,7 +1377,7 @@ export function dashCpuInput(w: World, slot: number, afterVerdict = false): Inpu
     if (diff > 500) { r = true; l = false; }
     if (diff < -500) { l = true; r = false; }
     boost = false; // FUN_800b5528: run only
-  } else {
+  } else { // FUN_800b5360 -> FUN_800b4edc
     const speedSq = dashSpeedSq(d.vx[slot], d.vz[slot]);
     const speed = ps1SqrtQ6(speedSq) >> 14;
     const nearReach = 512 + Math.max(0, Math.trunc((speed - 80) * 384 / 80));
@@ -1405,6 +1416,7 @@ export function dashCpuInput(w: World, slot: number, afterVerdict = false): Inpu
       return !!hit && !(hit.faces & 4);
     });
   } else if (d.item[slot] === 1 || (v === 'toxic' && d.item[slot] === 2)) {
+    // FUN_800b41dc (missile) / FUN_800b406c (shield), target from FUN_800b35cc.
     // Individual versus gives every eligible opponent the same weight (16).
     const live = d.finish.filter((finish, s) => s !== slot && finish < 0).length;
     for (let o = 0; o < 4 && !use; o++) {
@@ -1421,6 +1433,7 @@ export function dashCpuInput(w: World, slot: number, afterVerdict = false): Inpu
   return { x: (r ? 1 : 0) - (l ? 1 : 0), y: -1, a: boost, b: use };
 }
 
+/** FUN_800bd99c ranks by remaining laps with a stable bubble sort; equal leaders draw. */
 function placements(w: World) {
   const d = w.data as Data;
   return [0, 1, 2, 3].sort((a, b) => d.lap[b] - d.lap[a] || a - b);

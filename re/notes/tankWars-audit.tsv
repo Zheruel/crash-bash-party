@@ -1,0 +1,178 @@
+addr	status	ours	note
+800b3a9c	match	web/shared/games/tankArena.ts:683	weighted rival choice; byte-identical to FUN_800b3b24
+800b3b24	match	web/shared/games/tankArena.ts:683	Jungle/Swamp rival choice, weight 16 per live rival
+800b3c7c	match	web/shared/games/tankArena.ts:683	Desert/Metal lane scan: rand(4) start, |d|<=999, CPU rand(256)>210
+800b3f44	match	web/shared/games/tankArena.ts:789	shoot gate; flat map probe via FUN_800c891c
+800b4240	match	web/shared/games/tankArena.ts:734	retreat octant + perpendicular
+800b4490	match	web/shared/games/tankArena.ts:753	mine watch / avoidance
+800b4688	match	web/shared/games/tankArena.ts:806	L5 decide (prior native replay)
+800b478c	match	web/shared/games/tankArena.ts:713	decompiler tail of the decide jumptable bodies
+800b4a28	match	web/shared/games/tankArena.ts:713	land decide (prior native replay of FUN_800b5228)
+800b4fac	match	web/shared/games/tankArena.ts:841	L5 controller (1,248 native comparisons)
+800b5228	match	web/shared/games/tankArena.ts:841	land AI callback (6,400 native comparisons)
+800b53d4	match	web/shared/games/tankArena.ts:771	decompiler tail of FUN_800b5228
+800b5410	match	web/shared/games/tankArena.ts:771	decompiler tail of FUN_800b5228
+800b5588	match	web/shared/games/tankArena.ts:841	installs player hooks and per-level tables
+800b566c	n/a(decompiler fragment of FUN_800b5588)		
+800b5788	match	web/shared/games/tankArena.ts:806	L5 AI weight tables
+800b58b0	fixed	web/shared/games/tankArena.ts:1194	level setup; L5 0x50f ambience loop now played (was missing from the sound table)
+800b5a40	fixed	web/shared/games/tankArena.ts:1194	same body as FUN_800b58b0 (second entry)
+800b5fc4	fixed	web/shared/games/tankArena.ts:999	level frame: boat bump 0x4b9 with 60-tick cooldown and sinking cue 0x501 added; silences destroyed tanks; human flag
+800b627c	n/a(decompiler fragment)		
+800b62a4	n/a(time-up hook; recorded versus timeouts keep survivors, see notes)		
+800b6354	fixed	web/client/shell/rumble.ts:8	damage entry; now keeps the previous state for recovery
+800b6658	fixed	web/shared/games/tankArena.ts:1194	per-seat setup; rand(0x96) idle timer draw added before the taunt counter seed; L5 wake 0x1320
+800b6c24	added	web/shared/games/tankArena.ts:999	loop channels: tread 0x4c2+p / L5 thrust 0x50b+p, turret 0x4be+p
+800b6ed8	fixed	web/shared/games/tankArena.ts:158	CPU taunt counter now counts finished pilot scripts (was: counted stops); rand(30) draw
+800b6ff4	match	web/shared/games/tankArena.ts:1195	stock weapon restore, cooldown 30
+800b71f8	match	web/shared/games/tankArena.ts:374	gun post-state (prior Unicorn replay)
+800b77e8	fixed	web/shared/games/tankArena.ts:355	fire gate; rand(4) anim switch draw added (always script 0x5d)
+800b7ee4	match	web/shared/games/tankArena.ts:355	decompiler split of FUN_800b77e8 (fire per weapon)
+800b8098	match	web/shared/games/tankArena.ts:355	decompiler split of FUN_800b77e8 (w9/w10/double, mines, shield, taunt)
+800b8ec4	fixed	web/shared/games/tankArena.ts:1219	state 0x6c enter: idle script, timer draw, FUN_800b6ed8
+800b9430	match	web/shared/games/tankArena.ts:295	boat drive (992-tick steering replay)
+800b96f4	fixed	web/shared/games/tankArena.ts:295	boat bump impulse; bump cue queue added
+800b993c	match	web/shared/games/tankArena.ts:260	free drive (steering replay)
+800ba964	fixed	web/shared/games/tankArena.ts:189	state 0x69 enter: hurt voice take now drawn from the sim stream (rand(4))
+800baab0	fixed	web/shared/games/tankArena.ts:922	hit update; recovery now returns to the previous state (turn resumes) and restarts idle
+800babcc	match	web/client/games/tankArena.ts:548	winner enter
+800bacd4	match	web/client/games/tankArena.ts:548	winner spin 0x15
+800baf64	match	web/client/games/tankArena.ts:565	state 0x6b enter: spirit swap
+800baffc	match	web/shared/games/tankArena.ts:472	stock shell contact (176 native cases)
+800bb184	match	web/shared/games/tankArena.ts:472	decompiler tail of FUN_800baffc (wall reflect)
+800bb4fc	match	web/shared/games/tankArena.ts:472	decompiler tail of FUN_800baffc
+800bb6d4	match	web/shared/games/tankArena.ts:472	w11 callback
+800bb874	match	web/shared/games/tankArena.ts:473	w8 callback + trail
+800bba9c	match	web/shared/games/tankArena.ts:473	w10 lob callback
+800bbef4	match	web/shared/games/tankArena.ts:473	w9 callback
+800bc0b0	n/a(object 0x1301 has no creator in the overlay)		
+800bc27c	fixed	web/shared/games/tankArena.ts:601	bomb: direct-hit z box 0x180, landing at y=-0x104 with script 1 there, rand(4)<2 for 0x490/0x491, no arena bound
+800bc7d8	match	web/shared/games/tankArena.ts:452	Jungle double shot
+800bcd80	match	web/shared/games/tankArena.ts:577	timed mine update, fuse ticks 0x4eb, blast 0x4ea
+800bd084	match	web/shared/games/tankArena.ts:559	floating mine
+800bd384	n/a(rules option 0x80, not individual versus)		object 0x1322 is created only with option 0x80 on L5
+800bd654	match	web/shared/games/tankArena.ts:577	mine blast dispatch (area / flames)
+800bd868	match	web/shared/games/tankArena.ts:577	flame 0x1304 update
+800bdc50	match	web/shared/games/tankArena.ts:1112	supply controller
+800be234	match	web/shared/games/tankArena.ts:121	drone init
+800be47c	match	web/shared/games/tankArena.ts:1091	drone update
+800be7dc	match	web/shared/games/tankArena.ts:651	crate init
+800be988	match	web/shared/games/tankArena.ts:651	crate / pickup update
+800bf548	match	web/shared/games/tankArena.ts:614	shot breaks pickup
+800bf804	n/a(rules option 0x80, not individual versus)		turret 0x1318 (L6 setup creates it only with option 0x80)
+800c0050	n/a(rules option 0x80, not individual versus)		turret shell 0x1319
+800c0200	match	web/client/games/tankArena.ts:288	Swamp shield pulse 0x1321
+800c0348	match	web/shared/games/tankArena.ts:1271	Metal wave controller
+800c04e0	fixed	web/shared/games/tankArena.ts:1271	Metal platform; sinking cue (0x800cb0ec) added
+800c0898	match	web/shared/games/tankJungleStatues.ts:25	statue controller (0x502/0x503 branch is option 0x80 only)
+800c0c68	match	web/shared/games/tankJungleStatues.ts:26	statue init
+800c0da0	match	web/shared/games/tankJungleStatues.ts:26	statue landing shock
+800c0f24	match	web/shared/games/tankJungleStatues.ts:26	statue update
+800c18f0	n/a(level 9 boss)		called by the bomb only on L9
+800c1f44	n/a(level 9 boss)		objects 0x1315-0x1317
+800c2080	n/a(level 9 boss)		object 0x1313 init (L9 setup)
+800c22b8	n/a(level 9 boss)		object 0x1313 update (sounds 0x259-0x25d)
+800c2940	n/a(level 9 boss)		
+800c30c0	n/a(level 9 boss)		
+800c33a0	n/a(level 9 boss)		0x1315
+800c3778	n/a(level 9 boss)		
+800c3a70	n/a(level 9 boss)		0x1316
+800c3d48	n/a(level 9 boss)		
+800c405c	n/a(level 9 boss)		0x1317
+800c4320	n/a(level 9 boss)		0x131e/0x131f
+800c44e8	n/a(level 9 boss)		
+800c4548	n/a(level 9 boss)		
+800c49f8	n/a(level 9 boss)		
+800c4b60	n/a(level 9 boss)		
+800c4bc0	n/a(level 9 boss)		
+800c4d04	n/a(level 9 boss)		
+800c4dcc	n/a(level 9 boss)		
+800c53b0	n/a(level 9 boss)		
+800c5620	n/a(level 9 boss)		
+800c57b0	n/a(level 9 boss)		
+800c5bcc	n/a(level 9 boss)		
+800c60ac	n/a(level 9 boss)		
+800c6828	n/a(level 9 boss)		
+800c6848	n/a(level 9 boss)		
+800c6868	n/a(level 9 boss)		
+800c6888	n/a(level 9 boss)		
+800c68a8	n/a(level 9 boss)		boss spirit wrapper
+800c68c8	n/a(level 9 boss)		
+800c6914	n/a(level 9 boss)		boss seat state switch
+800c6b9c	n/a(no caller in the overlay)		
+800c6c30	n/a(no caller in the overlay)		
+800c6d00	match	web/shared/games/tankJungleStatues.ts:26	statue 0x131c update wrapper
+800c6d20	match	web/shared/games/tankJungleStatues.ts:26	statue 0x131c init wrapper
+800c6d40	match	web/shared/games/tankJungleStatues.ts:25	statue 0x131b update wrapper
+800c6d60	match	web/shared/games/tankJungleStatues.ts:25	statue 0x131b init wrapper
+800c6d80	match	web/shared/games/tankJungleStatues.ts:25	statue controller init
+800c6e5c	match	web/shared/games/tankArenaMetalWalls.ts:60	platform pulse 0x1312
+800c6f88	match	web/client/games/tankArena.ts:288	shield 0x1321 init
+800c6fb8	added	web/client/games/tankArena.ts:323	boat wake 0x1320 update (pack 0774 part 6)
+800c7074	added	web/client/games/tankArena.ts:323	boat wake 0x1320 init
+800c70c4	n/a(rules option 0x80, not individual versus)		turret shell 0x1319 init
+800c7124	n/a(rules option 0x80, not individual versus)		turret 0x1318 init
+800c71e0	n/a(object 0x130a has no creator in the overlay)		
+800c7298	n/a(no caller in the overlay)		
+800c7300	match	web/client/games/tankArena.ts:64	smoke 0x1306 update (view flip-book)
+800c7350	match	web/client/games/tankArena.ts:64	smoke 0x1306 init
+800c73b0	match	web/shared/games/tankArena.ts:577	flame 0x1304 init
+800c7428	match	web/shared/games/tankArena.ts:578	flame trail 0x1305 update
+800c7494	match	web/shared/games/tankArena.ts:578	flame trail 0x1305 init
+800c74f4	n/a(rules option 0x80, not individual versus)		object 0x1322 init
+800c7598	match	web/shared/games/tankArena.ts:422	floating mine init
+800c7614	match	web/shared/games/tankArena.ts:422	timed mine init
+800c76a8	match	web/shared/games/tankArena.ts:331	double shot init
+800c7714	match	web/shared/games/tankArena.ts:601	bomb init
+800c77e4	n/a(object 0x1301 has no creator in the overlay)		
+800c78b4	match	web/shared/games/tankArena.ts:330	w9 shell init
+800c798c	match	web/shared/games/tankArena.ts:330	w10 shell init
+800c7aac	match	web/shared/games/tankArena.ts:330	w8 shell init
+800c7b38	match	web/shared/games/tankArena.ts:330	w11 shell init
+800c7c08	match	web/shared/games/tankArena.ts:331	Swamp shell speed x3/2, life x2/3
+800c7d04	match	web/client/games/tankArena.ts:565	state 0x6b update (spirit)
+800c7d24	match	web/shared/games/tankArena.ts:932	state 0x6a enter, wreck script 0x58
+800c7e68	fixed	web/shared/games/tankArena.ts:247	turn left; state 0x6f enter now plays 0x4fd+p and restarts idle
+800c7eb0	fixed	web/shared/games/tankArena.ts:247	turn right; see FUN_800c7e68
+800c7ef8	fixed	web/shared/games/tankArena.ts:228	state 0x6c update -> 0x6e; the 0x6e enter (0x800c7db8) restarts idle
+800c7f18	n/a(no caller in the overlay)		
+800c7f80	n/a(third loop channel, only ever cleared)		
+800c8008	added	web/shared/games/tankArena.ts:108	turret loop channel
+800c8090	added	web/shared/games/tankArena.ts:108	tread / thrust loop channel
+800c81c0	n/a(empty hook)		
+800c81c8	n/a(no caller in the overlay)		
+800c8294	match	web/shared/games/tankArena.ts:295	pen clamp (boat bounce bounds)
+800c8324	n/a(empty hook)		
+800c832c	n/a(empty hook)		
+800c8334	match	web/shared/games/tankArena.ts:1195	zeroes the motion struct; the sim has no carry-over velocity
+800c8360	match	web/shared/games/tankArena.ts:1195	end hook: frees loop channels (view stops loops on dispose)
+800c83d8	match	web/shared/games/tankArena.ts:1194	installs engine hooks
+800c891c	match	web/shared/games/tankArena.ts:800	shot map probe
+800c8950	match	web/shared/games/tankArena.ts:713	AI tile probe
+800c8984	n/a(no caller in the overlay)		
+800c8af8	n/a(no caller in the overlay)		
+80013c94	match	web/shared/games/tankArena.ts:841	engine helper the AI uses to store its pad and hold flag
+8001612c	n/a(level 9 boss)		engine; overlay callers are boss objects
+8001682c	n/a(engine: model pack registration)		
+80016f54	n/a(level 9 boss)		engine; overlay callers are boss objects
+80018f3c	n/a(engine: allocate render nodes)		
+8002672c	n/a(engine: flip-book helper used by object inits)		
+8002689c	n/a(engine: flip-book step)		
+80026980	n/a(engine)		
+80027f7c	match	web/client/shell/rumble.ts:1	pad rumble on hit
+80029100	n/a(engine: model animation tick for loaded packs)		
+8007b7fc	match	web/shared/games/tankArena.ts:1194	BCD clock 0x130
+8007c830	n/a(level 9 boss)		
+8007e93c	n/a(level 9 boss)		
+8007eb04	n/a(level 9 boss)		L9 clock
+8007eb1c	n/a(engine: HUD setup)		
+8008502c	fixed	web/shared/games/tankArena.ts:158	pilot script advance; the sim now tracks script ends
+800854c0	fixed	web/shared/games/tankArena.ts:151	pilot script select; idle restarts follow the overlay
+80085718	match	web/client/games/tankArena.ts:548	winner lead-in
+80085890	match	web/client/games/tankArena.ts:548	winner script chain
+80086868	n/a(level 9 boss)		
+800898ec	fixed	web/client/games/knockoutGhost.ts:10	spirit init; body and glow now additive in knockoutGhost.ts
+80089be8	match	web/client/games/ghostSparks.ts:3	spirit update and sparks (view-local random draws)
+80089fa4	match	web/client/shell/voice.ts:198	winner voice
+8008a200	match	web/client/shell/voice.ts:15	announcer / winner voice
+8008ad9c	n/a(level 9 boss)		

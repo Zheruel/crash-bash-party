@@ -12,6 +12,12 @@ assert.deepEqual([m.tm, m.pose], [48, 0x4087]);
 
 d.cash = [];
 d.arT = d.itT = 9999;
+// Drop the crates placed under the countdown and keep the seeded draws of the recorded approach.
+d.crates = []; d.arN = d.itN = 0; world.bodies = world.bodies.filter(b => b.kind !== 'power' && b.kind !== 'arrow');
+world.rng = 5;
+// The custom riders use Cortex's family, whose jet flame (FUN_800b5b1c) draws from the shared RNG on every
+// update. Pogo-only families keep the stream of the recorded approach; the hits below do not depend on family.
+d.fam = [1, 5, 6, 8];
 Object.assign(m, {
   st: 4, cyc: 13, sx: 3, sz: 8, ax: 3, az: 6, dir: 0,
   yaw: 0, goalYaw: 0, hops: 0, bf4: 1,
@@ -72,6 +78,8 @@ function decision(x: number, z: number, dir: number, state: number) {
   const d = board.data;
   d.cash = [];
   d.arT = d.itT = 9999;
+  d.crates = []; d.arN = d.itN = 0; board.bodies = board.bodies.filter(b => b.kind !== 'power' && b.kind !== 'arrow');
+  d.fam = [1, 5, 6, 8]; // no jet flame draws after the monster's own
   Object.assign(d.mon, { x, z, sx: x, sz: z, ax: x, az: z, dir, st: state, cyc: 13, tm: 99, hops: 100 });
   return board;
 }

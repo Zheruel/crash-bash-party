@@ -73,7 +73,6 @@ export class FinalOverlay {
       for (const a of m.awards) {
         awardSlot.innerHTML = this.awardHtml(a, seats);
         pop(awardSlot.firstElementChild as HTMLElement, 'award-in');
-        sfx.play('reveal');
         if (!(await wait(2.1))) return;
         awardSlot.firstElementChild?.classList.add('award-out');
         if (!(await wait(0.35))) return;
@@ -81,12 +80,10 @@ export class FinalOverlay {
       awardSlot.innerHTML = '';
 
       // podium reveal, last place first
-      sfx.play('drum');
       winSlot.innerHTML = '<div class="drum gt wh">AND THE WINNER IS...</div>';
       if (!(await wait(1.2))) return;
       for (let r = 3; r >= 0; r--) {
         deps.podium.reveal(r);
-        sfx.play('reveal', 0.8 + (3 - r) * 0.12);
         if (!(await wait(r === 1 ? 1.5 : 1.0))) return;
       }
 
@@ -98,7 +95,7 @@ export class FinalOverlay {
         <small class="round-kicker">${winners.length > 1 ? 'Tie for first' : 'Party champion'}</small>
         <h2 class="gt or">${esc(names.join(' & '))}</h2></div>`;
       pop(winSlot.firstElementChild as HTMLElement, 'award-in');
-      sfx.play('win'); // the scene brings the game's own fireworks, trophy and crowd (no confetti over them)
+      // the scene brings the game's own fireworks, trophy and crowd (podium bank 0181); the party banner is silent
     }
     // the game's score strip comes up under the podium, holds 240 frames and slides away (a tap or key skips the
     // hold, as cross does); the buttons come in where it was
@@ -117,11 +114,11 @@ export class FinalOverlay {
       this.rematchBtn.onclick = () => {
         this.voted = true;
         this.setVotes(this.votes, this.humans);
-        sfx.play('click');
+        sfx.play('select');
         deps.onRematch();
       };
     }
-    (actions.querySelector('#leave-final') as HTMLElement).onclick = () => { sfx.play('click'); deps.onLeave(); };
+    (actions.querySelector('#leave-final') as HTMLElement).onclick = () => { sfx.play('select'); deps.onLeave(); };
   }
 
   private awardHtml(a: Award, seats: SeatView[]) {

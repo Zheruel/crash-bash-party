@@ -672,7 +672,15 @@
     },
     "polarFoot": {
      "model": 9008,
-     "scale": 3.2
+     "scale": 3.2,
+     "anims": {
+      "idle": 0,
+      "run": 1,
+      "action": 2,
+      "hit": 3,
+      "win": 4,
+      "lose": 4
+     }
     },
     "polarMelt": {
      "model": 9013,
@@ -755,7 +763,15 @@
     },
     "polarFoot": {
      "model": 9108,
-     "scale": 3.2
+     "scale": 3.2,
+     "anims": {
+      "idle": 0,
+      "run": 1,
+      "action": 2,
+      "hit": 3,
+      "win": 4,
+      "lose": 4
+     }
     },
     "polarMelt": {
      "model": 9113,
