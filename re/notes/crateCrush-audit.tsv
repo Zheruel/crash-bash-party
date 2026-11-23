@@ -174,3 +174,5 @@ addr	status	ours(file:line)	note
 8009440c	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
 80095258	n/a(engine infrastructure: objects, models, render, math or sound plumbing)		
 800859d4	fixed	crateToss.ts:1084	a CPU holding L2/R2 with no direction turns its yaw by 0x100 per update (state 7 recovery turn)
+8008900c	fixed	onFoot.ts:33	attack state 10 (Cortex, Brio): player object at marker 0x40 through 0x8009dc68, additive; counter from 80088f78 (-2 Cortex, 0 Brio); drawn in the Crate Crush and Ring Ding views
+80088f78	fixed	onFoot.ts:33	attack entry: glow counter start

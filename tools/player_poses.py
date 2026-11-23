@@ -135,7 +135,7 @@ def crate_grips():
              'export const CRATE_GRIPS: number[][][][] = [']
     ring_ram = (ROOT / 're/dumps/L27.ram').read_bytes()
     marker_tracks = {script: [] for script in (1,2,5,6,7,8,9,10,12,13,15,16,17,18,19,0x2b,0x2c)}
-    glow_tracks = {script: [] for script in (15, 16, 17, 18)}
+    glow_tracks = {script: [] for script in (10, 15, 16, 17, 18)}
     bodies, attacks = [], []
     for char, name in enumerate(('crash', 'coco', 'cortex', 'brio', 'tiny', 'rilla', 'dingodile', 'koala'), 1):
         model = (ROOT / f'disc/dat/{chars[name]:04}.t29.bin').read_bytes()
@@ -207,7 +207,7 @@ def crate_grips():
         lines.extend('    ' + json.dumps(row, separators=(',', ':')) + ',' for row in rows)
         lines.append('  ],')
     lines.append('};')
-    lines.append('// Marker 0x40 (FUN_80015780 tag 0x40): where the crate states place the player object 0x8009d540.')
+    lines.append('// Marker 0x40 (FUN_80015780 tag 0x40): where the crate states and the attack FUN_8008900c place the player object 0x8009d540.')
     lines.append('export const ON_FOOT_GLOW_MARKERS: Record<number, readonly MarkerTrack[]> = {')
     for script, rows in glow_tracks.items():
         lines.append(f'  0x{script:02x}: [')

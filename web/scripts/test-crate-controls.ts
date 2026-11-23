@@ -6,6 +6,7 @@ import { cloneWorld, createWorld, stepWorld } from '../shared/sim';
 import { readsCountdownPad } from '../shared/protocol';
 import { IDLE, type InputState, type World } from '../shared/types';
 import { playerPose } from '../client/games/playerPose';
+import { ON_FOOT_FLASH_GLOW, onFootSpinGlow } from '../shared/games/onFoot';
 
 function fixture(variant: string, char: number, bot = false) {
   const w = createWorld(crateToss, [{ slot: 0, name: 'P1', bot, char }], [], 432, variant);
@@ -287,4 +288,13 @@ for (const edge of [false, true]) {
   }
   assert.equal(w.data.cs[wood.id].s, 1);
 }
-console.log('Crate Crush countdown, controls, movement poses and crate throws passed.');
+// FUN_8008900c flashes the player object for five updates: Cortex starts the counter at -2 (FUN_80088f78), Brio at 0.
+for (const [character, first] of [[3, 3], [4, 1]] as const) {
+  for (let frame = 0; frame <= ctActionTicks(character, 3); frame++) {
+    const glow = onFootSpinGlow(character, frame);
+    const row = frame - first;
+    assert.deepEqual(glow?.scale, row >= 0 && row < 5 ? ON_FOOT_FLASH_GLOW[row] : undefined, `character ${character} frame ${frame}`);
+  }
+}
+for (const character of [1, 2, 5, 6, 7, 8]) assert.equal(onFootSpinGlow(character, 3), undefined);
+console.log('Crate Crush countdown, controls, movement poses, crate throws and the attack glow passed.');
